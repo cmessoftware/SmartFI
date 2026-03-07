@@ -1,10 +1,61 @@
+import { useState, useEffect } from 'react';
 import TransactionForm from './TransactionForm';
 import TransactionReport from './TransactionReport';
 import CSVImport from './CSVImport';
 import AdminPanel from './AdminPanel';
 import DashboardOverview from './DashboardOverview';
+import EditTransactionModal from './EditTransactionModal';
+import { transactionsAPI } from '../services/api';
 
-function Dashboard({ currentView, user, transactions, addTransaction, addMultipleTransactions, refreshTransactions, loading, setCurrentView }) {
+function Dashboard({ currentView, user, transactions, addTransaction, addMultipleTransactions, updateTransaction, deleteTransaction, refreshTransactions, loading, setCurrentView }) {
+  const [editingTransaction, setEditingTransaction] = useState(null);
+  const [categories, setCategories] = useState([]);
+  const [necessityTypes, setNecessityTypes] = useState([]);
+
+  useEffect(() => {
+    loadFormData();
+  }, []);
+
+  const loadFormData = async () => {
+    try {
+      const [categoriesRes, necessityTypesRes] = await Promise.all([
+        transactionsAPI.getCategories(),
+        transactionsAPI.getNecessityTypes()
+      ]);
+      setCategories(categoriesRes.data || []);
+      setNecessityTypes(necessityTypesRes.data || []);
+    } catch (error) {
+      console.error('Error loading form data:', error);
+    }
+  };
+
+  const handleEdit = (transaction) => {
+    setEditingTransaction(transaction);
+  };
+
+  const handleSaveEdit = async (updatedTransaction) => {
+    try {
+      await updateTransaction(updatedTransaction.id, updatedTransaction);
+      setEditingTransaction(null);
+      alert('✅ Transacción actualizada correctamente');
+    } catch (error) {
+      alert('❌ Error al actualizar la transacción');
+      console.error(error);
+    }
+  };
+
+  const handleDelete = async (transaction) => {
+    try {
+      await deleteTransaction(transaction.id);
+      alert('✅ Transacción eliminada correctamente');
+    } catch (error) {
+      alert('❌ Error al eliminar la transacción');
+      console.error(error);
+    }
+  };
+
+  const canEdit = user && (user.role === 'admin' || user.role === 'writer');
+
   return (
     <div className="p-8">
       {currentView === 'dashboard' && (
@@ -26,11 +77,26 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
       )}
       
       {currentView === 'reports' && (
-        <TransactionReport transactions={transactions} />
+        <TransactionReport 
+          transactions={transactions}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+          canEdit={canEdit}
+        />
       )}
       
       {currentView === 'admin' && user.role === 'admin' && (
         <AdminPanel />
+      )}
+
+      {editingTransaction && (
+        <EditTransactionModal
+          transaction={editingTransaction}
+          onSave={handleSaveEdit}
+          onClose={() => setEditingTransaction(null)}
+          categories={categories}
+          necessityTypes={necessityTypes}
+        />
       )}
     </div>
   );

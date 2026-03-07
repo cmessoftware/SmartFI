@@ -322,6 +322,47 @@ async def migrate_transactions(
         print(f"❌ Error migrating transactions: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.put("/api/transactions/{transaction_id}")
+async def update_transaction(
+    transaction_id: int,
+    transaction: Transaction,
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Update an existing transaction"""
+    if not sheets_service:
+        raise HTTPException(status_code=503, detail="Google Sheets not configured")
+    
+    try:
+        success = sheets_service.update_transaction(transaction_id, transaction.dict())
+        if success:
+            print(f"✅ Transaction {transaction_id} updated successfully")
+            return {"message": "Transaction updated successfully", "transaction": transaction}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update transaction")
+    except Exception as e:
+        print(f"❌ Error updating transaction: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/transactions/{transaction_id}")
+async def delete_transaction(
+    transaction_id: int,
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Delete a transaction"""
+    if not sheets_service:
+        raise HTTPException(status_code=503, detail="Google Sheets not configured")
+    
+    try:
+        success = sheets_service.delete_transaction(transaction_id)
+        if success:
+            print(f"✅ Transaction {transaction_id} deleted successfully")
+            return {"message": "Transaction deleted successfully", "id": transaction_id}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to delete transaction")
+    except Exception as e:
+        print(f"❌ Error deleting transaction: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Admin routes
 @app.get("/api/admin/users")
 async def get_users(current_user: User = Depends(require_role(["admin"]))):

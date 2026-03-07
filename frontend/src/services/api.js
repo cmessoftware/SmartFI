@@ -57,6 +57,8 @@ export const transactionsAPI = {
   getTransactions: () => api.get('/api/transactions'),
   importCSV: (data) => api.post('/api/transactions/import', data),
   migrateFromLocalStorage: (data) => api.post('/api/transactions/migrate', data),
+  updateTransaction: (id, transaction) => api.put(`/api/transactions/${id}`, transaction),
+  deleteTransaction: (id) => api.delete(`/api/transactions/${id}`),
 };
 
 export const adminAPI = {

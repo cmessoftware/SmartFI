@@ -107,8 +107,9 @@ class GoogleSheetsService:
             
             # Normalize column names from Spanish headers to expected format
             normalized = []
-            for record in records:
+            for idx, record in enumerate(records, start=2):  # Start at 2 (row 1 is headers)
                 normalized_record = {
+                    'id': idx,  # Row number as ID
                     'marca_temporal': record.get('Marca temporal', record.get('marca_temporal', '')),
                     'fecha': record.get('Fecha', record.get('fecha', '')),
                     'tipo': record.get('Tipo', record.get('tipo', '')),
@@ -124,6 +125,46 @@ class GoogleSheetsService:
         except Exception as e:
             print(f"Error getting transactions from Google Sheets: {e}")
             return []
+    
+    def update_transaction(self, row_id, transaction_data):
+        """Update a transaction in the sheet by row ID"""
+        try:
+            if not self.sheet:
+                self.connect()
+            
+            # Row ID is the actual row number in the sheet (includes header row)
+            row_values = [
+                transaction_data.get('marca_temporal', datetime.now().isoformat()),
+                transaction_data.get('fecha'),
+                transaction_data.get('tipo'),
+                transaction_data.get('categoria'),
+                transaction_data.get('monto'),
+                transaction_data.get('necesidad'),
+                transaction_data.get('partida'),
+                transaction_data.get('detalle', '')
+            ]
+            
+            # Update the specific row
+            self.sheet.update(f'A{row_id}:H{row_id}', [row_values])
+            print(f"✅ Transaction updated at row {row_id}")
+            return True
+        except Exception as e:
+            print(f"Error updating transaction in Google Sheets: {e}")
+            return False
+    
+    def delete_transaction(self, row_id):
+        """Delete a transaction from the sheet by row ID"""
+        try:
+            if not self.sheet:
+                self.connect()
+            
+            # Delete the specific row
+            self.sheet.delete_rows(row_id)
+            print(f"✅ Transaction deleted from row {row_id}")
+            return True
+        except Exception as e:
+            print(f"Error deleting transaction from Google Sheets: {e}")
+            return False
     
     def initialize_sheet(self):
         """Create headers if sheet is empty"""

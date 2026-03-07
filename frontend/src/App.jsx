@@ -109,6 +109,40 @@ function App() {
     }
   };
 
+  const updateTransaction = async (id, updatedTransaction) => {
+    try {
+      // Update in Google Sheets
+      await transactionsAPI.updateTransaction(id, updatedTransaction);
+      console.log(`✅ Transaction ${id} updated in Google Sheets`);
+      
+      // Update local state and cache
+      const updatedTransactions = transactions.map(t => 
+        t.id === id ? { ...t, ...updatedTransaction } : t
+      );
+      setTransactions(updatedTransactions);
+      localStorage.setItem('transactions_cache', JSON.stringify(updatedTransactions));
+    } catch (error) {
+      console.error('❌ Error updating transaction:', error);
+      throw error;
+    }
+  };
+
+  const deleteTransaction = async (id) => {
+    try {
+      // Delete from Google Sheets
+      await transactionsAPI.deleteTransaction(id);
+      console.log(`✅ Transaction ${id} deleted from Google Sheets`);
+      
+      // Update local state and cache
+      const updatedTransactions = transactions.filter(t => t.id !== id);
+      setTransactions(updatedTransactions);
+      localStorage.setItem('transactions_cache', JSON.stringify(updatedTransactions));
+    } catch (error) {
+      console.error('❌ Error deleting transaction:', error);
+      throw error;
+    }
+  };
+
   if (!user) {
     return <Login onLogin={handleLogin} />;
   }
@@ -128,6 +162,8 @@ function App() {
           transactions={transactions}
           addTransaction={addTransaction}
           addMultipleTransactions={addMultipleTransactions}
+          updateTransaction={updateTransaction}
+          deleteTransaction={deleteTransaction}
           refreshTransactions={loadTransactions}
           loading={loading}
           setCurrentView={setCurrentView}
