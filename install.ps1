@@ -1,0 +1,185 @@
+# Finly Installation Script
+# This script sets up the entire Finly application
+
+Write-Host "🔧 Finly Installation Script" -ForegroundColor Cyan
+Write-Host "=============================" -ForegroundColor Cyan
+Write-Host ""
+
+# Check prerequisites
+Write-Host "Checking prerequisites..." -ForegroundColor Yellow
+
+# Check for conda
+$condaAvailable = $false
+$useVenv = $false
+if (Get-Command conda -ErrorAction SilentlyContinue) {
+    Write-Host "✅ Conda found" -ForegroundColor Green
+    $condaAvailable = $true
+} else {
+    Write-Host "⚠️  Conda not found - will use Python virtual environment" -ForegroundColor Yellow
+    $useVenv = $true
+}
+
+if (!(Get-Command python -ErrorAction SilentlyContinue)) {
+    Write-Host "❌ Python is not installed or not in PATH" -ForegroundColor Red
+    Write-Host "   Please install Python 3.9 or higher from https://www.python.org/" -ForegroundColor Red
+    exit 1
+} else {
+    $pythonVersion = python --version
+    Write-Host "✅ $pythonVersion found" -ForegroundColor Green
+}
+
+if (!(Get-Command node -ErrorAction SilentlyContinue)) {
+    Write-Host "❌ Node.js is not installed or not in PATH" -ForegroundColor Red
+    Write-Host "   Please install Node.js 18 or higher from https://nodejs.org/" -ForegroundColor Red
+    exit 1
+} else {
+    $nodeVersion = node --version
+    Write-Host "✅ Node.js $nodeVersion found" -ForegroundColor Green
+}
+
+# Setup Python environment
+Write-Host ""
+if ($condaAvailable) {
+    Write-Host "🐍 Setting up Conda environment..." -ForegroundColor Yellow
+    
+    # Check if finly environment exists
+    $envExists = conda env list | Select-String -Pattern "finly"
+    
+    if ($envExists) {
+        Write-Host "✅ Conda environment 'finly' already exists" -ForegroundColor Green
+    } else {
+        Write-Host "Creating conda environment 'finly' with Python 3.9..." -ForegroundColor Cyan
+        conda create -n finly python=3.9 -y
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "✅ Conda environment 'finly' created successfully" -ForegroundColor Green
+        } else {
+            Write-Host "❌ Failed to create conda environment" -ForegroundColor Red
+            Write-Host "   Falling back to Python venv..." -ForegroundColor Yellow
+            $condaAvailable = $false
+            $useVenv = $true
+        }
+    }
+} 
+
+if ($useVenv) {
+    Write-Host "🐍 Setting up Python virtual environment..." -ForegroundColor Yellow
+    Set-Location backend
+    
+    if (Test-Path "venv") {
+        Write-Host "✅ Virtual environment 'venv' already exists" -ForegroundColor Green
+    } else {
+        Write-Host "Creating virtual environment..." -ForegroundColor Cyan
+        python -m venv venv
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "✅ Virtual environment created successfully" -ForegroundColor Green
+        } else {
+            Write-Host "❌ Failed to create virtual environment" -ForegroundColor Red
+            Write-Host "   Continuing with system Python..." -ForegroundColor Yellow
+            $useVenv = $false
+        }
+    }
+    Set-Location ..
+}
+
+Write-Host ""
+Write-Host "📦 Installing Backend Dependencies..." -ForegroundColor Yellow
+Set-Location backend
+
+if (!(Test-Path ".env")) {
+    Write-Host "Creating .env file from .env.example..." -ForegroundColor Cyan
+    Copy-Item ".env.example" ".env"
+}
+
+# Install dependencies in the appropriate environment
+if ($condaAvailable) {
+    Write-Host "Installing packages in 'finly' conda environment..." -ForegroundColor Cyan
+    conda run -n finly pip install -r requirements.txt
+} elseif ($useVenv) {
+    Write-Host "Installing packages in virtual environment..." -ForegroundColor Cyan
+    if ($IsWindows -or $env:OS -match "Windows") {
+        & .\venv\Scripts\python.exe -m pip install -r requirements.txt
+    } else {
+        & ./venv/bin/python -m pip install -r requirements.txt
+    }
+} else {
+    Write-Host "Installing packages with system Python..." -ForegroundColor Cyan
+    pip install -r requirements.txt
+}
+
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "✅ Backend dependencies installed successfully" -ForegroundColor Green
+} else {
+    Write-Host "❌ Failed to install backend dependencies" -ForegroundColor Red
+    exit 1
+}
+
+Set-Location ..
+
+Write-Host ""
+Write-Host "🎨 Installing Frontend Dependencies..." -ForegroundColor Yellow
+Set-Location frontend
+
+if (!(Test-Path ".env")) {
+    Write-Host "Creating .env file from .env.example..." -ForegroundColor Cyan
+    Copy-Item ".env.example" ".env"
+}
+
+npm install
+
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "✅ Frontend dependencies installed successfully" -ForegroundColor Green
+} else {
+    Write-Host "❌ Failed to install frontend dependencies" -ForegroundColor Red
+    exit 1
+}
+
+# Copy logo if exists
+if (Test-Path "../img/logo.png") {
+    Write-Host "Copying logo to public folder..." -ForegroundColor Cyan
+    if (!(Test-Path "public")) {
+        New-Item -ItemType Directory -Path "public" | Out-Null
+    }
+    Copy-Item "../img/logo.png" "public/logo.png" -Force
+    Write-Host "✅ Logo copied" -ForegroundColor Green
+}
+
+Set-Location ..
+
+Write-Host ""
+Write-Host "🎉 Installation Complete!" -ForegroundColor Green
+Write-Host ""
+
+if ($condaAvailable) {
+    Write-Host "📌 Conda environment 'finly' is ready!" -ForegroundColor Cyan
+    Write-Host ""
+} elseif ($useVenv) {
+    Write-Host "📌 Python virtual environment 'venv' is ready!" -ForegroundColor Cyan
+    Write-Host "   Location: backend/venv/" -ForegroundColor Gray
+    Write-Host ""
+}
+
+Write-Host "Next steps:" -ForegroundColor Yellow
+Write-Host "1. (Optional) Configure Google Sheets:" -ForegroundColor White
+Write-Host "   - Follow instructions in backend/GOOGLE_SHEETS_SETUP.md" -ForegroundColor Gray
+Write-Host "2. (Optional) Start PostgreSQL with Docker:" -ForegroundColor White
+Write-Host "   docker-compose up -d" -ForegroundColor Gray
+Write-Host "3. Start the application:" -ForegroundColor White
+Write-Host "   ./start.ps1" -ForegroundColor Gray
+Write-Host ""
+
+if ($condaAvailable) {
+    Write-Host "Or start services manually with conda:" -ForegroundColor Yellow
+    Write-Host "   Backend:  cd backend && conda run -n finly python main.py" -ForegroundColor Gray
+    Write-Host "   Frontend: cd frontend && npm run dev" -ForegroundColor Gray
+} elseif ($useVenv) {
+    Write-Host "Or start services manually with venv:" -ForegroundColor Yellow
+    Write-Host "   Backend:  cd backend && .\venv\Scripts\Activate.ps1 && python main.py" -ForegroundColor Gray
+    Write-Host "   Frontend: cd frontend && npm run dev" -ForegroundColor Gray
+} else {
+    Write-Host "Or start services manually:" -ForegroundColor Yellow
+    Write-Host "   Backend:  cd backend && python main.py" -ForegroundColor Gray
+    Write-Host "   Frontend: cd frontend && npm run dev" -ForegroundColor Gray
+}
+Write-Host ""
