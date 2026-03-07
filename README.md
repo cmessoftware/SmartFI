@@ -199,14 +199,14 @@ Despliega Finly en **Render** 100% gratis en **15 minutos**:
 ### 🎯 Tutorial Completo
 
 ####🐳 Docker
-- **[Docker Explicado (Para Novatos)](DOCKER_EXPLICADO.md)** - ¿Qué es Docker? Conceptos básicos
-- **[Docker Local - Guía Completa](DOCKER_LOCAL.md)** - Desarrollo con Docker, comandos, troubleshooting
-- **[Quick Start Docker](DOCKER_QUICK_START.md)** - Inicio en 30 segundos
-- **[Google Sheets en Docker](GOOGLE_SHEETS_DOCKER.md)** - Configurar Google Sheets en contenedores
+- **[Docker Explicado (Para Novatos)](docs/docker/DOCKER_EXPLICADO.md)** - ¿Qué es Docker? Conceptos básicos
+- **[Docker Local - Guía Completa](docs/docker/DOCKER_LOCAL.md)** - Desarrollo con Docker, comandos, troubleshooting
+- **[Quick Start Docker](docs/docker/DOCKER_QUICK_START.md)** - Inicio en 30 segundos
+- **[Google Sheets en Docker](docs/docker/GOOGLE_SHEETS_DOCKER.md)** - Configurar Google Sheets en contenedores
 
 ### ☁️ Deployment en Producción
-- **[Quick Deploy (15 min)](QUICK_DEPLOY.md)** - Tutorial completo de deployment
-- **[Comparativa Cloud](DEPLOY_DOCKER_CLOUD.md)** - Render vs Railway vs Fly.io
+- **[Quick Deploy (15 min)](docs/deployment/QUICK_DEPLOY.md)** - Tutorial completo de deployment
+- **[Comparativa Cloud](docs/deployment/DEPLOY_DOCKER_CLOUD.md)** - Render vs Railway vs Fly.io
 - **[Guía Render](docs/deployment/RENDER_DEPLOY.md)** - Deployment detallado en Render
 - **[Checklist](docs/deployment/DEPLOY_CHECKLIST.md)** - Verificación paso a paso
 
