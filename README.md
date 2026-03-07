@@ -121,7 +121,7 @@ docker-compose up --build
 
 **Primera vez tarda ~3 minutos** (descarga imágenes). Siguientes veces: ~30 segundos.
 
-👉 **Guía detallada:** [DOCKER_LOCAL.md](DOCKER_LOCAL.md) | **¿Nuevo en Docker?** [DOCKER_EXPLICADO.md](DOCKER_EXPLICADO.md)
+👉 **Guía detallada:** [DOCKER_LOCAL.md](docs/docker/DOCKER_LOCAL.md) | **¿Nuevo en Docker?** [DOCKER_EXPLICADO.md](docs/docker/DOCKER_EXPLICADO.md)
 
 ---
 
@@ -207,14 +207,14 @@ Despliega Finly en **Render** 100% gratis en **15 minutos**:
 ### ☁️ Deployment en Producción
 - **[Quick Deploy (15 min)](QUICK_DEPLOY.md)** - Tutorial completo de deployment
 - **[Comparativa Cloud](DEPLOY_DOCKER_CLOUD.md)** - Render vs Railway vs Fly.io
-- **[Guía Render](RENDER_DEPLOY.md)** - Deployment detallado en Render
-- **[Checklist](DEPLOY_CHECKLIST.md)** - Verificación paso a paso
+- **[Guía Render](docs/deployment/RENDER_DEPLOY.md)** - Deployment detallado en Render
+- **[Checklist](docs/deployment/DEPLOY_CHECKLIST.md)** - Verificación paso a paso
 
 ### ⚙️ Configuración
-- [Instalación Manual](INSTALLATION.md) - Sin Docker
+- **[Instalación Manual](docs/INSTALLATION.md)** - Sin Docker
 - [Configuración Google Sheets](backend/GOOGLE_SHEETS_SETUP.md) - API de Google
 - [Configuración PostgreSQL](backend/DATABASE_SETUP.md) - Base de datos
-- [Estado del Proyecto](IMPLEMENTATION_COMPLETE.md) - Features implementadas
+- [Estado del Proyecto](docs/IMPLEMENTATION_COMPLETE.md) - Features implementadas
 1. Ve a **https://render.com**
 2. Click en **"Get Started"**
 3. Elige **"Sign in with GitHub"** (más fácil)
@@ -292,7 +292,15 @@ Finly/
 │   ├── Dockerfile          # Container backend
 │   └── requirements.txt    # Dependencias Python
 │
-├── docs/                    # Documentación adicional
+├── docs/                    # Documentación
+│   ├── docker/             # Guías de Docker
+│   ├── deployment/         # Guías de deployment
+│   └── *.md                # Documentación general
+├── scripts/                 # Scripts de utilidad
+│   ├── docker-start.ps1    # Iniciar Docker interactivo
+│   ├── deploy-to-cloud.ps1 # Deploy a GitHub helper
+│   ├── install.ps1         # Instalación inicial
+│   └── start.ps1           # Iniciar desarrollo local
 ├── docker-compose.yml       # Orquestación multi-container
 ├── render.yaml              # Config deployment Render
 ├── .env.docker              # Variables de entorno template
@@ -353,10 +361,10 @@ Render detectará el cambio y redesplegará automáticamente en ~5 minutos.
 
 ### 📚 Más opciones de deployment:
 
-- **[⚡ Quick Deploy (15 min)](QUICK_DEPLOY.md)** - Tutorial paso a paso
-- **[☁️ Comparativa Cloud](DEPLOY_DOCKER_CLOUD.md)** - Render vs Railway vs Fly.io
-- **[🚀 Guía Completa Render](RENDER_DEPLOY.md)** - Troubleshooting y avanzado
-- **[✅ Checklist](DEPLOY_CHECKLIST.md)** - Lista de verificación completa
+- **[⚡ Quick Deploy (15 min)](docs/deployment/QUICK_DEPLOY.md)** - Tutorial paso a paso
+- **[☁️ Comparativa Cloud](docs/deployment/DEPLOY_DOCKER_CLOUD.md)** - Render vs Railway vs Fly.io
+- **[🚀 Guía Completa Render](docs/deployment/RENDER_DEPLOY.md)** - Troubleshooting y avanzado
+- **[✅ Checklist](docs/deployment/DEPLOY_CHECKLIST.md)** - Lista de verificación completa
 - ✅ Frontend (React/Vite) - Static Site
 - ✅ Backend (FastAPI) - Web Service  
 - ✅ Base de Datos (PostgreSQL) - Free Tier
@@ -367,7 +375,7 @@ Render detectará el cambio y redesplegará automáticamente en ~5 minutos.
 
 ```powershell
 # 1. Sube a GitHub
-.\deploy-to-cloud.ps1
+.\scripts\deploy-to-cloud.ps1
 
 # 2. Render.com → New Blueprint → Conectar repo → Apply
 # 3. Configurar FRONTEND_URL
@@ -375,12 +383,12 @@ Render detectará el cambio y redesplegará automáticamente en ~5 minutos.
 ```
 
 **📖 Guías:**
-- **[⚡ Quick Deploy (15 min)](QUICK_DEPLOY.md)** ← Empieza aquí
-- [☁️ Comparativa de Plataformas Cloud](DEPLOY_DOCKER_CLOUD.md)
-- [🚀 Guía Completa Render](RENDER_DEPLOY.md)
-- [✅ Checklist de Deployment](DEPLOY_CHECKLIST.md)
+- **[⚡ Quick Deploy (15 min)](docs/deployment/QUICK_DEPLOY.md)** ← Empieza aquí
+- [☁️ Comparativa de Plataformas Cloud](docs/deployment/DEPLOY_DOCKER_CLOUD.md)
+- [🚀 Guía Completa Render](docs/deployment/RENDER_DEPLOY.md)
+- [✅ Checklist de Deployment](docs/deployment/DEPLOY_CHECKLIST.md)
 
-Ver guía completa: **[QUICK_DEPLOY.md](QUICK_DEPLOY.md)**
+Ver guía completa: **[QUICK_DEPLOY.md](docs/deployment/QUICK_DEPLOY.md)**
 
 ## 🛠️ Tecnologías Utilizadas
 
