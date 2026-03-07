@@ -2,6 +2,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 import os
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -10,6 +11,7 @@ class GoogleSheetsService:
     def __init__(self):
         self.sheet_id = os.getenv("GOOGLE_SHEET_ID")
         self.credentials_file = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
+        self.credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")  # New: JSON string from env
         self.client = None
         self.sheet = None
         
@@ -21,10 +23,23 @@ class GoogleSheetsService:
                 'https://www.googleapis.com/auth/drive'
             ]
             
-            creds = Credentials.from_service_account_file(
-                self.credentials_file,
-                scopes=scopes
-            )
+            # Try to load from JSON environment variable first (for cloud deployments)
+            if self.credentials_json:
+                try:
+                    creds_dict = json.loads(self.credentials_json)
+                    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+                except json.JSONDecodeError as e:
+                    print(f"Error parsing GOOGLE_CREDENTIALS_JSON: {e}")
+                    return False
+            # Fallback to file (for local development)
+            elif os.path.exists(self.credentials_file):
+                creds = Credentials.from_service_account_file(
+                    self.credentials_file,
+                    scopes=scopes
+                )
+            else:
+                print(f"No Google credentials found (file: {self.credentials_file} or env: GOOGLE_CREDENTIALS_JSON)")
+                return False
             
             self.client = gspread.authorize(creds)
             self.sheet = self.client.open_by_key(self.sheet_id).sheet1

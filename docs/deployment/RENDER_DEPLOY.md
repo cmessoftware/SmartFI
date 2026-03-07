@@ -143,13 +143,45 @@ Después de que se despliegue el frontend:
 
 ### Configurar Google Sheets (Opcional)
 
-Si usas Google Sheets:
+**La aplicación funciona perfectamente sin Google Sheets** (usa PostgreSQL). Si quieres sincronización con Google Sheets:
 
-1. Sube tu archivo `credentials.json` como variable de entorno:
-   - En el backend service → Environment
-   - Crea: `GOOGLE_CREDENTIALS_JSON` con el contenido del archivo
+1. **Ve al servicio `finly-api` en Render**
+2. **Click en "Environment"**
+3. **Agrega dos variables:**
+
+   **A. GOOGLE_SHEET_ID:**
+   ```
+   Key: GOOGLE_SHEET_ID
+   Value: 1jiS2l-1L7p4CBHVxZAFJ-g1jzHgGNMcGN3SFKfNrslM
+   ```
+   (Tu ID de Google Sheet)
+
+   **B. GOOGLE_CREDENTIALS_JSON:**
+   ```
+   Key: GOOGLE_CREDENTIALS_JSON
+   Value: [Pega el contenido COMPLETO de tu credentials.json]
+   ```
    
-2. O modifica el código para leerlo de la variable de entorno
+   **Cómo copiar las credenciales:**
+   - Abre tu archivo `backend/credentials.json` local
+   - Copia TODO el contenido (desde `{` hasta `}`)
+   - Pégalo directamente en el campo Value (Render acepta JSON)
+   
+   **Ejemplo del formato:**
+   ```json
+   {
+     "type": "service_account",
+     "project_id": "tu-project",
+     "private_key_id": "...",
+     "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
+     ...
+   }
+   ```
+
+4. **Click "Save Changes"**
+5. **Verifica en los logs:**
+   - Deberías ver: `✅ Google Sheets connected successfully`
+   - En vez de: `⚠️ Google Sheets not connected`
 
 ## 🌐 URLs de Acceso
 
