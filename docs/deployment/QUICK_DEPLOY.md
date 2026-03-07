@@ -42,32 +42,43 @@ git push
 2. **New + → Blueprint**
    - Conectar tu repositorio "Finly"
    - Render detecta `render.yaml` automáticamente
-   - **Variables de entorno:**
+   - **Variables de entorno requeridas:**
      - `GOOGLE_SHEET_ID`: (Pega tu ID de Google Sheet)
+     - `VITE_API_URL`: **Dejar vacío por ahora** ⚠️
      - `FRONTEND_URL`: **Dejar vacío por ahora** ⚠️
    - Click **"Apply"**
 
 3. **Esperar 5-10 min** ☕
    - Render construye todo automáticamente
-   - Toma nota de la URL del frontend cuando termine
+   - ⚠️ El frontend fallará inicialmente (esperado)
+   - Toma nota de las URLs cuando terminen
 
-4. **Configurar FRONTEND_URL (IMPORTANTE)** ⚠️
+4. **Configurar URLs (CRÍTICO)** ⚠️
    
-   Una vez que los servicios estén desplegados:
+   Una vez que los servicios estén creados:
    
-   1. Copia la URL del frontend (ej: `https://finly-frontend.onrender.com`)
-   2. Ve al servicio **finly-api**
-   3. Environment → Add/Edit:
+   **A. Configurar VITE_API_URL en el Frontend:**
+   1. Ve al servicio **finly-frontend**
+   2. Environment → Add/Edit:
       ```
-      FRONTEND_URL = https://finly-frontend.onrender.com
+      VITE_API_URL = https://finly-api-XXXX.onrender.com
       ```
-      (Usa TU URL real, sin barra `/` al final)
-   4. Guarda → El servicio se reiniciará automáticamente
+      (Reemplaza con TU URL del backend, incluyendo `/api` al final si es necesario)
+   3. Guarda → Manual Deploy → Clear build cache & deploy
+   
+   **B. Configurar FRONTEND_URL en el Backend:**
+   1. Ve al servicio **finly-api**
+   2. Environment → Add/Edit:
+      ```
+      FRONTEND_URL = https://finly-frontend-XXXX.onrender.com
+      ```
+      (Sin barra `/` al final)
+   3. Guarda → El servicio se reiniciará automáticamente
 
 5. **¡Listo! 🎉**
    ```
-   App: https://finly-frontend.onrender.com
-   API: https://finly-api.onrender.com/docs
+   App: https://finly-frontend-XXXX.onrender.com
+   API: https://finly-api-XXXX.onrender.com/docs
    ```
 
 ### Paso 3: Verificar

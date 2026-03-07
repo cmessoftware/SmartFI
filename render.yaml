@@ -33,7 +33,7 @@ services:
     dockerContext: ./frontend
     envVars:
       - key: VITE_API_URL
-        value: https://finly-api.onrender.com
+        sync: false  # Configure manually with your backend URL
 
 # PostgreSQL Database
 databases:
