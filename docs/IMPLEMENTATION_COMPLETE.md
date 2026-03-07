@@ -254,8 +254,8 @@ Finly/
 2. **INSTALLATION.md** - Guía de instalación detallada
 3. **IMPLEMENTATION_STATUS.md** - Estado completo de implementación
 4. **QUICK_START.md** - Guía de inicio rápido
-5. **backend/GOOGLE_SHEETS_SETUP.md** - Configuración de Google Sheets
-6. **backend/DATABASE_SETUP.md** - Configuración de PostgreSQL
+5. **docs/configuration/GOOGLE_SHEETS_SETUP.md** - Configuración de Google Sheets
+6. **docs/configuration/DATABASE_SETUP.md** - Configuración de PostgreSQL
 
 ---
 
@@ -318,7 +318,7 @@ Finly/
 4. Login con admin/admin123
 
 ### Para Configurar Google Sheets (Opcional):
-1. Seguir `backend/GOOGLE_SHEETS_SETUP.md`
+1. Seguir `docs/configuration/GOOGLE_SHEETS_SETUP.md`
 2. Colocar credentials.json en backend/
 3. Actualizar .env con GOOGLE_SHEET_ID
 

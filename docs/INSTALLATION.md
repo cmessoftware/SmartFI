@@ -12,7 +12,7 @@
 
 ### Database (Optional for Sprint 1 & 2)
 - Docker and Docker Compose (for PostgreSQL)
-- Google Sheets API credentials (see backend/GOOGLE_SHEETS_SETUP.md)
+- Google Sheets API credentials (see docs/configuration/GOOGLE_SHEETS_SETUP.md)
 
 ## Installation Steps
 
@@ -167,7 +167,7 @@ Finly/
 - Check CORS configuration in backend/main.py
 
 ### Google Sheets not working
-- Follow the setup guide in `backend/GOOGLE_SHEETS_SETUP.md`
+- Follow the setup guide in `docs/configuration/GOOGLE_SHEETS_SETUP.md`
 - Verify credentials.json is in the backend folder
 - Check that the sheet is shared with the service account email
 

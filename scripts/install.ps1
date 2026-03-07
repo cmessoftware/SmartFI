@@ -162,7 +162,7 @@ if ($condaAvailable) {
 
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "1. (Optional) Configure Google Sheets:" -ForegroundColor White
-Write-Host "   - Follow instructions in backend/GOOGLE_SHEETS_SETUP.md" -ForegroundColor Gray
+Write-Host "   - Follow instructions in docs/configuration/GOOGLE_SHEETS_SETUP.md" -ForegroundColor Gray
 Write-Host "2. (Optional) Start PostgreSQL with Docker:" -ForegroundColor White
 Write-Host "   docker-compose up -d" -ForegroundColor Gray
 Write-Host "3. Start the application:" -ForegroundColor White

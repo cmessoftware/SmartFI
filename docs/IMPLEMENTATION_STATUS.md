@@ -170,7 +170,7 @@ Finly/
 ### Para Desarrollo
 1. Configurar Google Sheets (opcional):
    ```bash
-   # Ver backend/GOOGLE_SHEETS_SETUP.md
+   # Ver docs/configuration/GOOGLE_SHEETS_SETUP.md
    ```
 
 2. Iniciar PostgreSQL (Sprint 3):
@@ -220,8 +220,8 @@ Finly/
 ## 📖 Documentación Adicional
 
 - [INSTALLATION.md](INSTALLATION.md) - Guía de instalación detallada
-- [backend/GOOGLE_SHEETS_SETUP.md](backend/GOOGLE_SHEETS_SETUP.md) - Configuración de Google Sheets
-- [backend/DATABASE_SETUP.md](backend/DATABASE_SETUP.md) - Configuración de PostgreSQL
+- [docs/configuration/GOOGLE_SHEETS_SETUP.md](../configuration/GOOGLE_SHEETS_SETUP.md) - Configuración de Google Sheets
+- [docs/configuration/DATABASE_SETUP.md](../configuration/DATABASE_SETUP.md) - Configuración de PostgreSQL
 - [docs/ROADMAP_FINLY_V1.md](docs/ROADMAP_FINLY_V1.md) - Roadmap original
 
 ## 🐛 Troubleshooting

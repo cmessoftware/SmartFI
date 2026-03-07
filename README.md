@@ -212,8 +212,8 @@ Despliega Finly en **Render** 100% gratis en **15 minutos**:
 
 ### ⚙️ Configuración
 - **[Instalación Manual](docs/INSTALLATION.md)** - Sin Docker
-- [Configuración Google Sheets](backend/GOOGLE_SHEETS_SETUP.md) - API de Google
-- [Configuración PostgreSQL](backend/DATABASE_SETUP.md) - Base de datos
+- [Configuración Google Sheets](docs/configuration/GOOGLE_SHEETS_SETUP.md) - API de Google
+- [Configuración PostgreSQL](docs/configuration/DATABASE_SETUP.md) - Base de datos
 - [Estado del Proyecto](docs/IMPLEMENTATION_COMPLETE.md) - Features implementadas
 1. Ve a **https://render.com**
 2. Click en **"Get Started"**

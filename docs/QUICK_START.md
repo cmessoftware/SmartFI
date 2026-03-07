@@ -72,7 +72,7 @@ npm run dev
 ## 🔧 Configuración Opcional
 
 ### Google Sheets
-1. Sigue `backend/GOOGLE_SHEETS_SETUP.md`
+1. Sigue `docs/configuration/GOOGLE_SHEETS_SETUP.md`
 2. Coloca `credentials.json` en `backend/`
 3. Actualiza `.env` con GOOGLE_SHEET_ID
 
