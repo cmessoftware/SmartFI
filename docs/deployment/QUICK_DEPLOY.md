@@ -43,10 +43,12 @@ git push
    - Conectar tu repositorio "Finly"
    - Render detecta `render.yaml` automáticamente
    - **Variables de entorno requeridas:**
-     - `GOOGLE_SHEET_ID`: (Pega tu ID de Google Sheet)
+     - `GOOGLE_SHEET_ID`: Tu ID de Google Sheet (requerido)
+     - `GOOGLE_CREDENTIALS_JSON`: **Dejar vacío, configurar después** ⚠️
      - `VITE_API_URL`: **Dejar vacío por ahora** ⚠️
      - `FRONTEND_URL`: **Dejar vacío por ahora** ⚠️
    - Click **"Apply"**
+   - ⚠️ **Nota:** Render creará solo 2 servicios (backend + frontend). PostgreSQL es Sprint 3.
 
 3. **Esperar 5-10 min** ☕
    - Render construye todo automáticamente
@@ -74,6 +76,17 @@ git push
       ```
       (Sin barra `/` al final)
    3. Guarda → El servicio se reiniciará automáticamente
+   
+   **C. Configurar Google Sheets Credentials (REQUERIDO):**
+   1. En el servicio **finly-api** → Environment
+   2. Add/Edit:
+      ```
+      GOOGLE_CREDENTIALS_JSON = [Pega TODO el contenido de backend/credentials.json]
+      ```
+   3. Guarda → El backend se reiniciará
+   4. Verifica en logs: Deberías ver "✅ Google Sheets connected successfully"
+   
+   > **Sin estas credenciales la app NO funcionará** (Sprint 1-2 usa Google Sheets)
 
 5. **¡Listo! 🎉**
    ```

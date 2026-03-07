@@ -14,16 +14,12 @@ services:
         value: HS256
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: 30
-      - key: DATABASE_URL
-        fromDatabase:
-          name: finly-db
-          property: connectionString
       - key: GOOGLE_SHEET_ID
-        sync: false
+        sync: false  # Configure with your Google Sheet ID
       - key: GOOGLE_CREDENTIALS_JSON
         sync: false  # Paste your credentials.json content here
       - key: FRONTEND_URL
-        sync: false
+        sync: false  # Configure after frontend deploys
 
   # Frontend Static Site
   - type: web
@@ -35,11 +31,12 @@ services:
     dockerContext: ./frontend
     envVars:
       - key: VITE_API_URL
-        sync: false  # Configure manually with your backend URL
+        sync: false  # Configure with your backend URL
 
-# PostgreSQL Database
-databases:
-  - name: finly-db
-    databaseName: fin_per_db
-    plan: free
-    region: oregon
+# PostgreSQL Database (Sprint 3 - Not needed yet)
+# Uncomment when implementing PostgreSQL integration:
+# databases:
+#   - name: finly-db
+#     databaseName: fin_per_db
+#     plan: free
+#     region: oregon

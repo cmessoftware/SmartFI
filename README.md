@@ -37,7 +37,7 @@
 - **API REST completa** - Documentación automática con Swagger
 - **Autenticación JWT** - Segura y escalable
 - **Dockerizado** - Deploy consistente en cualquier plataforma
-- **Base de datos dual** - PostgreSQL + Google Sheets (opcional)
+- **Almacenamiento Google Sheets** - Sin base de datos (PostgreSQL en Sprint 3)
 - **Responsive design** - Funciona en móvil, tablet y desktop
 
 ## 👥 Usuarios de Prueba
@@ -367,9 +367,10 @@ Render detectará el cambio y redesplegará automáticamente en ~5 minutos.
 - **[✅ Checklist](docs/deployment/DEPLOY_CHECKLIST.md)** - Lista de verificación completa
 - ✅ Frontend (React/Vite) - Static Site
 - ✅ Backend (FastAPI) - Web Service  
-- ✅ Base de Datos (PostgreSQL) - Free Tier
+- ✅ Backend + Frontend + Google Sheets
 - ✅ HTTPS automático
 - ✅ Auto-deploy desde GitHub
+- ⚠️ PostgreSQL no requerido (Sprint 3)
 
 **🚀 Inicio Ultra Rápido (15 minutos):**
 
@@ -410,8 +411,8 @@ Ver guía completa: **[QUICK_DEPLOY.md](docs/deployment/QUICK_DEPLOY.md)**
 
 ### Base de Datos
 
-- Google Sheets API (Sprint 1 & 2)
-- PostgreSQL (Sprint 3)
+- **Google Sheets API** (Sprint 1 & 2) ✅ Actual
+- **PostgreSQL** (Sprint 3) 🔄 Planificado
 
 ### DevOps
 
