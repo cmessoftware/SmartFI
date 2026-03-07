@@ -68,9 +68,29 @@ function CSVImport({ addMultipleTransactions }) {
 
     try {
       const formatted = rawRows.map((row, index) => {
-        const monto = parseFloat(row[mapping.monto]?.toString().replace(/[^0-9.-]+/g, '') || 0);
+        // Parse amount - handle Argentine format (12.981,50) and US format (12,981.50)
+        const montoStr = row[mapping.monto]?.toString().trim() || '0';
+        let monto;
         
-        if (isNaN(monto)) {
+        // Detect format by checking if comma is the last separator (Argentine format)
+        const lastCommaIndex = montoStr.lastIndexOf(',');
+        const lastDotIndex = montoStr.lastIndexOf('.');
+        
+        if (lastCommaIndex > lastDotIndex) {
+          // Argentine format: 12.981,50 → remove dots (thousands), replace comma with dot (decimal)
+          monto = parseFloat(montoStr.replace(/\./g, '').replace(',', '.'));
+        } else if (lastDotIndex > lastCommaIndex) {
+          // US format: 12,981.50 → remove commas (thousands), keep dot (decimal)
+          monto = parseFloat(montoStr.replace(/,/g, ''));
+        } else {
+          // No separators or single separator - parse as is
+          monto = parseFloat(montoStr);
+        }
+        
+        // Validate the result
+        monto = isNaN(monto) ? 0 : monto;
+        
+        if (monto === 0 && montoStr !== '0') {
           throw new Error(`Monto inválido en la fila ${index + 1}`);
         }
 
