@@ -1,6 +1,12 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Read API URL from runtime config (window.ENV) or build-time env variable or default to localhost
+const API_URL = window.ENV?.VITE_API_URL || import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+// Debug: Log the API URL being used
+console.log('🔧 API_URL configured:', API_URL);
+console.log('🔧 window.ENV:', window.ENV);
+console.log('🔧 VITE_API_URL env:', import.meta.env.VITE_API_URL);
 
 const api = axios.create({
   baseURL: API_URL,
