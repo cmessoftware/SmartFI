@@ -35,9 +35,22 @@ except Exception as e:
     sheets_service = None
 
 # CORS Configuration
+# Allow both local development and production frontend
+allowed_origins = [
+    "http://localhost:5173",  # Local development (Vite)
+    "http://localhost:5174",  # Alternative local port
+    "http://localhost:3000",  # Docker frontend
+]
+
+# Add production frontend URL if configured
+frontend_url = os.getenv("FRONTEND_URL")
+if frontend_url:
+    allowed_origins.append(frontend_url)
+    print(f"✅ CORS configured for production: {frontend_url}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

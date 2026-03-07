@@ -30,7 +30,25 @@ Aplicación web SPA para gestión de finanzas personales construida con React + 
 
 ## 🚀 Instalación
 
-### Frontend
+### Opción 1: Docker (Recomendado) 🐳
+
+La forma más rápida y sencilla:
+
+```powershell
+# Levantar toda la aplicación (frontend + backend + PostgreSQL)
+docker-compose up --build
+```
+
+Accede a:
+- **Aplicación**: http://localhost:3000
+- **API**: http://localhost:8000
+- **Docs**: http://localhost:8000/docs
+
+Ver guía completa: **[DOCKER_LOCAL.md](DOCKER_LOCAL.md)**
+
+### Opción 2: Instalación Manual
+
+#### Frontend
 
 ```bash
 cd frontend
@@ -85,11 +103,52 @@ uvicorn main:app --reload
 
 ## 📚 Documentación
 
-- [Guía de Instalación Completa](INSTALLATION.md)
+### Docker
+- **[🐳 Docker Explicado (Para Novatos)](DOCKER_EXPLICADO.md)** ← Empieza aquí si no conoces Docker
+- **[🐳 Docker Local - Guía Completa](DOCKER_LOCAL.md)**
+- **[⚡ Quick Start Docker](DOCKER_QUICK_START.md)**
+
+### Instalación y Configuración
+- [Guía de Instalación Manual](INSTALLATION.md)
 - [Estado de Implementación](IMPLEMENTATION_COMPLETE.md)
 - [Inicio Rápido](docs/QUICK_START.md)
 - [Configuración de Google Sheets](backend/GOOGLE_SHEETS_SETUP.md)
 - [Configuración de PostgreSQL](backend/DATABASE_SETUP.md)
+
+### Deployment en Producción
+- **[⚡ Quick Deploy - 15 min](QUICK_DEPLOY.md)** ← Empieza aquí
+- [☁️ Deploy Docker a la Nube (Comparativa)](DEPLOY_DOCKER_CLOUD.md)
+- [🚀 Guía Completa Render](RENDER_DEPLOY.md)
+- [✅ Checklist de Deployment](DEPLOY_CHECKLIST.md)
+
+## 🌐 Deployment en Producción
+
+Finly puede ser deployado **100% GRATIS** en Render con:
+
+- ✅ Frontend (React/Vite) - Static Site
+- ✅ Backend (FastAPI) - Web Service  
+- ✅ Base de Datos (PostgreSQL) - Free Tier
+- ✅ HTTPS automático
+- ✅ Auto-deploy desde GitHub
+
+**🚀 Inicio Ultra Rápido (15 minutos):**
+
+```powershell
+# 1. Sube a GitHub
+.\deploy-to-cloud.ps1
+
+# 2. Render.com → New Blueprint → Conectar repo → Apply
+# 3. Configurar FRONTEND_URL
+# 4. ¡Listo! 🎉
+```
+
+**📖 Guías:**
+- **[⚡ Quick Deploy (15 min)](QUICK_DEPLOY.md)** ← Empieza aquí
+- [☁️ Comparativa de Plataformas Cloud](DEPLOY_DOCKER_CLOUD.md)
+- [🚀 Guía Completa Render](RENDER_DEPLOY.md)
+- [✅ Checklist de Deployment](DEPLOY_CHECKLIST.md)
+
+Ver guía completa: **[QUICK_DEPLOY.md](QUICK_DEPLOY.md)**
 
 ## 🛠️ Tecnologías Utilizadas
 

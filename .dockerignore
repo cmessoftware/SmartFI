@@ -4,22 +4,14 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Environment variables
+# Environment files
 .env
 .env.local
 .env.*.local
 
-# Except Docker example
-!.env.docker
-
-# Google Cloud credentials
-credentials.json
-backend/credentials.json
-
-# Build outputs
-dist/
-build/
-*.egg-info/
+# Git
+.git
+.gitignore
 
 # IDE
 .vscode/
@@ -35,18 +27,37 @@ Thumbs.db
 *.log
 logs/
 
-# Database
-*.db
-*.sqlite
+# Build outputs (backend)
+dist/
+build/
+*.egg-info/
 
 # Python virtual environment
 venv/
 env/
 ENV/
 
-# Coverage reports
+# Coverage
 htmlcov/
 .coverage
 .coverage.*
 coverage.xml
 *.cover
+
+# Documentation
+*.md
+docs/
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Testing
+test_*.py
+*_test.py
+tests/
+
+# Database files
+*.db
+*.sqlite
