@@ -74,8 +74,12 @@ Si prefieres crear cada servicio manualmente:
    ACCESS_TOKEN_EXPIRE_MINUTES = 30
    DATABASE_URL = (pega la Internal Database URL de tu PostgreSQL)
    GOOGLE_SHEET_ID = (opcional - tu ID de Google Sheet)
+   FRONTEND_URL = (dejar vacío, configurar después) ⚠️
    PYTHON_VERSION = 3.11.0
    ```
+   
+   > **Nota sobre FRONTEND_URL:** No puedes conocer esta URL hasta que despliegues el frontend.
+   > Déjala vacía por ahora y agrégala en el Paso "Configuración Post-Deployment".
 
 5. Click **"Create Web Service"**
 
@@ -108,16 +112,34 @@ Si prefieres crear cada servicio manualmente:
 
 ## 🔧 Configuración Post-Deployment
 
-### Actualizar CORS en el Backend
+### ⚠️ IMPORTANTE: Actualizar FRONTEND_URL (OBLIGATORIO)
 
-Después de que se despliegue el frontend, necesitas actualizar la URL de CORS:
+**Este paso es CRÍTICO para que la aplicación funcione correctamente.**
 
-1. Ve a tu servicio backend en Render
-2. Environment → Agrega:
-   ```
-   FRONTEND_URL = https://finly-frontend.onrender.com
-   ```
-3. El código ya está preparado para esto (ver `main.py`)
+Después de que se despliegue el frontend:
+
+1. **Copia la URL del frontend:**
+   - Ve a tu servicio `finly-frontend` en Render
+   - Copia la URL (ej: `https://finly-frontend.onrender.com`)
+   - O usa tu dominio custom si configuraste uno
+
+2. **Actualiza el backend:**
+   - Ve a tu servicio `finly-api` en Render
+   - Click en "Environment" en el menú izquierdo
+   - Busca `FRONTEND_URL` o click en "Add Environment Variable"
+   - Agrega:
+     ```
+     Key: FRONTEND_URL
+     Value: https://finly-frontend.onrender.com
+     ```
+     (Reemplaza con TU URL real, **sin barra `/` al final**)
+   - Click "Save Changes"
+
+3. **Espera el reinicio:**
+   - Render reiniciará automáticamente el backend (~1-2 min)
+   - Verifica en los logs que inició correctamente
+
+> **¿Por qué es importante?** Sin esto, tendrás errores CORS y el frontend no podrá comunicarse con el backend.
 
 ### Configurar Google Sheets (Opcional)
 
