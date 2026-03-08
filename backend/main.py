@@ -18,13 +18,25 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
 
 app = FastAPI(title="Finly API", version="1.0.0")
 
-# Initialize Google Sheets
+# Initialize PostgreSQL Database
+try:
+    from services.database_service import database_service
+    if database_service.is_connected():
+        print("✅ PostgreSQL database connected successfully")
+    else:
+        print("⚠️ PostgreSQL database not connected")
+        database_service = None
+except Exception as e:
+    print(f"⚠️ PostgreSQL database not available: {e}")
+    database_service = None
+
+# Initialize Google Sheets (optional backup)
 try:
     from services.google_sheets import sheets_service
     if sheets_service.sheet_id:
         if sheets_service.connect():
             sheets_service.initialize_sheet()
-            print("✅ Google Sheets connected successfully")
+            print("✅ Google Sheets connected successfully (backup)")
         else:
             print("⚠️ Google Sheets not connected")
     else:
@@ -61,6 +73,7 @@ app.add_middleware(
 async def health_check():
     return {
         "status": "ok",
+        "database_connected": database_service is not None and database_service.is_connected(),
         "google_sheets_connected": sheets_service is not None and sheets_service.sheet is not None,
         "sheet_id": sheets_service.sheet_id if sheets_service else None
     }
@@ -91,6 +104,7 @@ class Transaction(BaseModel):
     categoria: str
     monto: float
     necesidad: str
+    forma_pago: str = "Débito"
     partida: str
     detalle: str
 
@@ -222,55 +236,94 @@ async def create_transaction(
     transaction: Transaction,
     current_user: User = Depends(require_role(["admin", "writer"]))
 ):
-    # Save to Google Sheets if configured
-    success = False
-    if sheets_service:
+    # Save to PostgreSQL (primary storage)
+    transaction_id = None
+    if database_service:
         try:
-            success = sheets_service.add_transaction(transaction.dict())
-            if success:
-                print(f"✅ Transaction saved to Google Sheets")
+            transaction_id = database_service.add_transaction(transaction.dict())
+            if transaction_id:
+                print(f"✅ Transaction {transaction_id} saved to PostgreSQL")
             else:
-                print(f"❌ Failed to save to Google Sheets")
+                print(f"❌ Failed to save to PostgreSQL")
         except Exception as e:
-            print(f"❌ Error saving to Google Sheets: {e}")
-    else:
-        print("⚠️ Google Sheets not configured")
+            print(f"❌ Error saving to PostgreSQL: {e}")
     
-    return {"message": "Transaction created successfully", "transaction": transaction, "saved_to_sheets": success}
+    # Also save to Google Sheets as backup if configured
+    sheets_success = False
+    if sheets_service and transaction_id:
+        try:
+            sheets_success = sheets_service.add_transaction(transaction.dict())
+            if sheets_success:
+                print(f"✅ Transaction also saved to Google Sheets (backup)")
+        except Exception as e:
+            print(f"⚠️ Could not save to Google Sheets backup: {e}")
+    
+    if transaction_id:
+        return {
+            "message": "Transaction created successfully",
+            "transaction": transaction,
+            "id": transaction_id,
+            "saved_to_sheets": sheets_success
+        }
+    else:
+        raise HTTPException(status_code=500, detail="Failed to save transaction")
 
 @app.post("/api/transactions/import")
 async def import_transactions(
     transactions: List[Transaction],
     current_user: User = Depends(require_role(["admin", "writer"]))
 ):
+    # Save to PostgreSQL (primary storage)
     success = False
-    if sheets_service:
+    if database_service:
         try:
-            success = sheets_service.add_transactions_batch([t.dict() for t in transactions])
+            success = database_service.add_transactions_batch([t.dict() for t in transactions])
             if success:
-                print(f"✅ {len(transactions)} transactions saved to Google Sheets")
+                print(f"✅ {len(transactions)} transactions saved to PostgreSQL")
             else:
-                print(f"❌ Failed to save batch to Google Sheets")
+                print(f"❌ Failed to save batch to PostgreSQL")
         except Exception as e:
-            print(f"❌ Error saving batch to Google Sheets: {e}")
-    else:
-        print("⚠️ Google Sheets not configured")
+            print(f"❌ Error saving batch to PostgreSQL: {e}")
     
-    return {"message": f"{len(transactions)} transactions imported successfully", "saved_to_sheets": success}
+    # Also save to Google Sheets as backup if configured
+    sheets_success = False
+    if sheets_service and success:
+        try:
+            sheets_success = sheets_service.add_transactions_batch([t.dict() for t in transactions])
+            if sheets_success:
+                print(f"✅ {len(transactions)} transactions also saved to Google Sheets (backup)")
+        except Exception as e:
+            print(f"⚠️ Could not save to Google Sheets backup: {e}")
+    
+    if success:
+        return {
+            "message": f"{len(transactions)} transactions imported successfully",
+            "saved_to_sheets": sheets_success
+        }
+    else:
+        raise HTTPException(status_code=500, detail="Failed to import transactions")
 
 @app.get("/api/transactions")
 async def get_transactions(current_user: User = Depends(get_current_user)):
-    # Get from Google Sheets if configured
-    if sheets_service:
+    # Get from PostgreSQL (primary storage)
+    if database_service:
         try:
-            transactions = sheets_service.get_all_transactions()
-            print(f"✅ Retrieved {len(transactions)} transactions from Google Sheets")
+            transactions = database_service.get_all_transactions()
+            print(f"✅ Retrieved {len(transactions)} transactions from PostgreSQL")
             return transactions
         except Exception as e:
-            print(f"❌ Error getting transactions from Google Sheets: {e}")
+            print(f"❌ Error getting transactions from PostgreSQL: {e}")
+            # Fallback to Google Sheets if database fails
+            if sheets_service:
+                try:
+                    transactions = sheets_service.get_all_transactions()
+                    print(f"✅ Retrieved {len(transactions)} transactions from Google Sheets (fallback)")
+                    return transactions
+                except Exception as e2:
+                    print(f"❌ Error getting transactions from Google Sheets: {e2}")
             return []
     else:
-        print("⚠️ Google Sheets not configured")
+        print("⚠️ PostgreSQL not configured")
         return []
 
 @app.post("/api/transactions/migrate")
@@ -329,16 +382,25 @@ async def update_transaction(
     current_user: User = Depends(require_role(["admin", "writer"]))
 ):
     """Update an existing transaction"""
-    if not sheets_service:
-        raise HTTPException(status_code=503, detail="Google Sheets not configured")
+    if not database_service:
+        raise HTTPException(status_code=503, detail="Database not configured")
     
     try:
-        success = sheets_service.update_transaction(transaction_id, transaction.dict())
+        success = database_service.update_transaction(transaction_id, transaction.dict())
         if success:
-            print(f"✅ Transaction {transaction_id} updated successfully")
+            print(f"✅ Transaction {transaction_id} updated in PostgreSQL")
+            
+            # Also update in Google Sheets if configured
+            if sheets_service:
+                try:
+                    sheets_service.update_transaction(transaction_id, transaction.dict())
+                    print(f"✅ Transaction {transaction_id} also updated in Google Sheets (backup)")
+                except Exception as e:
+                    print(f"⚠️ Could not update in Google Sheets backup: {e}")
+            
             return {"message": "Transaction updated successfully", "transaction": transaction}
         else:
-            raise HTTPException(status_code=500, detail="Failed to update transaction")
+            raise HTTPException(status_code=404, detail="Transaction not found")
     except Exception as e:
         print(f"❌ Error updating transaction: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -349,16 +411,25 @@ async def delete_transaction(
     current_user: User = Depends(require_role(["admin", "writer"]))
 ):
     """Delete a transaction"""
-    if not sheets_service:
-        raise HTTPException(status_code=503, detail="Google Sheets not configured")
+    if not database_service:
+        raise HTTPException(status_code=503, detail="Database not configured")
     
     try:
-        success = sheets_service.delete_transaction(transaction_id)
+        success = database_service.delete_transaction(transaction_id)
         if success:
-            print(f"✅ Transaction {transaction_id} deleted successfully")
+            print(f"✅ Transaction {transaction_id} deleted from PostgreSQL")
+            
+            # Also delete from Google Sheets if configured
+            if sheets_service:
+                try:
+                    sheets_service.delete_transaction(transaction_id)
+                    print(f"✅ Transaction {transaction_id} also deleted from Google Sheets (backup)")
+                except Exception as e:
+                    print(f"⚠️ Could not delete from Google Sheets backup: {e}")
+            
             return {"message": "Transaction deleted successfully", "id": transaction_id}
         else:
-            raise HTTPException(status_code=500, detail="Failed to delete transaction")
+            raise HTTPException(status_code=404, detail="Transaction not found")
     except Exception as e:
         print(f"❌ Error deleting transaction: {e}")
         raise HTTPException(status_code=500, detail=str(e))

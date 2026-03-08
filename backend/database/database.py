@@ -36,6 +36,7 @@ class Transaction(Base):
     categoria = Column(String, nullable=False)
     monto = Column(Float, nullable=False)
     necesidad = Column(SQLEnum(NecessityType), nullable=False)
+    forma_pago = Column(String, default="Débito", nullable=False)
     partida = Column(String, nullable=False)
     detalle = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
