@@ -8,6 +8,7 @@ function TransactionForm({ addTransaction }) {
     categoria: 'Comida',
     monto: '',
     necesidad: 'Necesario',
+    forma_pago: 'Débito',
     detalle: ''
   });
 
@@ -61,6 +62,7 @@ function TransactionForm({ addTransaction }) {
         categoria: 'Comida',
         monto: '',
         necesidad: 'Necesario',
+        forma_pago: 'Débito',
         detalle: ''
       });
     } catch (error) {
@@ -176,6 +178,22 @@ function TransactionForm({ addTransaction }) {
                 {necessityTypes.map(need => (
                   <option key={need} value={need}>{need}</option>
                 ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">
+                Forma de Pago *
+              </label>
+              <select
+                name="forma_pago"
+                value={formData.forma_pago}
+                onChange={handleChange}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
+                required
+              >
+                <option value="Débito">Débito</option>
+                <option value="Crédito">Crédito</option>
               </select>
             </div>
           </div>

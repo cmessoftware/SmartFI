@@ -4,17 +4,17 @@ import Papa from 'papaparse';
 function CSVImport({ addMultipleTransactions }) {
   const [csvHeaders, setCsvHeaders] = useState([]);
   const [rawRows, setRawRows] = useState([]);
-  const [mapping, setMapping] = useState({ fecha: '', concepto: '', monto: '', tipo: '', categoria: '' });
+  const [mapping, setMapping] = useState({ fecha: '', concepto: '', monto: '', tipo: '', categoria: '', forma_pago: '' });
   const [previewData, setPreviewData] = useState([]);
   const [message, setMessage] = useState(null);
 
   const requiredFields = ['fecha', 'monto'];
-  const optionalFields = ['concepto', 'tipo', 'categoria'];
+  const optionalFields = ['concepto', 'tipo', 'categoria', 'forma_pago'];
 
   const downloadTemplate = () => {
     // Create CSV content with headers and example row
-    const headers = ['fecha', 'tipo', 'categoria', 'monto', 'detalle'];
-    const exampleRow = ['2024-03-06', 'Gasto', 'Comida', '15000', 'Almuerzo en restaurante'];
+    const headers = ['fecha', 'tipo', 'categoria', 'monto', 'forma_pago', 'detalle'];
+    const exampleRow = ['2024-03-06', 'Gasto', 'Comida', '15000', 'Débito', 'Almuerzo en restaurante'];
     
     const csvContent = [
       headers.join(','),
@@ -102,6 +102,7 @@ function CSVImport({ addMultipleTransactions }) {
           categoria: mapping.categoria ? row[mapping.categoria] : 'Comida',
           monto: monto,
           necesidad: 'Necesario',
+          forma_pago: mapping.forma_pago ? row[mapping.forma_pago] : 'Débito',
           partida: mapping.categoria ? row[mapping.categoria] : 'Comida',
           detalle: mapping.concepto ? row[mapping.concepto] : ''
         };
@@ -133,7 +134,7 @@ function CSVImport({ addMultipleTransactions }) {
         // Reset
         setCsvHeaders([]);
         setRawRows([]);
-        setMapping({ fecha: '', concepto: '', monto: '', tipo: '', categoria: '' });
+        setMapping({ fecha: '', concepto: '', monto: '', tipo: '', categoria: '', forma_pago: '' });
         setPreviewData([]);
         window.formattedTransactions = null;
       } catch (error) {
@@ -148,7 +149,7 @@ function CSVImport({ addMultipleTransactions }) {
   const resetImport = () => {
     setCsvHeaders([]);
     setRawRows([]);
-    setMapping({ fecha: '', concepto: '', monto: '', tipo: '', categoria: '' });
+    setMapping({ fecha: '', concepto: '', monto: '', tipo: '', categoria: '', forma_pago: '' });
     setPreviewData([]);
     setMessage(null);
     window.formattedTransactions = null;
@@ -266,6 +267,7 @@ function CSVImport({ addMultipleTransactions }) {
                   <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Tipo</th>
                   <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Categoría</th>
                   <th className="text-right py-3 px-4 text-sm font-semibold text-finly-text">Monto</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Forma de Pago</th>
                   <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Detalle</th>
                 </tr>
               </thead>
@@ -284,6 +286,7 @@ function CSVImport({ addMultipleTransactions }) {
                     <td className="py-3 px-4 text-sm text-right font-semibold text-finly-text">
                       ${t.monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                     </td>
+                    <td className="py-3 px-4 text-sm text-finly-text">{t.forma_pago || 'Débito'}</td>
                     <td className="py-3 px-4 text-sm text-finly-textSecondary">{t.detalle || '-'}</td>
                   </tr>
                 ))}
