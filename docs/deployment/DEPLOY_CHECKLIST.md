@@ -33,12 +33,43 @@ git push -u origin main
 - [ ] `ACCESS_TOKEN_EXPIRE_MINUTES` → `30` (ya configurado)
 - [ ] `DATABASE_URL` → Auto-configurado desde la base de datos
 - [ ] `FRONTEND_URL` → Tu URL del frontend (ej: `https://finly-frontend.onrender.com`)
-- [ ] `GOOGLE_SHEET_ID` → (opcional) Tu ID de Google Sheet
+- [ ] `GOOGLE_SHEET_ID` → (opcional) Tu ID de Google Sheet para backup/sync
+- [ ] `GOOGLE_CREDENTIALS_JSON` → (opcional) Contenido del archivo credentials.json como string JSON
 
 #### Frontend (finly-frontend):
 - [ ] `VITE_API_URL` → URL de tu backend (ej: `https://finly-api.onrender.com`)
 
-### 5. Verificar Deployment
+### 5. Configurar Google Sheets (Opcional - Backup y Sincronización)
+
+#### ¿Por qué usar Google Sheets?
+- 🔄 **Sincronización bidireccional**: Puedes editar en Sheets y sincronizar con el botón "Sincronizar desde Sheets"
+- 📊 **Backup automático**: Todas las transacciones se guardan también en Sheets
+- 👥 **Colaboración**: Comparte tu hoja con familia para que agreguen gastos directamente
+
+#### Pasos para configurar:
+1. **Crear Google Sheet**: 
+   - Crea una nueva hoja en Google Sheets
+   - Copia el ID de la URL: `https://docs.google.com/spreadsheets/d/TU_SHEET_ID/edit`
+
+2. **Crear Service Account**:
+   - Ver guía completa en: [docs/configuration/GOOGLE_SHEETS_SETUP.md](../configuration/GOOGLE_SHEETS_SETUP.md)
+   - Descargar archivo `credentials.json`
+
+3. **Configurar en Render**:
+   - `GOOGLE_SHEET_ID`: Pegar el ID de tu hoja
+   - `GOOGLE_CREDENTIALS_JSON`: Abrir `credentials.json`, copiar TODO el contenido y pegarlo como string
+
+4. **Compartir Sheet con Service Account**:
+   - Abre `credentials.json` y busca `"client_email"`
+   - En Google Sheets, compartir con ese email con permisos de Editor
+
+#### Funcionamiento del Botón "Sincronizar desde Sheets":
+- 📥 Toma todas las transacciones de Google Sheets
+- 🔍 Compara con las que ya existen en PostgreSQL (evita duplicados)
+- 💾 Guarda solo las transacciones nuevas en PostgreSQL
+- ✨ Actualiza la UI con los datos más recientes
+
+### 6. Verificar Deployment
 - [ ] Backend: `https://TU-BACKEND.onrender.com/api/health`
 - [ ] Frontend: `https://TU-FRONTEND.onrender.com`
 - [ ] Probar login con:
@@ -51,6 +82,11 @@ git push -u origin main
 - [ ] Source: `/*`
 - [ ] Destination: `/index.html`
 - [ ] Type: **Rewrite**
+
+### 8. Probar Sincronización con Google Sheets (si está configurado)
+- [ ] Agregar una transacción directamente en Google Sheets
+- [ ] Ir al dashboard y hacer clic en "Sincronizar desde Sheets"
+- [ ] Verificar que aparezca la nueva transacción
 
 ## 🎯 URLs Finales
 
@@ -97,6 +133,23 @@ git push
 ### Primera carga muy lenta
 - ✅ Normal en plan gratuito (servicios duermen tras 15 min)
 - ✅ Primera petición tarda ~30-60 seg en despertar
+
+### Google Sheets no sincroniza
+- ✅ Verifica que `GOOGLE_SHEET_ID` esté configurado correctamente
+- ✅ Verifica que `GOOGLE_CREDENTIALS_JSON` sea válido (JSON completo)
+- ✅ Asegúrate de compartir la hoja con el email del service account
+- ✅ Verifica permisos: el service account debe tener acceso de "Editor"
+- ✅ Revisa los logs del backend en Render para ver errores específicos
+- ✅ El botón "Sincronizar" solo aparece para usuarios admin/writer
+
+### Error "503 Google Sheets not configured"
+- ✅ Falta configurar `GOOGLE_SHEET_ID` o `GOOGLE_CREDENTIALS_JSON`
+- ✅ Esto es opcional - la app funciona sin Google Sheets usando solo PostgreSQL
+
+### Las transacciones nuevas no aparecen después de sincronizar
+- ✅ Verifica que el formato de la hoja sea correcto (headers en español)
+- ✅ Headers requeridos: Marca temporal, Fecha, Tipo, Categoría, Monto, Necesidad, Partida, Detalle
+- ✅ El sistema detecta duplicados por fecha+monto+categoría+detalle
 
 ## 💡 Tips
 

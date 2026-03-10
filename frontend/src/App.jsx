@@ -44,17 +44,29 @@ function App() {
         console.log('⚡ Loaded from cache');
       }
       
-      // Then fetch from Google Sheets (source of truth)
+      // First, sync from Google Sheets to PostgreSQL (if user has write permissions)
+      if (user && (user.role === 'admin' || user.role === 'writer')) {
+        try {
+          console.log('🔄 Syncing from Google Sheets to PostgreSQL...');
+          const syncResponse = await transactionsAPI.syncFromSheets();
+          console.log(`✅ Sync completed:`, syncResponse.data);
+        } catch (syncError) {
+          // If sync fails, continue to load from DB
+          console.warn('⚠️ Could not sync from Google Sheets:', syncError.response?.data?.detail || syncError.message);
+        }
+      }
+      
+      // Then fetch from PostgreSQL (source of truth)
       const response = await transactionsAPI.getTransactions();
       const backendTransactions = response.data || [];
       
       setTransactions(backendTransactions);
       // Update cache
       localStorage.setItem('transactions_cache', JSON.stringify(backendTransactions));
-      console.log(`✅ Loaded ${backendTransactions.length} transactions from Google Sheets`);
+      console.log(`✅ Loaded ${backendTransactions.length} transactions from PostgreSQL`);
       
     } catch (error) {
-      console.error('❌ Error loading from Google Sheets:', error);
+      console.error('❌ Error loading transactions:', error);
       // Only show alert if we don't have cached data
       const cachedTransactions = localStorage.getItem('transactions_cache');
       if (!cachedTransactions) {
@@ -79,41 +91,41 @@ function App() {
 
   const addTransaction = async (newTransaction) => {
     try {
-      // Send to Google Sheets (source of truth)
+      // Send to PostgreSQL (primary storage)
       await transactionsAPI.saveTransaction(newTransaction);
-      console.log('✅ Transaction saved to Google Sheets');
+      console.log('✅ Transaction saved to PostgreSQL');
       
       // Update local state and cache
       const updatedTransactions = [...transactions, newTransaction];
       setTransactions(updatedTransactions);
       localStorage.setItem('transactions_cache', JSON.stringify(updatedTransactions));
     } catch (error) {
-      console.error('❌ Error saving to Google Sheets:', error);
+      console.error('❌ Error saving transaction:', error);
       throw error; // Let component show error to user
     }
   };
 
   const addMultipleTransactions = async (newTransactions) => {
     try {
-      // Send to Google Sheets (source of truth)
+      // Send to PostgreSQL (primary storage)
       await transactionsAPI.importCSV(newTransactions);
-      console.log(`✅ ${newTransactions.length} transactions saved to Google Sheets`);
+      console.log(`✅ ${newTransactions.length} transactions saved to PostgreSQL`);
       
       // Update local state and cache
       const updatedTransactions = [...transactions, ...newTransactions];
       setTransactions(updatedTransactions);
       localStorage.setItem('transactions_cache', JSON.stringify(updatedTransactions));
     } catch (error) {
-      console.error('❌ Error importing to Google Sheets:', error);
+      console.error('❌ Error importing transactions:', error);
       throw error;
     }
   };
 
   const updateTransaction = async (id, updatedTransaction) => {
     try {
-      // Update in Google Sheets
+      // Update in PostgreSQL
       await transactionsAPI.updateTransaction(id, updatedTransaction);
-      console.log(`✅ Transaction ${id} updated in Google Sheets`);
+      console.log(`✅ Transaction ${id} updated in PostgreSQL`);
       
       // Update local state and cache
       const updatedTransactions = transactions.map(t => 
@@ -129,9 +141,9 @@ function App() {
 
   const deleteTransaction = async (id) => {
     try {
-      // Delete from Google Sheets
+      // Delete from PostgreSQL
       await transactionsAPI.deleteTransaction(id);
-      console.log(`✅ Transaction ${id} deleted from Google Sheets`);
+      console.log(`✅ Transaction ${id} deleted from PostgreSQL`);
       
       // Update local state and cache
       const updatedTransactions = transactions.filter(t => t.id !== id);

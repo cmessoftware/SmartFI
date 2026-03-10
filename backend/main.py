@@ -375,6 +375,100 @@ async def migrate_transactions(
         print(f"❌ Error migrating transactions: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/transactions/sync-from-sheets")
+async def sync_from_sheets(
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Sync transactions from Google Sheets to PostgreSQL"""
+    if not sheets_service:
+        raise HTTPException(status_code=503, detail="Google Sheets not configured")
+    
+    if not database_service:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    
+    try:
+        # Get transactions from Google Sheets
+        print("📥 Fetching transactions from Google Sheets...")
+        sheets_transactions = sheets_service.get_all_transactions()
+        print(f"✅ Found {len(sheets_transactions)} transactions in Google Sheets")
+        
+        if not sheets_transactions:
+            return {
+                "message": "No transactions found in Google Sheets",
+                "synced_count": 0,
+                "skipped_count": 0
+            }
+        
+        # Get existing transactions from PostgreSQL to avoid duplicates
+        print("📥 Fetching existing transactions from PostgreSQL...")
+        db_transactions = database_service.get_all_transactions()
+        print(f"✅ Found {len(db_transactions)} existing transactions in PostgreSQL")
+        
+        # Build set of existing transaction fingerprints (fecha + monto + categoria)
+        # Since Google Sheets IDs are row numbers, we can't rely on them
+        existing_fingerprints = set()
+        for t in db_transactions:
+            fingerprint = f"{t.get('fecha')}_{t.get('monto')}_{t.get('categoria')}_{t.get('detalle', '')}"
+            existing_fingerprints.add(fingerprint)
+        
+        # Filter new transactions
+        new_transactions = []
+        skipped = 0
+        
+        for t in sheets_transactions:
+            # Create fingerprint
+            fingerprint = f"{t.get('fecha')}_{t.get('monto')}_{t.get('categoria')}_{t.get('detalle', '')}"
+            
+            if fingerprint in existing_fingerprints:
+                skipped += 1
+                continue
+            
+            # Ensure forma_pago field exists
+            if 'forma_pago' not in t:
+                t['forma_pago'] = 'Débito'  # Default value
+            
+            new_transactions.append(t)
+        
+        # Save new transactions to PostgreSQL
+        if new_transactions:
+            print(f"💾 Saving {len(new_transactions)} new transactions to PostgreSQL...")
+            saved_count = 0
+            
+            for t in new_transactions:
+                try:
+                    # Remove the row ID from sheets as it shouldn't be used in DB
+                    t_copy = t.copy()
+                    if 'id' in t_copy:
+                        del t_copy['id']
+                    
+                    success = database_service.save_transaction(t_copy)
+                    if success:
+                        saved_count += 1
+                except Exception as e:
+                    print(f"⚠️ Error saving transaction: {e}")
+                    continue
+            
+            print(f"✅ Synced {saved_count} new transactions from Google Sheets to PostgreSQL")
+            return {
+                "message": f"Successfully synced {saved_count} transactions from Google Sheets",
+                "synced_count": saved_count,
+                "skipped_count": skipped,
+                "total_sheets": len(sheets_transactions),
+                "total_db": len(db_transactions) + saved_count
+            }
+        else:
+            return {
+                "message": "All Google Sheets transactions already exist in PostgreSQL",
+                "synced_count": 0,
+                "skipped_count": skipped,
+                "total_sheets": len(sheets_transactions),
+                "total_db": len(db_transactions)
+            }
+            
+    except Exception as e:
+        print(f"❌ Error syncing from Google Sheets: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.put("/api/transactions/{transaction_id}")
 async def update_transaction(
     transaction_id: int,

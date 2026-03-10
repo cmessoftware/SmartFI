@@ -28,7 +28,7 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
           <p className="text-finly-textSecondary mt-2 flex items-center gap-2">
             Panel de control de finanzas personales
             <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full flex items-center gap-1">
-              📊 Google Sheets
+              📊 PostgreSQL + Sheets Sync
             </span>
           </p>
         </div>
@@ -37,10 +37,10 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
             onClick={refreshTransactions}
             disabled={loading}
             className="flex items-center gap-2 px-4 py-2 bg-finly-primary text-white rounded-lg hover:bg-finly-primaryHover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Refrescar datos desde Google Sheets"
+            title="Sincronizar datos desde Google Sheets"
           >
             <span className={loading ? 'animate-spin' : ''}>🔄</span>
-            {loading ? 'Cargando...' : 'Refrescar'}
+            {loading ? 'Sincronizando...' : 'Sincronizar desde Sheets'}
           </button>
           <div className="text-right">
             <p className="text-sm text-finly-textSecondary">Fecha actual</p>

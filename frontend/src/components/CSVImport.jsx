@@ -128,7 +128,7 @@ function CSVImport({ addMultipleTransactions }) {
         await addMultipleTransactions(window.formattedTransactions);
         setMessage({ 
           type: 'success', 
-          text: `✅ ${window.formattedTransactions.length} transacciones guardadas en Google Sheets` 
+          text: `✅ ${window.formattedTransactions.length} transacciones guardadas exitosamente` 
         });
         
         // Reset
@@ -140,7 +140,7 @@ function CSVImport({ addMultipleTransactions }) {
       } catch (error) {
         setMessage({ 
           type: 'error', 
-          text: '❌ Error al conectar con Google Sheets. Verifica tu conexión.' 
+          text: '❌ Error al guardar las transacciones. Verifica tu conexión con el servidor.' 
         });
       }
     }
