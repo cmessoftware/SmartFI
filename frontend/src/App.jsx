@@ -33,13 +33,13 @@ function App() {
     }
   }, []);
 
-  const loadTransactions = async () => {
+  const loadTransactions = async (force = false) => {
     try {
       setLoading(true);
       
       // Try to load from localStorage cache first (for instant UI)
       const cachedTransactions = localStorage.getItem('transactions_cache');
-      if (cachedTransactions) {
+      if (cachedTransactions && !force) {
         setTransactions(JSON.parse(cachedTransactions));
         console.log('⚡ Loaded from cache');
       }
@@ -47,8 +47,8 @@ function App() {
       // First, sync from Google Sheets to PostgreSQL (if user has write permissions)
       if (user && (user.role === 'admin' || user.role === 'writer')) {
         try {
-          console.log('🔄 Syncing from Google Sheets to PostgreSQL...');
-          const syncResponse = await transactionsAPI.syncFromSheets();
+          console.log(`🔄 Syncing from Google Sheets to PostgreSQL${force ? ' (FORCE MODE)' : ''}...`);
+          const syncResponse = await transactionsAPI.syncFromSheets(force);
           console.log(`✅ Sync completed:`, syncResponse.data);
         } catch (syncError) {
           // If sync fails, continue to load from DB

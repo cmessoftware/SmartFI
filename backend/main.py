@@ -377,9 +377,14 @@ async def migrate_transactions(
 
 @app.post("/api/transactions/sync-from-sheets")
 async def sync_from_sheets(
+    force: bool = False,
     current_user: User = Depends(require_role(["admin", "writer"]))
 ):
-    """Sync transactions from Google Sheets to PostgreSQL"""
+    """Sync transactions from Google Sheets to PostgreSQL
+    
+    Args:
+        force: If True, clears PostgreSQL and resyncs all transactions from Sheets
+    """
     if not sheets_service:
         raise HTTPException(status_code=503, detail="Google Sheets not configured")
     
@@ -399,35 +404,54 @@ async def sync_from_sheets(
                 "skipped_count": 0
             }
         
-        # Get existing transactions from PostgreSQL to avoid duplicates
-        print("📥 Fetching existing transactions from PostgreSQL...")
-        db_transactions = database_service.get_all_transactions()
-        print(f"✅ Found {len(db_transactions)} existing transactions in PostgreSQL")
-        
-        # Build set of existing transaction fingerprints (fecha + monto + categoria)
-        # Since Google Sheets IDs are row numbers, we can't rely on them
-        existing_fingerprints = set()
-        for t in db_transactions:
-            fingerprint = f"{t.get('fecha')}_{t.get('monto')}_{t.get('categoria')}_{t.get('detalle', '')}"
-            existing_fingerprints.add(fingerprint)
-        
-        # Filter new transactions
-        new_transactions = []
-        skipped = 0
-        
-        for t in sheets_transactions:
-            # Create fingerprint
-            fingerprint = f"{t.get('fecha')}_{t.get('monto')}_{t.get('categoria')}_{t.get('detalle', '')}"
+        # If force mode, clear the database first
+        if force:
+            print("⚠️ FORCE MODE: Clearing PostgreSQL database...")
+            # Delete all transactions
+            db_transactions = database_service.get_all_transactions()
+            for t in db_transactions:
+                try:
+                    database_service.delete_transaction(t.get('id'))
+                except:
+                    pass
+            print(f"✅ Cleared {len(db_transactions)} transactions from PostgreSQL")
+            existing_fingerprints = set()
+            new_transactions = sheets_transactions
+            skipped = 0
+        else:
+            # Get existing transactions from PostgreSQL to avoid duplicates
+            print("📥 Fetching existing transactions from PostgreSQL...")
+            db_transactions = database_service.get_all_transactions()
+            print(f"✅ Found {len(db_transactions)} existing transactions in PostgreSQL")
             
-            if fingerprint in existing_fingerprints:
-                skipped += 1
-                continue
+            # Build set of existing transaction fingerprints (fecha + monto + categoria + detalle)
+            # Since Google Sheets IDs are row numbers, we can't rely on them
+            existing_fingerprints = set()
+            for t in db_transactions:
+                fingerprint = f"{t.get('fecha')}_{t.get('monto')}_{t.get('categoria')}_{t.get('detalle', '')}"
+                existing_fingerprints.add(fingerprint)
+                
+            print(f"📊 Sample fingerprints from DB (first 3):")
+            for i, fp in enumerate(list(existing_fingerprints)[:3]):
+                print(f"  {i+1}. {fp}")
             
-            # Ensure forma_pago field exists
-            if 'forma_pago' not in t:
-                t['forma_pago'] = 'Débito'  # Default value
+            # Filter new transactions
+            new_transactions = []
+            skipped = 0
             
-            new_transactions.append(t)
+            for t in sheets_transactions:
+                # Create fingerprint
+                fingerprint = f"{t.get('fecha')}_{t.get('monto')}_{t.get('categoria')}_{t.get('detalle', '')}"
+                
+                if fingerprint in existing_fingerprints:
+                    skipped += 1
+                    continue
+                
+                # Ensure forma_pago field exists
+                if 'forma_pago' not in t:
+                    t['forma_pago'] = 'Débito'  # Default value
+                
+                new_transactions.append(t)
         
         # Save new transactions to PostgreSQL
         if new_transactions:
@@ -467,6 +491,46 @@ async def sync_from_sheets(
             
     except Exception as e:
         print(f"❌ Error syncing from Google Sheets: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/transactions/debug-sync")
+async def debug_sync_status(
+    current_user: User = Depends(require_role(["admin"]))
+):
+    """Debug endpoint to see what's in Sheets vs PostgreSQL"""
+    if not sheets_service or not database_service:
+        raise HTTPException(status_code=503, detail="Services not configured")
+    
+    try:
+        sheets_txs = sheets_service.get_all_transactions()
+        db_txs = database_service.get_all_transactions()
+        
+        sheets_fingerprints = set()
+        for t in sheets_txs:
+            fp = f"{t.get('fecha')}_{t.get('monto')}_{t.get('categoria')}_{t.get('detalle', '')}"
+            sheets_fingerprints.add(fp)
+        
+        db_fingerprints = set()
+        for t in db_txs:
+            fp = f"{t.get('fecha')}_{t.get('monto')}_{t.get('categoria')}_{t.get('detalle', '')}"
+            db_fingerprints.add(fp)
+        
+        only_in_sheets = sheets_fingerprints - db_fingerprints
+        only_in_db = db_fingerprints - sheets_fingerprints
+        in_both = sheets_fingerprints & db_fingerprints
+        
+        return {
+            "total_in_sheets": len(sheets_txs),
+            "total_in_db": len(db_txs),
+            "only_in_sheets": len(only_in_sheets),
+            "only_in_db": len(only_in_db),
+            "in_both": len(in_both),
+            "sample_only_sheets": list(only_in_sheets)[:5],
+            "sample_only_db": list(only_in_db)[:5],
+            "sample_sheets_txs": sheets_txs[:5],
+            "sample_db_txs": db_txs[:5]
+        }
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.put("/api/transactions/{transaction_id}")

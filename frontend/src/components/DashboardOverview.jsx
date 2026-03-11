@@ -1,6 +1,30 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { transactionsAPI } from '../services/api';
 
 function DashboardOverview({ transactions, user, refreshTransactions, loading, setCurrentView }) {
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [syncStats, setSyncStats] = useState(null);
+  const [loadingStats, setLoadingStats] = useState(false);
+
+  const handleOpenSyncModal = async () => {
+    setShowSyncModal(true);
+    if (user.role === 'admin') {
+      setLoadingStats(true);
+      try {
+        const response = await transactionsAPI.debugSync();
+        setSyncStats(response.data);
+      } catch (error) {
+        console.error('Error loading sync stats:', error);
+      }
+      setLoadingStats(false);
+    }
+  };
+
+  const handleSync = async (force = false) => {
+    setShowSyncModal(false);
+    await refreshTransactions(force);
+  };
+
   const stats = useMemo(() => {
     const ingresos = transactions
       .filter(t => t.tipo === 'Ingreso')
@@ -34,7 +58,7 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
         </div>
         <div className="flex items-center gap-4">
           <button
-            onClick={refreshTransactions}
+            onClick={handleOpenSyncModal}
             disabled={loading}
             className="flex items-center gap-2 px-4 py-2 bg-finly-primary text-white rounded-lg hover:bg-finly-primaryHover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             title="Sincronizar datos desde Google Sheets"
@@ -204,6 +228,87 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
           <p className="text-finly-textSecondary">
             No hay transacciones aún. Agrega tu primera transacción para comenzar.
           </p>
+        </div>
+      )}
+
+      {/* Sync Modal */}
+      {showSyncModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl p-8 max-w-2xl w-full mx-4">
+            <h2 className="text-2xl font-bold text-finly-text mb-4">
+              Sincronizar con Google Sheets
+            </h2>
+            
+            {loadingStats ? (
+              <div className="text-center py-8">
+                <span className="animate-spin text-4xl">🔄</span>
+                <p className="mt-4 text-finly-textSecondary">Cargando estadísticas...</p>
+              </div>
+            ) : syncStats && (
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                <h3 className="font-semibold text-finly-text mb-3">📊 Estado Actual:</h3>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <p className="text-finly-textSecondary">En Google Sheets:</p>
+                    <p className="text-2xl font-bold text-finly-text">{syncStats.total_in_sheets}</p>
+                  </div>
+                  <div>
+                    <p className="text-finly-textSecondary">En PostgreSQL:</p>
+                    <p className="text-2xl font-bold text-finly-text">{syncStats.total_in_db}</p>
+                  </div>
+                  <div>
+                    <p className="text-finly-textSecondary">Solo en Sheets:</p>
+                    <p className="text-xl font-bold text-blue-600">{syncStats.only_in_sheets}</p>
+                  </div>
+                  <div>
+                    <p className="text-finly-textSecondary">Solo en DB:</p>
+                    <p className="text-xl font-bold text-orange-600">{syncStats.only_in_db}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <button
+                onClick={() => handleSync(false)}
+                className="w-full flex items-center justify-between p-4 border-2 border-finly-primary rounded-lg hover:bg-finly-dropzone transition"
+              >
+                <div className="text-left">
+                  <p className="font-semibold text-finly-text">Sincronización Normal</p>
+                  <p className="text-sm text-finly-textSecondary">
+                    Solo agrega transacciones nuevas desde Sheets
+                  </p>
+                </div>
+                <span className="text-2xl">🔄</span>
+              </button>
+
+              {user.role === 'admin' && (
+                <button
+                  onClick={() => {
+                    if (confirm('⚠️ Esto eliminará TODAS las transacciones de PostgreSQL y las recargará desde Google Sheets. ¿Estás seguro?')) {
+                      handleSync(true);
+                    }
+                  }}
+                  className="w-full flex items-center justify-between p-4 border-2 border-red-400 rounded-lg hover:bg-red-50 transition"
+                >
+                  <div className="text-left">
+                    <p className="font-semibold text-red-700">Sincronización Forzada (Admin)</p>
+                    <p className="text-sm text-red-600">
+                      ⚠️ Reemplaza TODAS las transacciones con las de Sheets
+                    </p>
+                  </div>
+                  <span className="text-2xl">🔥</span>
+                </button>
+              )}
+
+              <button
+                onClick={() => setShowSyncModal(false)}
+                className="w-full p-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-semibold"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
