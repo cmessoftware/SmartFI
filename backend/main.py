@@ -465,8 +465,8 @@ async def sync_from_sheets(
                     if 'id' in t_copy:
                         del t_copy['id']
                     
-                    success = database_service.save_transaction(t_copy)
-                    if success:
+                    transaction_id = database_service.add_transaction(t_copy)
+                    if transaction_id:
                         saved_count += 1
                 except Exception as e:
                     print(f"⚠️ Error saving transaction: {e}")
