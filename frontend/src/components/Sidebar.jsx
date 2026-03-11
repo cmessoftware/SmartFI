@@ -16,7 +16,7 @@ function Sidebar({ user, currentView, setCurrentView, onLogout }) {
           <img src="/logo.png" alt="Finly" className="w-12 h-12" />
           <div>
             <h1 className="text-xl font-bold text-finly-text">Finly</h1>
-            <p className="text-xs text-finly-textSecondary">v1.0.0.d1717</p>
+            <p className="text-xs text-finly-textSecondary">v1.0.0.b5dd1</p>
           </div>
         </div>
       </div>
