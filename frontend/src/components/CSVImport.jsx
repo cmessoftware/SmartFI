@@ -21,8 +21,9 @@ function CSVImport({ addMultipleTransactions }) {
       exampleRow.join(',')
     ].join('\n');
 
-    // Create blob and download
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    // Create blob with UTF-8 BOM for Excel compatibility
+    const BOM = '\uFEFF';
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     
@@ -42,6 +43,7 @@ function CSVImport({ addMultipleTransactions }) {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
+      encoding: 'UTF-8',
       complete: (results) => {
         if (results.data.length === 0) {
           setMessage({ type: 'error', text: 'El archivo CSV está vacío' });
