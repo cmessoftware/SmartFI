@@ -1,11 +1,62 @@
 import { Chart as ChartJS, ArcElement, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
 import { Pie, Bar } from 'react-chartjs-2';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
 function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) {
   const chartColors = ['#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#22C55E', '#3B82F6', '#EF4444'];
+  
+  // Filtros y ordenamiento
+  const [filterType, setFilterType] = useState('all');
+  const [filterCategory, setFilterCategory] = useState('all');
+  const [sortBy, setSortBy] = useState('fecha');
+  const [sortOrder, setSortOrder] = useState('desc');
+
+  // Obtener categorías únicas
+  const categories = useMemo(() => {
+    const uniqueCategories = [...new Set(transactions.map(t => t.categoria))];
+    return uniqueCategories.sort();
+  }, [transactions]);
+
+  // Aplicar filtros y ordenamiento
+  const filteredAndSortedTransactions = useMemo(() => {
+    let filtered = [...transactions];
+
+    // Aplicar filtros
+    if (filterType !== 'all') {
+      filtered = filtered.filter(t => t.tipo === filterType);
+    }
+    if (filterCategory !== 'all') {
+      filtered = filtered.filter(t => t.categoria === filterCategory);
+    }
+
+    // Aplicar ordenamiento
+    filtered.sort((a, b) => {
+      let compareValue = 0;
+      
+      switch (sortBy) {
+        case 'fecha':
+          compareValue = new Date(a.fecha) - new Date(b.fecha);
+          break;
+        case 'tipo':
+          compareValue = a.tipo.localeCompare(b.tipo);
+          break;
+        case 'categoria':
+          compareValue = a.categoria.localeCompare(b.categoria);
+          break;
+        case 'monto':
+          compareValue = (parseFloat(a.monto) || 0) - (parseFloat(b.monto) || 0);
+          break;
+        default:
+          compareValue = 0;
+      }
+
+      return sortOrder === 'asc' ? compareValue : -compareValue;
+    });
+
+    return filtered;
+  }, [transactions, filterType, filterCategory, sortBy, sortOrder]);
 
   const handleEdit = (transaction) => {
     if (onEdit) {
@@ -20,7 +71,7 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
   };
 
   const categoryData = useMemo(() => {
-    const gastos = transactions.filter(t => t.tipo === 'Gasto');
+    const gastos = filteredAndSortedTransactions.filter(t => t.tipo === 'Gasto');
     const grouped = gastos.reduce((acc, t) => {
       acc[t.categoria] = (acc[t.categoria] || 0) + (parseFloat(t.monto) || 0);
       return acc;
@@ -36,10 +87,10 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
         borderColor: '#fff'
       }]
     };
-  }, [transactions]);
+  }, [filteredAndSortedTransactions]);
 
   const dateData = useMemo(() => {
-    const grouped = transactions.reduce((acc, t) => {
+    const grouped = filteredAndSortedTransactions.reduce((acc, t) => {
       const monto = parseFloat(t.monto) || 0;
       acc[t.fecha] = (acc[t.fecha] || 0) + (t.tipo === 'Gasto' ? -monto : monto);
       return acc;
@@ -57,19 +108,19 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
         ),
       }]
     };
-  }, [transactions]);
+  }, [filteredAndSortedTransactions]);
 
   const stats = useMemo(() => {
-    const ingresos = transactions
+    const ingresos = filteredAndSortedTransactions
       .filter(t => t.tipo === 'Ingreso')
       .reduce((sum, t) => sum + (parseFloat(t.monto) || 0), 0);
-    const gastos = transactions
+    const gastos = filteredAndSortedTransactions
       .filter(t => t.tipo === 'Gasto')
       .reduce((sum, t) => sum + (parseFloat(t.monto) || 0), 0);
     const balance = ingresos - gastos;
 
     return { ingresos, gastos, balance };
-  }, [transactions]);
+  }, [filteredAndSortedTransactions]);
 
   return (
     <div className="space-y-6">
@@ -188,9 +239,99 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
       {/* Transaction List */}
       {transactions.length > 0 && (
         <div className="bg-white rounded-xl shadow-md p-6">
-          <h3 className="text-lg font-bold text-finly-text mb-4">
-            Últimas Transacciones
-          </h3>
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-lg font-bold text-finly-text">
+              Transacciones ({filteredAndSortedTransactions.length})
+            </h3>
+            <button
+              onClick={() => {
+                setFilterType('all');
+                setFilterCategory('all');
+                setSortBy('fecha');
+                setSortOrder('desc');
+              }}
+              className="text-sm text-finly-primary hover:text-finly-secondary font-semibold transition"
+            >
+              Limpiar Filtros
+            </button>
+          </div>
+
+          {/* Filtros y Ordenamiento */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 p-4 bg-gray-50 rounded-lg">
+            {/* Filtro por Tipo */}
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">
+                Filtrar por Tipo
+              </label>
+              <select
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary text-sm"
+              >
+                <option value="all">Todos</option>
+                <option value="Ingreso">Ingresos</option>
+                <option value="Gasto">Gastos</option>
+              </select>
+            </div>
+
+            {/* Filtro por Categoría */}
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">
+                Filtrar por Categoría
+              </label>
+              <select
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary text-sm"
+              >
+                <option value="all">Todas</option>
+                {categories.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Ordenar por */}
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">
+                Ordenar por
+              </label>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary text-sm"
+              >
+                <option value="fecha">Fecha</option>
+                <option value="tipo">Tipo</option>
+                <option value="categoria">Categoría</option>
+                <option value="monto">Monto</option>
+              </select>
+            </div>
+
+            {/* Orden */}
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">
+                Orden
+              </label>
+              <select
+                value={sortOrder}
+                onChange={(e) => setSortOrder(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary text-sm"
+              >
+                <option value="desc">
+                  {sortBy === 'fecha' ? 'Más reciente primero' : 
+                   sortBy === 'monto' ? 'Mayor a menor' : 
+                   'Z a A'}
+                </option>
+                <option value="asc">
+                  {sortBy === 'fecha' ? 'Más antiguo primero' : 
+                   sortBy === 'monto' ? 'Menor a mayor' : 
+                   'A a Z'}
+                </option>
+              </select>
+            </div>
+          </div>
+
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -204,7 +345,7 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
                 </tr>
               </thead>
               <tbody>
-                {transactions.slice().reverse().map((t, idx) => (
+                {filteredAndSortedTransactions.map((t, idx) => (
                   <tr key={t.id || idx} className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="py-3 px-4 text-sm text-finly-text">{t.fecha}</td>
                     <td className="py-3 px-4">
