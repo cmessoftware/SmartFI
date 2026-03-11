@@ -4,6 +4,17 @@
 Write-Host "🐳 === Finly - Docker Deployment ===" -ForegroundColor Cyan
 Write-Host ""
 
+# Get current commit hash
+try {
+    $commitHash = git log -1 --format=%h
+    $env:COMMIT_HASH = $commitHash
+    Write-Host "📌 Commit Hash: $commitHash" -ForegroundColor Magenta
+} catch {
+    $env:COMMIT_HASH = "dev"
+    Write-Host "⚠️  No se pudo obtener commit hash, usando 'dev'" -ForegroundColor Yellow
+}
+Write-Host ""
+
 # Check if Docker is running
 Write-Host "🔍 Verificando Docker..." -ForegroundColor Yellow
 try {

@@ -3,6 +3,10 @@
 # Stage 1: Build the React app
 FROM node:18-alpine AS builder
 
+# Argument for commit hash (from docker-compose or Render)
+ARG COMMIT_HASH
+ARG RENDER_GIT_COMMIT
+
 WORKDIR /app
 
 # Copy package files
@@ -14,7 +18,9 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build the app with default local URL (will be replaced at runtime)
+# Use RENDER_GIT_COMMIT if available (Render.com), otherwise use COMMIT_HASH, default to 'dev'
+ENV VITE_COMMIT_HASH=${RENDER_GIT_COMMIT:-${COMMIT_HASH:-dev}}
+RUN echo "Building with version: $VITE_COMMIT_HASH"
 RUN npm run build
 
 # Stage 2: Serve with nginx
