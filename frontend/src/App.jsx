@@ -27,25 +27,53 @@ function App() {
     const storedUser = localStorage.getItem('user');
     const storedToken = localStorage.getItem('token');
     if (storedUser && storedToken) {
-      setUser(JSON.parse(storedUser));
-      // Load transactions from backend
-      loadTransactions();
+      const userData = JSON.parse(storedUser);
+      setUser(userData);
+      // Load transactions from backend (no sync on startup)
+      loadTransactionsFromDB();
     }
   }, []);
 
-  const loadTransactions = async (force = false) => {
+  // Load transactions from PostgreSQL only (no sync)
+  const loadTransactionsFromDB = async () => {
     try {
       setLoading(true);
       
       // Try to load from localStorage cache first (for instant UI)
       const cachedTransactions = localStorage.getItem('transactions_cache');
-      if (cachedTransactions && !force) {
+      if (cachedTransactions) {
         setTransactions(JSON.parse(cachedTransactions));
         console.log('⚡ Loaded from cache');
       }
       
-      // First, sync from Google Sheets to PostgreSQL (if user has write permissions)
-      if (user && (user.role === 'admin' || user.role === 'writer')) {
+      // Fetch from PostgreSQL (source of truth)
+      const response = await transactionsAPI.getTransactions();
+      const backendTransactions = response.data || [];
+      
+      setTransactions(backendTransactions);
+      // Update cache
+      localStorage.setItem('transactions_cache', JSON.stringify(backendTransactions));
+      console.log(`✅ Loaded ${backendTransactions.length} transactions from PostgreSQL`);
+      
+    } catch (error) {
+      console.error('❌ Error loading transactions:', error);
+      // Only show alert if we don't have cached data
+      const cachedTransactions = localStorage.getItem('transactions_cache');
+      if (!cachedTransactions) {
+        console.warn('No cached data available. Unable to load transactions.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load transactions WITH sync from Google Sheets (admin only)
+  const loadTransactions = async (force = false) => {
+    try {
+      setLoading(true);
+      
+      // Sync from Google Sheets to PostgreSQL (admin only)
+      if (user && user.role === 'admin') {
         try {
           console.log(`🔄 Syncing from Google Sheets to PostgreSQL${force ? ' (FORCE MODE)' : ''}...`);
           const syncResponse = await transactionsAPI.syncFromSheets(force);
@@ -56,7 +84,7 @@ function App() {
         }
       }
       
-      // Then fetch from PostgreSQL (source of truth)
+      // Fetch from PostgreSQL (source of truth)
       const response = await transactionsAPI.getTransactions();
       const backendTransactions = response.data || [];
       
@@ -81,6 +109,8 @@ function App() {
     setUser(userData);
     localStorage.setItem('user', JSON.stringify(userData));
     localStorage.setItem('token', token);
+    // Load transactions immediately after login
+    loadTransactionsFromDB();
   };
 
   const handleLogout = () => {

@@ -57,15 +57,17 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
           </p>
         </div>
         <div className="flex items-center gap-4">
-          <button
-            onClick={handleOpenSyncModal}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-finly-primary text-white rounded-lg hover:bg-finly-primaryHover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Sincronizar datos desde Google Sheets"
-          >
-            <span className={loading ? 'animate-spin' : ''}>🔄</span>
-            {loading ? 'Sincronizando...' : 'Sincronizar desde Sheets'}
-          </button>
+          {user.role === 'admin' && (
+            <button
+              onClick={handleOpenSyncModal}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 bg-finly-primary text-white rounded-lg hover:bg-finly-primaryHover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Sincronizar datos desde Google Sheets (Solo Admin)"
+            >
+              <span className={loading ? 'animate-spin' : ''}>🔄</span>
+              {loading ? 'Sincronizando...' : 'Sincronizar desde Sheets'}
+            </button>
+          )}
           <div className="text-right">
             <p className="text-sm text-finly-textSecondary">Fecha actual</p>
             <p className="text-lg font-semibold text-finly-text">
