@@ -493,6 +493,113 @@ async def sync_from_sheets(
         print(f"❌ Error syncing from Google Sheets: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/transactions/sync-to-sheets")
+async def sync_to_sheets(
+    force: bool = False,
+    current_user: User = Depends(require_role(["admin"]))
+):
+    """Sync transactions from PostgreSQL to Google Sheets
+    
+    Args:
+        force: If True, clears Google Sheets and resyncs all transactions from PostgreSQL
+    """
+    if not sheets_service:
+        raise HTTPException(status_code=503, detail="Google Sheets not configured")
+    
+    if not database_service:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    
+    try:
+        # Get transactions from PostgreSQL
+        print("📥 Fetching transactions from PostgreSQL...")
+        db_transactions = database_service.get_all_transactions()
+        print(f"✅ Found {len(db_transactions)} transactions in PostgreSQL")
+        
+        if not db_transactions:
+            return {
+                "message": "No transactions found in PostgreSQL",
+                "synced_count": 0,
+                "skipped_count": 0
+            }
+        
+        # Get transactions from Google Sheets
+        print("📥 Fetching transactions from Google Sheets...")
+        sheets_transactions = sheets_service.get_all_transactions()
+        print(f"✅ Found {len(sheets_transactions)} transactions in Google Sheets")
+        
+        # If force mode, clear Google Sheets first
+        if force:
+            print("⚠️ FORCE MODE: Clearing Google Sheets...")
+            # Clear all rows except header
+            if hasattr(sheets_service, 'clear_all_transactions'):
+                sheets_service.clear_all_transactions()
+            else:
+                # Fallback: delete all transactions one by one
+                for t in sheets_transactions:
+                    try:
+                        if 'id' in t:
+                            sheets_service.delete_transaction(t['id'])
+                    except:
+                        pass
+            print(f"✅ Cleared {len(sheets_transactions)} transactions from Google Sheets")
+            existing_fingerprints = set()
+            new_transactions = db_transactions
+            skipped = 0
+        else:
+            # Build set of existing transaction fingerprints in Sheets
+            existing_fingerprints = set()
+            for t in sheets_transactions:
+                fingerprint = f"{t.get('fecha')}_{t.get('monto')}_{t.get('categoria')}_{t.get('detalle', '')}"
+                existing_fingerprints.add(fingerprint)
+            
+            # Filter new transactions
+            new_transactions = []
+            skipped = 0
+            
+            for t in db_transactions:
+                fingerprint = f"{t.get('fecha')}_{t.get('monto')}_{t.get('categoria')}_{t.get('detalle', '')}"
+                
+                if fingerprint in existing_fingerprints:
+                    skipped += 1
+                    continue
+                
+                new_transactions.append(t)
+        
+        # Save new transactions to Google Sheets
+        if new_transactions:
+            print(f"💾 Saving {len(new_transactions)} new transactions to Google Sheets...")
+            saved_count = 0
+            
+            for t in new_transactions:
+                try:
+                    success = sheets_service.add_transaction(t)
+                    if success:
+                        saved_count += 1
+                except Exception as e:
+                    print(f"⚠️ Error saving transaction to Sheets: {e}")
+                    continue
+            
+            print(f"✅ Synced {saved_count} new transactions from PostgreSQL to Google Sheets")
+            return {
+                "message": f"Successfully synced {saved_count} transactions to Google Sheets",
+                "synced_count": saved_count,
+                "skipped_count": skipped,
+                "total_db": len(db_transactions),
+                "total_sheets": len(sheets_transactions) + saved_count
+            }
+        else:
+            return {
+                "message": "All PostgreSQL transactions already exist in Google Sheets",
+                "synced_count": 0,
+                "skipped_count": skipped,
+                "total_db": len(db_transactions),
+                "total_sheets": len(sheets_transactions)
+            }
+            
+    except Exception as e:
+        print(f"❌ Error syncing to Google Sheets: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/transactions/debug-sync")
 async def debug_sync_status(
     current_user: User = Depends(require_role(["admin"]))

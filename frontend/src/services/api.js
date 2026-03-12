@@ -58,6 +58,7 @@ export const transactionsAPI = {
   importCSV: (data) => api.post('/api/transactions/import', data),
   migrateFromLocalStorage: (data) => api.post('/api/transactions/migrate', data),
   syncFromSheets: (force = false) => api.post(`/api/transactions/sync-from-sheets?force=${force}`),
+  syncToSheets: (force = false) => api.post(`/api/transactions/sync-to-sheets?force=${force}`),
   debugSync: () => api.get('/api/transactions/debug-sync'),
   updateTransaction: (id, transaction) => api.put(`/api/transactions/${id}`, transaction),
   deleteTransaction: (id) => api.delete(`/api/transactions/${id}`),

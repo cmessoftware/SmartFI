@@ -20,9 +20,23 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
     }
   };
 
-  const handleSync = async (force = false) => {
+  const handleSyncFromSheets = async (force = false) => {
     setShowSyncModal(false);
     await refreshTransactions(force);
+  };
+
+  const handleSyncToSheets = async (force = false) => {
+    setShowSyncModal(false);
+    try {
+      const response = await transactionsAPI.syncToSheets(force);
+      console.log('✅ Sync to Sheets completed:', response.data);
+      alert(`✅ Sincronización completada:\n\n${response.data.message}\n\nSincronizados: ${response.data.synced_count}\nOmitidos: ${response.data.skipped_count}\nTotal en DB: ${response.data.total_db}\nTotal en Sheets: ${response.data.total_sheets}`);
+      // Refresh to show updated data
+      await refreshTransactions(false);
+    } catch (error) {
+      console.error('❌ Error syncing to Sheets:', error);
+      alert(`❌ Error al sincronizar: ${error.response?.data?.detail || error.message}`);
+    }
   };
 
   const stats = useMemo(() => {
@@ -238,8 +252,11 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-2xl p-8 max-w-2xl w-full mx-4">
             <h2 className="text-2xl font-bold text-finly-text mb-4">
-              Sincronizar con Google Sheets
+              Sincronización con Google Sheets
             </h2>
+            <p className="text-sm text-finly-textSecondary mb-6">
+              PostgreSQL es la base de datos principal. Google Sheets funciona como backup y para compartir datos.
+            </p>
             
             {loadingStats ? (
               <div className="text-center py-8">
@@ -270,38 +287,86 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
               </div>
             )}
 
-            <div className="space-y-4">
-              <button
-                onClick={() => handleSync(false)}
-                className="w-full flex items-center justify-between p-4 border-2 border-finly-primary rounded-lg hover:bg-finly-dropzone transition"
-              >
-                <div className="text-left">
-                  <p className="font-semibold text-finly-text">Sincronización Normal</p>
-                  <p className="text-sm text-finly-textSecondary">
-                    Solo agrega transacciones nuevas desde Sheets
-                  </p>
-                </div>
-                <span className="text-2xl">🔄</span>
-              </button>
+            <div className="space-y-6">
+              {/* Sheets → PostgreSQL */}
+              <div className="border-2 border-blue-200 rounded-lg p-4 bg-blue-50">
+                <h3 className="font-bold text-blue-900 mb-3 flex items-center gap-2">
+                  <span>📥</span> Desde Google Sheets → PostgreSQL
+                </h3>
+                <div className="space-y-2">
+                  <button
+                    onClick={() => handleSyncFromSheets(false)}
+                    className="w-full flex items-center justify-between p-3 border-2 border-blue-400 rounded-lg hover:bg-blue-100 transition bg-white"
+                  >
+                    <div className="text-left">
+                      <p className="font-semibold text-finly-text">Sincronización Normal</p>
+                      <p className="text-xs text-finly-textSecondary">
+                        Agrega solo transacciones nuevas desde Sheets
+                      </p>
+                    </div>
+                    <span className="text-2xl">🔄</span>
+                  </button>
 
-              {user.role === 'admin' && (
-                <button
-                  onClick={() => {
-                    if (confirm('⚠️ Esto eliminará TODAS las transacciones de PostgreSQL y las recargará desde Google Sheets. ¿Estás seguro?')) {
-                      handleSync(true);
-                    }
-                  }}
-                  className="w-full flex items-center justify-between p-4 border-2 border-red-400 rounded-lg hover:bg-red-50 transition"
-                >
-                  <div className="text-left">
-                    <p className="font-semibold text-red-700">Sincronización Forzada (Admin)</p>
-                    <p className="text-sm text-red-600">
-                      ⚠️ Reemplaza TODAS las transacciones con las de Sheets
-                    </p>
-                  </div>
-                  <span className="text-2xl">🔥</span>
-                </button>
-              )}
+                  {user.role === 'admin' && (
+                    <button
+                      onClick={() => {
+                        if (confirm('⚠️ Esto ELIMINARÁ todas las transacciones de PostgreSQL y las recargará desde Google Sheets. ¿Continuar?')) {
+                          handleSyncFromSheets(true);
+                        }
+                      }}
+                      className="w-full flex items-center justify-between p-3 border-2 border-red-400 rounded-lg hover:bg-red-50 transition bg-white"
+                    >
+                      <div className="text-left">
+                        <p className="font-semibold text-red-700">Forzar Reemplazo Total</p>
+                        <p className="text-xs text-red-600">
+                          ⚠️ Reemplaza TODO con datos de Sheets
+                        </p>
+                      </div>
+                      <span className="text-2xl">🔥</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* PostgreSQL → Sheets */}
+              <div className="border-2 border-green-200 rounded-lg p-4 bg-green-50">
+                <h3 className="font-bold text-green-900 mb-3 flex items-center gap-2">
+                  <span>📤</span> Desde PostgreSQL → Google Sheets
+                </h3>
+                <div className="space-y-2">
+                  <button
+                    onClick={() => handleSyncToSheets(false)}
+                    className="w-full flex items-center justify-between p-3 border-2 border-green-400 rounded-lg hover:bg-green-100 transition bg-white"
+                  >
+                    <div className="text-left">
+                      <p className="font-semibold text-finly-text">Sincronización Normal</p>
+                      <p className="text-xs text-finly-textSecondary">
+                        Agrega solo transacciones nuevas a Sheets
+                      </p>
+                    </div>
+                    <span className="text-2xl">⬆️</span>
+                  </button>
+
+                  {user.role === 'admin' && (
+                    <button
+                      onClick={() => {
+                        if (confirm('⚠️ Esto ELIMINARÁ todas las transacciones de Google Sheets y las recargará desde PostgreSQL. ¿Continuar?')) {
+                          handleSyncToSheets(true);
+                        }
+                      }}
+                      className="w-full flex items-center justify-between p-3 border-2 border-red-400 rounded-lg hover:bg-red-50 transition bg-white"
+                    >
+                      <div className="text-left">
+                        <p className="font-semibold text-red-700">Forzar Reemplazo Total</p>
+                        <p className="text-xs text-red-600">
+                          ⚠️ Reemplaza TODO en Sheets con datos de DB
+                        </p>
+                      </div>
+                      <span className="text-2xl">🔥</span>
+                    </button>
+                  )}
+                </div>
+              </div>
 
               <button
                 onClick={() => setShowSyncModal(false)}
