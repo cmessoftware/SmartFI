@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useToast } from './ToastContainer';
+import ConfirmDialog from './ConfirmDialog';
 
 function AdminPanel() {
   const [activeTab, setActiveTab] = useState('users');
@@ -18,6 +20,8 @@ function AdminPanel() {
   const [editingItem, setEditingItem] = useState(null);
   const [formData, setFormData] = useState({ username: '', full_name: '', role: 'reader', password: '' });
   const [newCategory, setNewCategory] = useState('');
+  const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, onConfirm: null, title: '', message: '' });
+  const toast = useToast();
 
   const roles = ['admin', 'writer', 'reader'];
 
@@ -37,24 +41,32 @@ function AdminPanel() {
 
   const handleDeleteUser = (username) => {
     if (username === 'admin') {
-      alert('No se puede eliminar el usuario administrador');
+      toast.warning('No se puede eliminar el usuario administrador');
       return;
     }
-    if (confirm(`¿Estás seguro de eliminar al usuario ${username}?`)) {
-      setUsers(users.filter(u => u.username !== username));
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Eliminar Usuario',
+      message: `¿Estás seguro de eliminar al usuario ${username}?`,
+      onConfirm: () => {
+        setUsers(users.filter(u => u.username !== username));
+        toast.success('Usuario eliminado correctamente');
+      }
+    });
   };
 
   const handleSaveUser = (e) => {
     e.preventDefault();
     if (editingItem) {
       setUsers(users.map(u => u.username === editingItem.username ? { ...formData, password: undefined } : u));
+      toast.success('Usuario actualizado correctamente');
     } else {
       if (users.find(u => u.username === formData.username)) {
-        alert('El nombre de usuario ya existe');
+        toast.error('El nombre de usuario ya existe');
         return;
       }
       setUsers([...users, { ...formData, password: undefined }]);
+      toast.success('Usuario creado correctamente');
     }
     setShowModal(false);
   };
@@ -292,6 +304,15 @@ function AdminPanel() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        type="danger"
+      />
     </div>
   );
 }

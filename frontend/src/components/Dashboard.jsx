@@ -5,12 +5,14 @@ import CSVImport from './CSVImport';
 import AdminPanel from './AdminPanel';
 import DashboardOverview from './DashboardOverview';
 import EditTransactionModal from './EditTransactionModal';
+import { useToast } from './ToastContainer';
 import { transactionsAPI } from '../services/api';
 
 function Dashboard({ currentView, user, transactions, addTransaction, addMultipleTransactions, updateTransaction, deleteTransaction, refreshTransactions, loading, setCurrentView }) {
   const [editingTransaction, setEditingTransaction] = useState(null);
   const [categories, setCategories] = useState([]);
   const [necessityTypes, setNecessityTypes] = useState([]);
+  const toast = useToast();
 
   useEffect(() => {
     loadFormData();
@@ -37,9 +39,9 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
     try {
       await updateTransaction(updatedTransaction.id, updatedTransaction);
       setEditingTransaction(null);
-      alert('✅ Transacción actualizada correctamente');
+      toast.success('Transacción actualizada correctamente');
     } catch (error) {
-      alert('❌ Error al actualizar la transacción');
+      toast.error('Error al actualizar la transacción');
       console.error(error);
     }
   };
@@ -47,9 +49,9 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
   const handleDelete = async (transaction) => {
     try {
       await deleteTransaction(transaction.id);
-      alert('✅ Transacción eliminada correctamente');
+      toast.success('Transacción eliminada correctamente');
     } catch (error) {
-      alert('❌ Error al eliminar la transacción');
+      toast.error('Error al eliminar la transacción');
       console.error(error);
     }
   };

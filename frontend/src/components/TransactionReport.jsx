@@ -1,6 +1,7 @@
 import { Chart as ChartJS, ArcElement, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
 import { Pie, Bar } from 'react-chartjs-2';
 import { useMemo, useState } from 'react';
+import ConfirmDialog from './ConfirmDialog';
 
 ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
@@ -12,6 +13,7 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
   const [filterCategory, setFilterCategory] = useState('all');
   const [sortBy, setSortBy] = useState('fecha');
   const [sortOrder, setSortOrder] = useState('desc');
+  const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, onConfirm: null, transaction: null });
 
   // Obtener categorías únicas
   const categories = useMemo(() => {
@@ -65,8 +67,14 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
   };
 
   const handleDelete = (transaction) => {
-    if (onDelete && window.confirm(`¿Estás seguro de eliminar esta transacción?\n\nFecha: ${transaction.fecha}\nMonto: $${transaction.monto}\nDetalle: ${transaction.detalle || 'Sin detalle'}`)) {
-      onDelete(transaction);
+    if (onDelete) {
+      setConfirmDialog({
+        isOpen: true,
+        transaction,
+        onConfirm: () => {
+          onDelete(transaction);
+        }
+      });
     }
   };
 
@@ -395,6 +403,19 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+        onConfirm={confirmDialog.onConfirm}
+        title="Eliminar Transacción"
+        message={confirmDialog.transaction ? 
+          `¿Estás seguro de eliminar esta transacción?\n\nFecha: ${confirmDialog.transaction.fecha}\nMonto: $${confirmDialog.transaction.monto}\nDetalle: ${confirmDialog.transaction.detalle || 'Sin detalle'}` 
+          : ''
+        }
+        type="danger"
+        confirmText="Eliminar"
+      />
     </div>
   );
 }

@@ -1,10 +1,14 @@
 import { useMemo, useState } from 'react';
+import { useToast } from './ToastContainer';
+import ConfirmDialog from './ConfirmDialog';
 import { transactionsAPI } from '../services/api';
 
 function DashboardOverview({ transactions, user, refreshTransactions, loading, setCurrentView }) {
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [syncStats, setSyncStats] = useState(null);
   const [loadingStats, setLoadingStats] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, onConfirm: null, title: '', message: '' });
+  const toast = useToast();
 
   const handleOpenSyncModal = async () => {
     setShowSyncModal(true);
@@ -30,12 +34,15 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
     try {
       const response = await transactionsAPI.syncToSheets(force);
       console.log('✅ Sync to Sheets completed:', response.data);
-      alert(`✅ Sincronización completada:\n\n${response.data.message}\n\nSincronizados: ${response.data.synced_count}\nOmitidos: ${response.data.skipped_count}\nTotal en DB: ${response.data.total_db}\nTotal en Sheets: ${response.data.total_sheets}`);
+      toast.success(
+        `Sincronización completada\n\nTransacciones sincronizadas: ${response.data.synced_count}\nOmitidas (ya existían): ${response.data.skipped_count}\n\nTotal en PostgreSQL: ${response.data.total_db}\nTotal en Google Sheets: ${response.data.total_sheets}`,
+        7000
+      );
       // Refresh to show updated data
       await refreshTransactions(false);
     } catch (error) {
       console.error('❌ Error syncing to Sheets:', error);
-      alert(`❌ Error al sincronizar: ${error.response?.data?.detail || error.message}`);
+      toast.error(`Error al sincronizar: ${error.response?.data?.detail || error.message}`, 7000);
     }
   };
 
@@ -310,9 +317,12 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
                   {user.role === 'admin' && (
                     <button
                       onClick={() => {
-                        if (confirm('⚠️ Esto ELIMINARÁ todas las transacciones de PostgreSQL y las recargará desde Google Sheets. ¿Continuar?')) {
-                          handleSyncFromSheets(true);
-                        }
+                        setConfirmDialog({
+                          isOpen: true,
+                          title: 'Sincronización Forzada desde Sheets',
+                          message: 'Esto ELIMINARÁ todas las transacciones de PostgreSQL y las recargará desde Google Sheets.\n\n¿Estás seguro de continuar?',
+                          onConfirm: () => handleSyncFromSheets(true)
+                        });
                       }}
                       className="w-full flex items-center justify-between p-3 border-2 border-red-400 rounded-lg hover:bg-red-50 transition bg-white"
                     >
@@ -350,9 +360,12 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
                   {user.role === 'admin' && (
                     <button
                       onClick={() => {
-                        if (confirm('⚠️ Esto ELIMINARÁ todas las transacciones de Google Sheets y las recargará desde PostgreSQL. ¿Continuar?')) {
-                          handleSyncToSheets(true);
-                        }
+                        setConfirmDialog({
+                          isOpen: true,
+                          title: 'Sincronización Forzada a Sheets',
+                          message: 'Esto ELIMINARÁ todas las transacciones de Google Sheets y las recargará desde PostgreSQL.\n\n¿Estás seguro de continuar?',
+                          onConfirm: () => handleSyncToSheets(true)
+                        });
                       }}
                       className="w-full flex items-center justify-between p-3 border-2 border-red-400 rounded-lg hover:bg-red-50 transition bg-white"
                     >
@@ -378,6 +391,16 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        type="danger"
+        confirmText="Continuar"
+      />
     </div>
   );
 }

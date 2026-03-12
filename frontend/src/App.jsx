@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import Sidebar from './components/Sidebar';
+import { ToastProvider } from './components/ToastContainer';
 import { transactionsAPI } from './services/api';
 
 function App() {
@@ -186,32 +187,38 @@ function App() {
   };
 
   if (!user) {
-    return <Login onLogin={handleLogin} />;
+    return (
+      <ToastProvider>
+        <Login onLogin={handleLogin} />
+      </ToastProvider>
+    );
   }
 
   return (
-    <div className="flex h-screen bg-finly-bg">
-      <Sidebar 
-        user={user} 
-        currentView={currentView} 
-        setCurrentView={setCurrentView}
-        onLogout={handleLogout}
-      />
-      <main className="flex-1 overflow-y-auto">
-        <Dashboard 
-          currentView={currentView}
-          user={user}
-          transactions={transactions}
-          addTransaction={addTransaction}
-          addMultipleTransactions={addMultipleTransactions}
-          updateTransaction={updateTransaction}
-          deleteTransaction={deleteTransaction}
-          refreshTransactions={loadTransactions}
-          loading={loading}
+    <ToastProvider>
+      <div className="flex h-screen bg-finly-bg">
+        <Sidebar 
+          user={user} 
+          currentView={currentView} 
           setCurrentView={setCurrentView}
+          onLogout={handleLogout}
         />
-      </main>
-    </div>
+        <main className="flex-1 overflow-y-auto">
+          <Dashboard 
+            currentView={currentView}
+            user={user}
+            transactions={transactions}
+            addTransaction={addTransaction}
+            addMultipleTransactions={addMultipleTransactions}
+            updateTransaction={updateTransaction}
+            deleteTransaction={deleteTransaction}
+            refreshTransactions={loadTransactions}
+            loading={loading}
+            setCurrentView={setCurrentView}
+          />
+        </main>
+      </div>
+    </ToastProvider>
   );
 }
 
