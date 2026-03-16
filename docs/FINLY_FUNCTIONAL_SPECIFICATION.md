@@ -923,7 +923,7 @@ This design enables Finly to function as a financial planning system, not only a
 
 # ROADMAP DE IMPLEMENTACIÓN
 
-## Fase 1: Migración del Modelo de Datos (Sprint 4.1)
+## Fase 1: Migración del Modelo de Datos + Forecast Balance (Sprint 4.1)
 
 ### Tareas Backend:
 - [ ] Crear tabla `budget_items` con campos especificados
@@ -939,70 +939,61 @@ This design enables Finly to function as a financial planning system, not only a
 - [ ] Agregar selector de tipo de flujo (Ingreso/Gasto)
 - [ ] Nueva UI para items estimados vs confirmados
 
-**Estimación:** 3-5 días  
-**Criterio de éxito:** Migración sin pérdida de datos, endpoints actuales siguen funcionando
+### ✅ Forecast Balance Dashboard (COMPLETADO)
+- [x] Widget "Balance Pendiente" en Dashboard
+- [x] Fórmula: `Balance Pendiente = Ingresos - (Gastos + Presupuesto Pendiente)`
+- [x] Integración con `debtsAPI.getDebtSummary()`
+- [x] UI: Grid de 5 columnas, icono 🎯, colores condicionales
+- [x] Actualización automática con cambios en transacciones
+- [x] **Ver detalles:** PARTE I - Sección F. Widget de Forecast Balance
+
+**Estimación:** 5 días (3-5 migración + forecast ya completado)  
+**Criterio de éxito:** Migración sin pérdida de datos, endpoints funcionando, forecast balance operativo ✅
 
 ---
 
-## ~~Fase 2: Forecast Balance Dashboard~~ ✅ IMPLEMENTADO
-
-**Estado:** Completado como widget "Balance Pendiente" en Dashboard.  
-**Ver:** PARTE I - Sección F. Widget de Forecast Balance
-
----
-
-## Fase 2: Importación CSV de Presupuestos (Sprint 4.2)
+## Fase 2: Importación CSV de Presupuestos (Sprint 4.2) ✅ COMPLETADO
 
 ### Funcionalidad:
-Cargar presupuestos masivamente desde CSV, reutilizando el componente existente de importación de transacciones.
+Cargar presupuestos masivamente desde CSV, reutilizando componente similar a importación de transacciones.
 
-### Implementación:
-- [ ] Backend: Endpoint `POST /api/budget/import-csv`
-  - Validar formato CSV
-  - Mapeo de columnas flexible
-  - Importar en batch con transacción
-  - Retornar estadísticas (agregados, errores, omitidos)
-- [ ] Frontend: Extensión de componente `CSVImport` existente
-  - Reutilizar UI actual de mapeo de columnas
-  - Plantilla descargable específica para presupuestos
-  - Vista previa antes de importar
-  - Validación de campos requeridos
+### ✅ Implementación Completada:
+- [x] **Back end:** Endpoint `POST /api/debts/import-csv`
+  - Valida y procesa lista de items de presupuesto
+  - Importación en batch con manejo de errores individual
+  - Retorna estadísticas: `{added, total, errors[]}`
+  - Requiere autenticación (roles: admin, writer)
+  - Maneja errores por fila sin detener importación completa
 
-### Formato CSV:
+- [x] **Frontend:** Componente `BudgetCSVImport.jsx`
+  - Drag & drop o selección de archivo CSV
+  - Mapeo flexible de columnas con preview
+  - Campos requeridos: detalle, monto_total, fecha_vencimiento
+  - Campos opcionales: tipo, categoría
+  - Plantilla descargable con ejemplos
+  - Vista previa de primeros 5 items
+  - Formateo automático de montos (AR y US)
+  - Integrado en DebtManager con botón "📥 Importar CSV"
+
+### Plantilla CSV Incluida:
 ```csv
-description,amount,flow_type,category,due_date,estimated
-Salario,250000,Income,Trabajo,2024-04-30,false
-Alquiler,50000,Expense,Vivienda,2024-04-05,false
-Internet,4000,Expense,Servicios,2024-04-10,false
-Freelance,20000,Income,Trabajo Extra,2024-04-15,true
+detalle,monto_total,tipo,categoria,fecha_vencimiento
+Alquiler,50000,Vivienda,Alquiler,2024-04-05
+Tarjeta Visa,120000,Tarjeta,Crédito,2024-04-10
+Internet,4000,Servicio,Servicios,2024-04-15
+Salario,250000,Ingreso,Trabajo,2024-04-30
 ```
 
-### Validaciones:
-- `amount`: Numérico, > 0
-- `flow_type`: Income o Expense (enum)
-- `due_date`: Formato ISO (YYYY-MM-DD) o DD/MM/YYYY
-- `estimated`: Boolean (true/false, 1/0, sí/no)
-- `description`: Texto, máximo 200 caracteres
-
-### Mapeo de Componente:
-Reutilizar `CSVImport.jsx` con adaptador:
-```javascript
-const budgetAdapter = {
-  entityName: "presupuestos",
-  endpoint: "/api/budget/import-csv",
-  requiredFields: ["description", "amount", "flow_type"],
-  columnMapping: {
-    description: ["descripcion", "detalle", "description"],
-    amount: ["monto", "amount", "valor"],
-    flow_type: ["tipo", "flow_type", "tipo_flujo"],
-    // ...
-  },
-  template: "budget_template.csv"
-}
-```
+### Validaciones Implementadas:
+- Monto: Parseo de formatos argentino (12.981,50) y americano (12,981.50)
+- Monto > 0 (valida por fila)
+- Campos requeridos: detalle, monto_total, fecha_vencimiento
+- Estado inicial: PENDIENTE
+- Monto pagado inicial: 0.0
 
 **Estimación:** 2 días  
-**Criterio de éxito:** Importación masiva funcional con validaciones robustas
+**Tiempo real:** ~3 horas ⚡  
+**Criterio de éxito:** ✅ Importación masiva funcional, errores manejados individualmente, UI intuitiva
 
 ---
 
@@ -1305,9 +1296,8 @@ Balance Proyectado - Próximos 30 días
 
 | Fase | Funcionalidad | Prioridad | Estimación | Sprint | Estado |
 |------|--------------|-----------|------------|---------|--------|
-| 1 | Migración de modelo de datos | 🔴 Alta | 5 días | 4.1 | ⬜ Pendiente |
-| ~~2~~ | ~~Forecast balance dashboard~~ | ~~🔴 Alta~~ | ~~3 días~~ | ~~4.2~~ | ✅ **Completado** |
-| **2** | **Importación CSV de Presupuestos** | 🟡 Media | 2 días | **4.2** | ⬜ Pendiente |
+| 1 | Migración de modelo de datos + Forecast Balance | 🔴 Alta | 5 días | 4.1 | 🟡 **Parcial** (Forecast ✅) |
+| **2** | **Importación CSV de Presupuestos** | 🔴 Alta | 2 días | **4.2** | ✅ **COMPLETADO** |
 | 3 | Clonación mensual | 🟡 Media | 3 días | 4.3 | ⬜ Pendiente |
 | 4 | Vinculación automática | 🟡 Media | 3-4 días | 4.4 | ⬜ Pendiente |
 | 5 | Alertas financieras | 🟢 Baja | 4 días | 4.5 | ⬜ Pendiente |
@@ -1316,15 +1306,17 @@ Balance Proyectado - Próximos 30 días
 
 **Total estimado:** 24 días de desarrollo (~5 semanas)
 
-**Completado:**
-- ✅ **Fase 2 (Forecast Balance)** implementada como widget "Balance Pendiente" en Dashboard
+**Progreso:**
+- 🟡 **Fase 1 (Parcial):** Forecast Balance Dashboard completado ✅
+- ✅ **Fase 2 (Completa):** Importación CSV de Presupuestos completada ✅
+  - Widget "Balance Pendiente" implementado en dashboard
   - Fórmula: `Balance Pendiente = Ingresos - (Gastos + Presupuesto Pendiente)`
   - Integración con `debtsAPI.getDebtSummary()`
   - UI actualizada con 5 columnas en grid
+  - **Pendiente:** Migración del modelo de datos a `budget_items`
 
-**Cambio en prioridades:**
-- **Importación CSV** promovida a Fase 2 (antes Fase 3) para permitir carga rápida de presupuestos iniciales
-- Esto habilita testing temprano con datos realistas para Fases 3-7
+**Siguiente paso:**
+- 🎯 **Fase 2: Importación CSV de Presupuestos** - Habilita carga rápida de datos para testing de fases posteriores
 
 ---
 

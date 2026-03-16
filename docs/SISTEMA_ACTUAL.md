@@ -84,6 +84,7 @@ Transaction:
 #### API Endpoints:
 ```
 POST   /api/debts              - Crear item de presupuesto
+POST   /api/debts/import-csv   - Importar presupuestos desde CSV
 GET    /api/debts              - Listar items
 GET    /api/debts/summary      - Resumen estadístico
 GET    /api/debts/{id}         - Obtener item específico
@@ -112,6 +113,25 @@ Cuando se crea un gasto con `debt_id`:
 1. El monto se suma automáticamente a `monto_pagado` del item
 2. Se actualiza el progreso (%)
 3. Si `monto_pagado >= monto_total`, el estado cambia a "Pagada"
+
+#### Importación CSV de Presupuestos:
+- ✅ Mapeo flexible de columnas (drag & drop o selección de archivo)
+- ✅ Vista previa de primeras 5 filas antes de importar
+- ✅ Descarga de plantilla CSV con ejemplos
+- ✅ Validación de datos por fila
+- ✅ Importación en batch con manejo individual de errores
+- ✅ Soporte para formatos de monto argentino (12.981,50) y americano (12,981.50)
+- ✅ Campos requeridos: detalle, monto_total, fecha_vencimiento
+- ✅ Campos opcionales: tipo, categoria
+
+#### Formato de Plantilla CSV para Presupuestos:
+```csv
+detalle,monto_total,tipo,categoria,fecha_vencimiento
+Alquiler,50000,Vivienda,Alquiler,2024-04-05
+Tarjeta Visa,120000,Tarjeta,Crédito,2024-04-10
+Internet,4000,Servicio,Servicios,2024-04-15
+Salario,250000,Ingreso,Trabajo,2024-04-30
+```
 
 ---
 

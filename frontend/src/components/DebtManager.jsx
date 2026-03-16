@@ -3,11 +3,13 @@ import { debtsAPI } from '../services/api';
 import { useToast } from './ToastContainer';
 import ConfirmDialog from './ConfirmDialog';
 import { formatDate, toISODate } from '../utils/dateUtils';
+import BudgetCSVImport from './BudgetCSVImport';
 
 export default function DebtManager({ canEdit }) {
   const [debts, setDebts] = useState([]);
   const [summary, setSummary] = useState(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [showCSVImport, setShowCSVImport] = useState(false);
   const [editingDebt, setEditingDebt] = useState(null);
   const [deleteDialog, setDeleteDialog] = useState({ isOpen: false, debtId: null, debtName: '' });
   const toast = useToast();
@@ -199,13 +201,44 @@ export default function DebtManager({ canEdit }) {
       )}
 
       {/* Botón agregar deuda */}
-      {canEdit && !isFormOpen && (
-        <button
-          onClick={() => setIsFormOpen(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          + Nuevo Item
-        </button>
+      {canEdit && !isFormOpen && !showCSVImport && (
+        <div className="flex space-x-4">
+          <button
+            onClick={() => setIsFormOpen(true)}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            + Nuevo Item
+          </button>
+          <button
+            onClick={() => setShowCSVImport(true)}
+            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
+          >
+            <span>📥</span>
+            <span>Importar CSV</span>
+          </button>
+        </div>
+      )}
+
+      {/* Importación CSV */}
+      {showCSVImport && (
+        <div className="bg-gray-50 rounded-lg p-4">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold">Importar Presupuestos desde CSV</h3>
+            <button
+              onClick={() => setShowCSVImport(false)}
+              className="text-gray-600 hover:text-gray-800"
+            >
+              ✕ Cerrar
+            </button>
+          </div>
+          <BudgetCSVImport
+            onImportSuccess={() => {
+              setShowCSVImport(false);
+              loadDebts();
+              loadSummary();
+            }}
+          />
+        </div>
       )}
 
       {/* Formulario */}

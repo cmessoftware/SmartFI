@@ -793,6 +793,44 @@ async def create_debt(
         print(f"❌ Error creating debt: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/debts/import-csv")
+async def import_debts_csv(
+    debts: List[Debt],
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Import multiple debts from CSV"""
+    if not debt_service:
+        raise HTTPException(status_code=503, detail="Debt service not configured")
+    
+    if not debts:
+        raise HTTPException(status_code=400, detail="No hay items de presupuesto para importar")
+    
+    try:
+        added_count = 0
+        errors = []
+        
+        for index, debt in enumerate(debts):
+            try:
+                debt_id = debt_service.add_debt(debt.dict())
+                if debt_id:
+                    added_count += 1
+                else:
+                    errors.append(f"Fila {index + 1}: Error al guardar")
+            except Exception as e:
+                errors.append(f"Fila {index + 1}: {str(e)}")
+        
+        print(f"✅ CSV Import: {added_count} presupuestos agregados, {len(errors)} errores")
+        
+        return {
+            "message": f"{added_count} presupuestos importados exitosamente",
+            "added": added_count,
+            "total": len(debts),
+            "errors": errors if errors else None
+        }
+    except Exception as e:
+        print(f"❌ Error importing debts CSV: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.put("/api/debts/{debt_id}")
 async def update_debt(
     debt_id: int,
