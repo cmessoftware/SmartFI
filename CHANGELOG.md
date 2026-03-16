@@ -8,6 +8,18 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 ## [Unreleased]
 
 ### Agregado
+- **Widget Balance Pendiente en Dashboard**
+  - Nuevo widget de proyección financiera en DashboardOverview
+  - Muestra balance proyectado si se pagan todos los items de presupuesto pendientes
+  - Fórmula: `Balance Pendiente = Ingresos - (Gastos + Presupuesto Pendiente)`
+  - Presupuesto Pendiente = suma de `pending_amount + partial_amount + overdue_amount`
+  - Integración con API `debtsAPI.getDebtSummary()`
+  - Actualización automática cuando cambian las transacciones
+  - Color verde (purple-100) para balance positivo, amarillo (yellow-100) para negativo
+  - Icono distintivo 🎯 para identificación visual
+  - Grid del dashboard expandido de 4 a 5 columnas (lg:grid-cols-5)
+  - Caption explicativo: "Si se paga todo el presupuesto"
+
 - **Módulo de Presupuesto (Gestión de Deudas)**
   - Nuevo componente `DebtManager.jsx` para gestión completa de items de presupuesto
   - CRUD completo: crear, editar, visualizar y eliminar items de presupuesto
@@ -62,6 +74,15 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.h
   - Soporte para detección automática de formato con regex
 
 ### Modificado
+- **DashboardOverview.jsx**
+  - Agregado estado `debtSummary` para cargar resumen de presupuestos
+  - useEffect para cargar debt summary al montar y cuando cambian transacciones
+  - Cálculo de `presupuestoPendiente` desde API (pending + partial + overdue amounts)
+  - Cálculo de `balancePendiente` en stats memoizados
+  - Grid expandido de 4 a 5 columnas para incluir nuevo widget
+  - Importación de `debtsAPI` desde services/api.js
+  - Importación de `useEffect` desde React
+
 - **TransactionReport.jsx**
   - Refactorizado para incluir filtro por presupuesto
   - Grid de filtros expandido a 5 columnas (md:grid-cols-2 lg:grid-cols-5)

@@ -48,6 +48,7 @@
 
 ### 🎯 Para Usuarios
 - ✅ **Dashboard intuitivo** - Vista general de tus finanzas
+- ✅ **Balance Pendiente** - Proyección financiera si se pagan todos los presupuestos
 - ✅ **Registro de transacciones** - Ingresa gastos/ingresos fácilmente
 - ✅ **Gestión de presupuesto** - Rastrea compromisos (préstamos, tarjetas, servicios)
 - ✅ **Categorías y formas de pago** - Organiza tus transacciones

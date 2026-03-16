@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useToast } from './ToastContainer';
 import ConfirmDialog from './ConfirmDialog';
-import { transactionsAPI } from '../services/api';
+import { transactionsAPI, debtsAPI } from '../services/api';
 import { formatDate } from '../utils/dateUtils';
 
 function DashboardOverview({ transactions, user, refreshTransactions, loading, setCurrentView }) {
@@ -9,7 +9,21 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
   const [syncStats, setSyncStats] = useState(null);
   const [loadingStats, setLoadingStats] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, onConfirm: null, title: '', message: '' });
+  const [debtSummary, setDebtSummary] = useState(null);
   const toast = useToast();
+
+  // Cargar resumen de presupuesto
+  useEffect(() => {
+    const loadDebtSummary = async () => {
+      try {
+        const response = await debtsAPI.getDebtSummary();
+        setDebtSummary(response.data);
+      } catch (error) {
+        console.error('Error al cargar resumen de presupuesto:', error);
+      }
+    };
+    loadDebtSummary();
+  }, [transactions]); // Recargar cuando cambien las transacciones
 
   const handleOpenSyncModal = async () => {
     setShowSyncModal(true);
@@ -57,8 +71,17 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
     const balance = ingresos - gastos;
     const totalTransacciones = transactions.length;
 
-    return { ingresos, gastos, balance, totalTransacciones };
-  }, [transactions]);
+    // Calcular presupuesto total pendiente (lo que falta pagar)
+    const presupuestoPendiente = debtSummary ? 
+      (debtSummary.pending_amount || 0) + 
+      (debtSummary.partial_amount || 0) + 
+      (debtSummary.overdue_amount || 0) : 0;
+
+    // Balance Pendiente = Ingresos - (Gastos + Presupuesto Pendiente)
+    const balancePendiente = ingresos - (gastos + presupuestoPendiente);
+
+    return { ingresos, gastos, balance, totalTransacciones, presupuestoPendiente, balancePendiente };
+  }, [transactions, debtSummary]);
 
   const recentTransactions = useMemo(() => {
     return transactions.slice(-5).reverse();
@@ -105,7 +128,7 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
         <div className="bg-white rounded-xl shadow-md p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -148,6 +171,27 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
               stats.balance >= 0 ? 'bg-blue-100' : 'bg-orange-100'
             }`}>
               💰
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-md p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-finly-textSecondary">Balance Pendiente</p>
+              <p className={`text-2xl font-bold mt-2 ${
+                stats.balancePendiente >= 0 ? 'text-finly-income' : 'text-finly-expense'
+              }`}>
+                ${stats.balancePendiente.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+              </p>
+              <p className="text-xs text-finly-textSecondary mt-1">
+                Si se paga todo el presupuesto
+              </p>
+            </div>
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center text-2xl ${
+              stats.balancePendiente >= 0 ? 'bg-purple-100' : 'bg-yellow-100'
+            }`}>
+              🎯
             </div>
           </div>
         </div>

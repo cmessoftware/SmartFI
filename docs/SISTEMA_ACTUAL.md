@@ -118,10 +118,19 @@ Cuando se crea un gasto con `debt_id`:
 ### 3. **Dashboard y Reportes**
 
 #### Dashboard Overview:
-- 📊 Tarjetas de resumen (Ingresos, Gastos, Balance, Total transacciones)
+- 📊 Tarjetas de resumen:
+  - 💵 **Ingresos**: Total de ingresos del mes
+  - 💸 **Gastos**: Total de gastos del mes
+  - 💰 **Balance**: Ingresos - Gastos (balance actual)
+  - 🎯 **Balance Pendiente**: Proyección si se pagan todos los presupuestos (Ingresos - Gastos - Presupuesto Pendiente)
+  - 📝 **Total Transacciones**: Cantidad de transacciones registradas
 - 📈 Transacciones recientes (últimas 5)
 - 🔄 Botón de sincronización con Google Sheets
 - 📅 Fecha actual
+- 🎯 Widget de Balance Pendiente:
+  - Muestra proyección financiera considerando presupuestos pendientes
+  - Actualización automática con cambios en transacciones o presupuestos
+  - Indicador visual: verde para balance positivo, amarillo para negativo
 
 #### Reportes:
 - 📊 Gráfico de torta: Gastos por categoría
