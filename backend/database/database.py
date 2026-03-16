@@ -1,6 +1,6 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Enum as SQLEnum
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Enum as SQLEnum, ForeignKey, Date
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 import os
 from dotenv import load_dotenv
@@ -25,7 +25,28 @@ class NecessityType(str, enum.Enum):
     SUPERFLUO = "Superfluo"
     IMPORTANTE_NO_URGENTE = "Importante pero no urgente"
 
+class DebtStatus(str, enum.Enum):
+    PENDIENTE = "PENDIENTE"
+    PAGO_PARCIAL = "Pago parcial"
+    PAGADA = "PAGADA"
+    VENCIDA = "VENCIDA"
+
 # Models
+class Debt(Base):
+    __tablename__ = "debts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    fecha = Column(String, nullable=False)
+    tipo = Column(String, nullable=False)  # Tarjeta, Préstamo, Crédito, etc.
+    categoria = Column(String, nullable=False)
+    monto_total = Column(Float, nullable=False)
+    monto_pagado = Column(Float, default=0.0, nullable=False)
+    detalle = Column(String, nullable=True)
+    fecha_vencimiento = Column(String, nullable=False)
+    status = Column(SQLEnum(DebtStatus, values_callable=lambda x: [e.value for e in x]), default=DebtStatus.PENDIENTE, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 class Transaction(Base):
     __tablename__ = "transactions"
     
@@ -39,6 +60,7 @@ class Transaction(Base):
     forma_pago = Column(String, default="Débito", nullable=False)
     partida = Column(String, nullable=False)
     detalle = Column(String(50), nullable=True)
+    debt_id = Column(Integer, ForeignKey('debts.id'), nullable=True)  # Nueva relación con deudas
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Category(Base):

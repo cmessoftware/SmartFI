@@ -61,6 +61,7 @@ class GoogleSheetsService:
                 transaction_data.get('categoria'),
                 transaction_data.get('monto'),
                 transaction_data.get('necesidad'),
+                transaction_data.get('forma_pago', 'Débito'),
                 transaction_data.get('partida'),
                 transaction_data.get('detalle', '')
             ]
@@ -86,6 +87,7 @@ class GoogleSheetsService:
                     transaction.get('categoria'),
                     transaction.get('monto'),
                     transaction.get('necesidad'),
+                    transaction.get('forma_pago', 'Débito'),
                     transaction.get('partida'),
                     transaction.get('detalle', '')
                 ]
@@ -108,14 +110,22 @@ class GoogleSheetsService:
             # Normalize column names from Spanish headers to expected format
             normalized = []
             for idx, record in enumerate(records, start=2):  # Start at 2 (row 1 is headers)
+                # Helper to safely convert monto to float
+                monto_raw = record.get('Monto', record.get('monto', 0))
+                try:
+                    monto = float(monto_raw) if monto_raw and str(monto_raw).strip() else 0.0
+                except (ValueError, TypeError):
+                    monto = 0.0
+                
                 normalized_record = {
                     'id': idx,  # Row number as ID
                     'marca_temporal': record.get('Marca temporal', record.get('marca_temporal', '')),
                     'fecha': record.get('Fecha', record.get('fecha', '')),
                     'tipo': record.get('Tipo', record.get('tipo', '')),
                     'categoria': record.get('Categoría', record.get('categoria', '')),
-                    'monto': float(record.get('Monto', record.get('monto', 0))),
+                    'monto': monto,
                     'necesidad': record.get('Necesidad', record.get('necesidad', '')),
+                    'forma_pago': record.get('Forma de Pago', record.get('forma_pago', 'Débito')),
                     'partida': record.get('Partida', record.get('partida', '')),
                     'detalle': record.get('Detalle', record.get('detalle', ''))
                 }
@@ -140,12 +150,13 @@ class GoogleSheetsService:
                 transaction_data.get('categoria'),
                 transaction_data.get('monto'),
                 transaction_data.get('necesidad'),
+                transaction_data.get('forma_pago', 'Débito'),
                 transaction_data.get('partida'),
                 transaction_data.get('detalle', '')
             ]
             
             # Update the specific row
-            self.sheet.update(f'A{row_id}:H{row_id}', [row_values])
+            self.sheet.update(f'A{row_id}:I{row_id}', [row_values])
             print(f"✅ Transaction updated at row {row_id}")
             return True
         except Exception as e:
@@ -166,27 +177,74 @@ class GoogleSheetsService:
             print(f"Error deleting transaction from Google Sheets: {e}")
             return False
     
-    def initialize_sheet(self):
-        """Create headers if sheet is empty"""
+    def clear_all_transactions(self):
+        """Clear all transactions from the sheet, keeping only headers"""
         try:
             if not self.sheet:
                 self.connect()
             
-            headers = [
+            # Get total rows
+            all_values = self.sheet.get_all_values()
+            total_rows = len(all_values)
+            
+            print(f"📊 Current rows in sheet: {total_rows}")
+            
+            if total_rows <= 1:
+                # Only headers or empty, nothing to clear
+                print("ℹ️ No transactions to clear (only headers)")
+                return True
+            
+            # Delete all rows except the header (row 1)
+            # Delete from row 2 to the last row in one operation
+            try:
+                self.sheet.delete_rows(2, total_rows)
+                print(f"✅ Cleared {total_rows - 1} transaction rows from Google Sheets")
+            except Exception as delete_error:
+                print(f"⚠️ Error during delete_rows: {delete_error}")
+                # Fallback: try clearing by updating to empty
+                if total_rows > 1:
+                    empty_range = f'A2:I{total_rows}'
+                    empty_values = [[''] * 9 for _ in range(total_rows - 1)]
+                    self.sheet.update(empty_range, empty_values)
+                    print(f"✅ Cleared data using update method (fallback)")
+            
+            return True
+        except Exception as e:
+            print(f"❌ Error clearing transactions from Google Sheets: {e}")
+            return False
+    
+    def initialize_sheet(self):
+        """Create headers if sheet is empty or fix them if incorrect"""
+        try:
+            if not self.sheet:
+                self.connect()
+            
+            correct_headers = [
                 'Marca temporal',
                 'Fecha',
                 'Tipo',
                 'Categoría',
                 'Monto',
                 'Necesidad',
+                'Forma de Pago',
                 'Partida',
                 'Detalle'
             ]
             
+            all_values = self.sheet.get_all_values()
+            
             # Check if sheet is empty
-            if len(self.sheet.get_all_values()) == 0:
-                self.sheet.append_row(headers)
+            if len(all_values) == 0:
+                self.sheet.append_row(correct_headers)
+                print("✅ Headers created in Google Sheets")
                 return True
+            
+            # Check if headers are incorrect and fix them
+            current_headers = all_values[0] if len(all_values) > 0 else []
+            if current_headers != correct_headers:
+                self.sheet.update('A1:I1', [correct_headers])
+                print("✅ Headers updated in Google Sheets")
+            
             return True
         except Exception as e:
             print(f"Error initializing sheet: {e}")

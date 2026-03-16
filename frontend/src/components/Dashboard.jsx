@@ -4,6 +4,7 @@ import TransactionReport from './TransactionReport';
 import CSVImport from './CSVImport';
 import AdminPanel from './AdminPanel';
 import DashboardOverview from './DashboardOverview';
+import DebtManager from './DebtManager';
 import EditTransactionModal from './EditTransactionModal';
 import { useToast } from './ToastContainer';
 import { transactionsAPI } from '../services/api';
@@ -89,6 +90,10 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
       
       {currentView === 'admin' && user.role === 'admin' && (
         <AdminPanel />
+      )}
+
+      {currentView === 'debts' && (
+        <DebtManager key={currentView} canEdit={canEdit} />
       )}
 
       {editingTransaction && (

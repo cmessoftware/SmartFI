@@ -8,6 +8,7 @@ from passlib.context import CryptContext
 from pydantic import BaseModel
 import os
 from dotenv import load_dotenv
+from database.database import SessionLocal, Transaction as DBTransaction
 
 load_dotenv()
 
@@ -29,6 +30,18 @@ try:
 except Exception as e:
     print(f"⚠️ PostgreSQL database not available: {e}")
     database_service = None
+
+# Initialize Debt Service
+try:
+    from services.debt_service import debt_service
+    if database_service is not None:
+        print("✅ Debt service initialized successfully")
+    else:
+        print("⚠️ Debt service not available (requires database)")
+        debt_service = None
+except Exception as e:
+    print(f"⚠️ Debt service not available: {e}")
+    debt_service = None
 
 # Initialize Google Sheets (optional backup)
 try:
@@ -96,6 +109,17 @@ class Token(BaseModel):
     token_type: str
     user: User
 
+class Debt(BaseModel):
+    id: Optional[int] = None
+    fecha: str
+    tipo: str
+    categoria: str
+    monto_total: float
+    monto_pagado: Optional[float] = 0.0
+    detalle: Optional[str] = None
+    fecha_vencimiento: str
+    status: Optional[str] = "Pendiente"
+
 class Transaction(BaseModel):
     id: Optional[int] = None
     marca_temporal: Optional[str] = None
@@ -107,6 +131,7 @@ class Transaction(BaseModel):
     forma_pago: str = "Débito"
     partida: str
     detalle: str
+    debt_id: Optional[int] = None  # Nueva relación con deuda
 
 # Hardcoded users database
 fake_users_db = {
@@ -530,18 +555,18 @@ async def sync_to_sheets(
         # If force mode, clear Google Sheets first
         if force:
             print("⚠️ FORCE MODE: Clearing Google Sheets...")
-            # Clear all rows except header
-            if hasattr(sheets_service, 'clear_all_transactions'):
-                sheets_service.clear_all_transactions()
-            else:
-                # Fallback: delete all transactions one by one
-                for t in sheets_transactions:
-                    try:
-                        if 'id' in t:
-                            sheets_service.delete_transaction(t['id'])
-                    except:
-                        pass
-            print(f"✅ Cleared {len(sheets_transactions)} transactions from Google Sheets")
+            # Clear all rows except header in one operation
+            try:
+                success = sheets_service.clear_all_transactions()
+                if success:
+                    print(f"✅ Cleared all transactions from Google Sheets")
+                    # Reinitialize headers to ensure they're correct
+                    sheets_service.initialize_sheet()
+                else:
+                    print("⚠️ Failed to clear Google Sheets, continuing anyway...")
+            except Exception as e:
+                print(f"⚠️ Error clearing Google Sheets: {e}, continuing anyway...")
+            
             existing_fingerprints = set()
             new_transactions = db_transactions
             skipped = 0
@@ -697,6 +722,129 @@ async def delete_transaction(
             raise HTTPException(status_code=404, detail="Transaction not found")
     except Exception as e:
         print(f"❌ Error deleting transaction: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Debt routes
+@app.get("/api/debts")
+async def get_debts(current_user: User = Depends(get_current_user)):
+    """Get all debts"""
+    if not debt_service:
+        raise HTTPException(status_code=503, detail="Debt service not configured")
+    
+    try:
+        debts = debt_service.get_all_debts()
+        return debts
+    except Exception as e:
+        print(f"❌ Error getting debts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/debts/summary")
+async def get_debt_summary(current_user: User = Depends(get_current_user)):
+    """Get debt summary statistics"""
+    if not debt_service:
+        raise HTTPException(status_code=503, detail="Debt service not configured")
+    
+    try:
+        summary = debt_service.get_debt_summary()
+        return summary
+    except Exception as e:
+        print(f"❌ Error getting debt summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/debts/{debt_id}")
+async def get_debt(
+    debt_id: int,
+    current_user: User = Depends(get_current_user)
+):
+    """Get a specific debt"""
+    if not debt_service:
+        raise HTTPException(status_code=503, detail="Debt service not configured")
+    
+    try:
+        debt = debt_service.get_debt_by_id(debt_id)
+        if not debt:
+            raise HTTPException(status_code=404, detail="Debt not found")
+        return debt
+    except Exception as e:
+        print(f"❌ Error getting debt: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/debts")
+async def create_debt(
+    debt: Debt,
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Create a new debt"""
+    if not debt_service:
+        raise HTTPException(status_code=503, detail="Debt service not configured")
+    
+    try:
+        debt_id = debt_service.add_debt(debt.dict())
+        if debt_id:
+            print(f"✅ Debt {debt_id} created in PostgreSQL")
+            return {
+                "message": "Debt created successfully",
+                "debt": debt,
+                "id": debt_id
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create debt")
+    except Exception as e:
+        print(f"❌ Error creating debt: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/debts/{debt_id}")
+async def update_debt(
+    debt_id: int,
+    debt: Debt,
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Update an existing debt"""
+    if not debt_service:
+        raise HTTPException(status_code=503, detail="Debt service not configured")
+    
+    try:
+        success = debt_service.update_debt(debt_id, debt.dict())
+        if success:
+            print(f"✅ Debt {debt_id} updated in PostgreSQL")
+            return {"message": "Debt updated successfully", "debt": debt}
+        else:
+            raise HTTPException(status_code=404, detail="Debt not found")
+    except Exception as e:
+        print(f"❌ Error updating debt: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/debts/{debt_id}")
+async def delete_debt(
+    debt_id: int,
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Delete a debt"""
+    if not debt_service:
+        raise HTTPException(status_code=503, detail="Debt service not configured")
+    
+    try:
+        # Check if there are linked transactions first
+        db = SessionLocal()
+        linked_count = db.query(DBTransaction).filter(DBTransaction.debt_id == debt_id).count()
+        db.close()
+        
+        if linked_count > 0:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"No se puede eliminar: hay {linked_count} transacción(es) vinculada(s). Elimínelas primero."
+            )
+        
+        success = debt_service.delete_debt(debt_id)
+        if success:
+            print(f"✅ Debt {debt_id} deleted from PostgreSQL")
+            return {"message": "Debt deleted successfully", "id": debt_id}
+        else:
+            raise HTTPException(status_code=404, detail="Item de presupuesto no encontrado")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error deleting debt: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Admin routes

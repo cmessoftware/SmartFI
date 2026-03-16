@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { toISODate, formatDate } from '../utils/dateUtils';
 
 function EditTransactionModal({ transaction, onSave, onClose, categories, necessityTypes }) {
   const [formData, setFormData] = useState({
@@ -14,7 +15,7 @@ function EditTransactionModal({ transaction, onSave, onClose, categories, necess
   useEffect(() => {
     if (transaction) {
       setFormData({
-        fecha: transaction.fecha || '',
+        fecha: toISODate(transaction.fecha) || '',
         tipo: transaction.tipo || 'Gasto',
         categoria: transaction.categoria || '',
         monto: transaction.monto || '',

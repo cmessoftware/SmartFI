@@ -3,11 +3,6 @@ import axios from 'axios';
 // Read API URL from runtime config (window.ENV) or build-time env variable or default to localhost
 const API_URL = window.ENV?.VITE_API_URL || import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-// Debug: Log the API URL being used
-console.log('🔧 API_URL configured:', API_URL);
-console.log('🔧 window.ENV:', window.ENV);
-console.log('🔧 VITE_API_URL env:', import.meta.env.VITE_API_URL);
-
 const api = axios.create({
   baseURL: API_URL,
 });
@@ -69,6 +64,15 @@ export const adminAPI = {
   createUser: (user) => api.post('/api/admin/users', user),
   updateUser: (username, user) => api.put(`/api/admin/users/${username}`, user),
   deleteUser: (username) => api.delete(`/api/admin/users/${username}`),
+};
+
+export const debtsAPI = {
+  getDebts: () => api.get('/api/debts'),
+  getDebtSummary: () => api.get('/api/debts/summary'),
+  getDebt: (id) => api.get(`/api/debts/${id}`),
+  createDebt: (debt) => api.post('/api/debts', debt),
+  updateDebt: (id, debt) => api.put(`/api/debts/${id}`, debt),
+  deleteDebt: (id) => api.delete(`/api/debts/${id}`),
 };
 
 export default api;

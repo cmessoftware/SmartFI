@@ -53,7 +53,7 @@ function Toast({ message, type = 'success', onClose, duration = 5000 }) {
 
   return (
     <div
-      className={`fixed top-4 right-4 z-50 flex items-start gap-3 max-w-md w-full p-4 rounded-lg border-l-4 shadow-lg ${style.bg} ${
+      className={`flex items-start gap-3 max-w-md w-full p-4 rounded-lg border-l-4 shadow-lg ${style.bg} ${
         isExiting ? 'animate-slide-out' : 'animate-slide-in'
       }`}
       style={{

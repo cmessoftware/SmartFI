@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { transactionsAPI } from '../services/api';
+import { transactionsAPI, debtsAPI } from '../services/api';
 
 function TransactionForm({ addTransaction }) {
   const [formData, setFormData] = useState({
@@ -9,17 +9,20 @@ function TransactionForm({ addTransaction }) {
     monto: '',
     necesidad: 'Necesario',
     forma_pago: 'Débito',
-    detalle: ''
+    detalle: '',
+    debt_id: null
   });
 
   const [categories, setCategories] = useState([]);
   const [transactionTypes, setTransactionTypes] = useState([]);
   const [necessityTypes, setNecessityTypes] = useState([]);
+  const [debts, setDebts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
 
   useEffect(() => {
     loadOptions();
+    loadDebts();
   }, []);
 
   const loadOptions = async () => {
@@ -37,6 +40,21 @@ function TransactionForm({ addTransaction }) {
     }
   };
 
+  const loadDebts = async () => {
+    try {
+      const response = await debtsAPI.getDebts();
+      // Solo mostrar items de presupuesto que no estén completamente pagados
+      const activeDebts = response.data.filter(d => 
+        d.status === 'PENDIENTE' || 
+        d.status === 'VENCIDA' || 
+        d.status === 'Pago parcial'
+      );
+      setDebts(activeDebts);
+    } catch (error) {
+      console.error('Error loading debts:', error);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -48,12 +66,13 @@ function TransactionForm({ addTransaction }) {
         marca_temporal: new Date().toISOString(),
         partida: formData.categoria,
         monto: parseFloat(formData.monto),
-        id: Date.now()
+        id: Date.now(),
+        debt_id: formData.debt_id ? parseInt(formData.debt_id) : null
       };
 
       await addTransaction(transaction);
       
-      setMessage({ type: 'success', text: '✅ Transacción guardada en Google Sheets' });
+      setMessage({ type: 'success', text: '✅ Transacción guardada correctamente' });
       
       // Reset form
       setFormData({
@@ -63,10 +82,11 @@ function TransactionForm({ addTransaction }) {
         monto: '',
         necesidad: 'Necesario',
         forma_pago: 'Débito',
-        detalle: ''
+        detalle: '',
+        debt_id: null
       });
     } catch (error) {
-      setMessage({ type: 'error', text: '❌ Error al conectar con Google Sheets. Verifica tu conexión.' });
+      setMessage({ type: 'error', text: '❌ Error al guardar la transacción' });
     } finally {
       setLoading(false);
     }
@@ -196,6 +216,34 @@ function TransactionForm({ addTransaction }) {
                 <option value="Crédito">Crédito</option>
               </select>
             </div>
+
+            {/* Mostrar selector de presupuesto solo cuando tipo es "Gasto" */}
+            {formData.tipo === 'Gasto' && debts.length > 0 && (
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-finly-text mb-2">
+                  Asociar a Item de Presupuesto (Opcional)
+                </label>
+                <select
+                  name="debt_id"
+                  value={formData.debt_id || ''}
+                  onChange={handleChange}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
+                >
+                  <option value="">-- Ninguna --</option>
+                  {debts.map(debt => {
+                    const remaining = debt.monto_total - debt.monto_pagado;
+                    return (
+                      <option key={debt.id} value={debt.id}>
+                        {debt.detalle || `Presupuesto ${debt.tipo}`} - Resta: ${remaining.toFixed(2)} ({debt.status})
+                      </option>
+                    );
+                  })}
+                </select>
+                <p className="text-xs text-finly-textSecondary mt-1">
+                  Seleccione un item de presupuesto si este gasto es un pago al mismo
+                </p>
+              </div>
+            )}
           </div>
 
           <div>

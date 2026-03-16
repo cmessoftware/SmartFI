@@ -361,3 +361,201 @@ La aplicación está lista para ser utilizada siguiendo las guías de instalaci�
 **Finly v1.0.0** - Sistema de Gestión de Finanzas Personales
 *Implementado por: GitHub Copilot*
 *Fecha: 4 de marzo de 2026*
+
+---
+
+## 🆕 FUNCIONALIDAD 4: MÓDULO DE GESTIÓN DE DEUDAS
+
+### Descripción
+Sistema completo para gestionar deudas pendientes con seguimiento automático de pagos vinculados a gastos.
+
+### 📋 Características Implementadas
+
+#### Backend:
+- ✅ **Modelo de Base de Datos**: Tabla `debts` con los siguientes campos:
+  - `id`: Identificador único
+  - `fecha`: Fecha de la deuda
+  - `tipo`: Tipo de deuda (Préstamo, Tarjeta, Servicio, Otro)
+  - `categoria`: Categoría financiera (Personal, Vivienda, Transporte, Educación, Salud, Otro)
+  - `monto_total`: Monto total de la deuda
+  - `monto_pagado`: Monto pagado acumulado
+  - `detalle`: Descripción de la deuda
+  - `fecha_vencimiento`: Fecha de vencimiento (opcional)
+  - `status`: Estado automático (Pendiente, Pagada, Vencida)
+  - `created_at`, `updated_at`: Timestamps
+
+- ✅ **Relación con Transacciones**: 
+  - Campo `debt_id` (nullable) en la tabla `transactions`
+  - Foreign Key que vincula gastos con deudas
+
+- ✅ **Servicio de Deudas** (`backend/services/debt_service.py`):
+  - `add_debt()`: Crear nueva deuda
+  - `get_all_debts()`: Listar todas las deudas
+  - `get_debt_by_id()`: Obtener deuda específica
+  - `update_debt()`: Actualizar deuda existente
+  - `delete_debt()`: Eliminar deuda (protegido si tiene transacciones)
+  - `add_payment_to_debt()`: Incrementar monto pagado
+  - `remove_payment_from_debt()`: Decrementar monto pagado
+  - `get_debt_summary()`: Estadísticas generales
+
+- ✅ **Actualización Automática de Estado**:
+  - `Pendiente → Pagada`: Cuando `monto_pagado >= monto_total`
+  - `Pendiente → Vencida`: Cuando `fecha_vencimiento < fecha_actual` y no está pagada
+  - `Pagada → Pendiente`: Cuando se elimina un pago y `monto_pagado < monto_total`
+
+- ✅ **Integración con Transacciones**:
+  - Al crear gasto con `debt_id`: Se incrementa `monto_pagado` de la deuda
+  - Al eliminar gasto con `debt_id`: Se decrementa `monto_pagado` de la deuda
+  - Al actualizar gasto: Se recalcula `monto_pagado` en deudas antiguas y nuevas
+
+- ✅ **Endpoints REST**:
+  - `GET /api/debts` - Listar todas las deudas
+  - `GET /api/debts/summary` - Resumen estadístico
+  - `GET /api/debts/{id}` - Obtener deuda por ID
+  - `POST /api/debts` - Crear nueva deuda
+  - `PUT /api/debts/{id}` - Actualizar deuda
+  - `DELETE /api/debts/{id}` - Eliminar deuda
+
+#### Frontend:
+- ✅ **Componente DebtManager.jsx**:
+  - Vista de lista con tabla completa de deudas
+  - Formulario para crear/editar deudas
+  - Cards de resumen con estadísticas:
+    - Total de deudas activas
+    - Monto total de deudas
+    - Monto pendiente de pago
+    - Cantidad de deudas vencidas
+  - Barra de progreso visual por cada deuda
+  - Badges de estado con colores:
+    - 🟡 Pendiente (amarillo)
+    - 🟢 Pagada (verde)
+    - 🔴 Vencida (rojo)
+  - Cálculo automático de "monto restante"
+  - Protección de permisos (`canEdit` prop)
+  - Confirmación con modal antes de eliminar
+  - Notificaciones Toast para éxito/error
+
+- ✅ **Actualización de TransactionForm.jsx**:
+  - Selector opcional "Asociar a Deuda" (solo cuando tipo = Gasto)
+  - Carga automática de deudas pendientes/vencidas
+  - Muestra monto restante de cada deuda en dropdown
+  - Envía `debt_id` al crear transacción
+
+- ✅ **Integración en Dashboard**:
+  - Nueva vista `debts` agregada
+  - Accesible desde Sidebar con icono 💳
+  - Disponible para roles: admin, writer, reader
+
+- ✅ **API Client** (`frontend/src/services/api.js`):
+  - `debtsAPI.getDebts()`: Obtener todas las deudas
+  - `debtsAPI.getDebtSummary()`: Obtener resumen
+  - `debtsAPI.createDebt()`: Crear deuda
+  - `debtsAPI.updateDebt()`: Actualizar deuda
+  - `debtsAPI.deleteDebt()`: Eliminar deuda
+
+### 🎯 Casos de Uso
+
+1. **Registrar Nueva Deuda**:
+   - Usuario crea deuda desde módulo Deudas
+   - Sistema guarda con `monto_pagado = 0` y `status = Pendiente`
+
+2. **Asociar Gasto a Deuda**:
+   - Usuario carga gasto tipo "Gasto"
+   - Selecciona deuda en dropdown opcional
+   - Sistema incrementa `monto_pagado` automáticamente
+   - Actualiza estado si se pagó completamente
+
+3. **Seguimiento de Progreso**:
+   - Barra visual muestra porcentaje pagado
+   - Badge de estado refleja situación actual
+   - Resumen global en cards superiores
+
+4. **Eliminar Deuda**:
+   - Si tiene transacciones asociadas: Sistema bloquea eliminación
+   - Si no tiene transacciones: Permite eliminación con confirmación
+
+### 📊 Resumen Estadístico
+
+El endpoint `/api/debts/summary` devuelve:
+```json
+{
+  "total_debts": 5,
+  "total_amount": 150000.00,
+  "total_paid": 45000.00,
+  "pending_amount": 105000.00,
+  "paid_count": 1,
+  "pending_count": 3,
+  "overdue_count": 1
+}
+```
+
+### 🔒 Seguridad y Validaciones
+
+- ✅ No se puede eliminar deuda con transacciones vinculadas
+- ✅ Monto pagado nunca puede ser negativo (`max(0, monto_pagado - monto)`)
+- ✅ Todas las operaciones requieren autenticación
+- ✅ Confirmación modal antes de eliminar
+- ✅ Validación de campos obligatorios en formulario
+
+### 🎨 UI/UX
+
+- **Colores de Estado**:
+  - Pendiente: `bg-yellow-100 text-yellow-800`
+  - Pagada: `bg-green-100 text-green-800`
+  - Vencida: `bg-red-100 text-red-800`
+
+- **Barra de Progreso**:
+  - 0-50%: Amarillo (`bg-yellow-500`)
+  - 50-99%: Azul (`bg-blue-500`)
+  - 100%: Verde (`bg-green-500`)
+
+- **Formato de Moneda**: Intl.NumberFormat con locale `es-AR` y currency `ARS`
+
+### 📁 Archivos Modificados/Creados
+
+#### Nuevos:
+- `backend/services/debt_service.py` (280 líneas)
+- `frontend/src/components/DebtManager.jsx` (430 líneas)
+
+#### Modificados:
+- `backend/database/database.py`: Agregada tabla `Debt` y campo `debt_id` en `Transaction`
+- `backend/main.py`: Agregados 6 endpoints de deudas
+- `backend/services/database_service.py`: Integración de actualización de `monto_pagado`
+- `frontend/src/services/api.js`: Agregado `debtsAPI`
+- `frontend/src/components/Dashboard.jsx`: Agregada vista `debts`
+- `frontend/src/components/Sidebar.jsx`: Agregado item "Deudas" con icono 💳
+- `frontend/src/components/TransactionForm.jsx`: Agregado selector de deuda opcional
+
+### 🚀 Estado de Implementación
+
+| Componente | Estado |
+|------------|--------|
+| Modelo de Base de Datos | ✅ Completado |
+| Servicio de Deudas | ✅ Completado |
+| Endpoints REST | ✅ Completado |
+| Componente DebtManager | ✅ Completado |
+| Integración en TransactionForm | ✅ Completado |
+| API Client | ✅ Completado |
+| Navegación en Sidebar | ✅ Completado |
+| Dashboard Integration | ✅ Completado |
+| Toast Notifications | ✅ Completado |
+| Confirm Dialogs | ✅ Completado |
+| Google Sheets Sync | ⏳ Pendiente |
+
+### 📝 Próximos Pasos (Opcional)
+
+1. **Integración con Google Sheets**:
+   - Crear hoja/tab "Deudas" en Google Sheets
+   - Implementar sincronización bidireccional
+   - Endpoints `/api/debts/sync-from-sheets` y `/api/debts/sync-to-sheets`
+
+2. **Mejoras Futuras**:
+   - Historial de pagos por deuda
+   - Gráfico de evolución de deudas
+   - Alertas de vencimiento próximo
+   - Exportar reporte de deudas a PDF
+
+---
+
+**Módulo de Deudas v1.0.0**
+*Implementado: 2026*

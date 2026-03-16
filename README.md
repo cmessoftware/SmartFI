@@ -7,46 +7,123 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 
 **Finly** es una aplicación moderna de finanzas personales que te permite:
-- 📊 Registrar ingresos y gastos
+- 📊 Registrar ingresos y gastos con categorización
 - 📈 Visualizar reportes con gráficos interactivos
+- 💳 Gestionar presupuestos y compromisos financieros
 - 📁 Importar/exportar transacciones desde CSV
-- 🔒 Gestión de usuarios con roles (Admin, Writer, Reader)
 - ☁️ Sincronización con Google Sheets (opcional)
+- 🔒 Sistema de autenticación con roles (Admin, Writer, Reader)
 - 🐳 Deploy con Docker en minutos
 
 ---
 
-## ✨ Features
+## 📚 Documentación
+
+### 🎯 Guías Esenciales
+
+| Documento | Descripción |
+|-----------|-------------|
+| **[SISTEMA_ACTUAL.md](docs/SISTEMA_ACTUAL.md)** | 📄 Documentación completa del sistema implementado |
+| **[QUICK_START.md](docs/QUICK_START.md)** | ⚡ Inicio rápido para desarrollo |
+| **[INSTALLATION.md](docs/INSTALLATION.md)** | 💻 Guía de instalación detallada |
+
+### 🚀 Deployment
+
+| Documento | Descripción |
+|-----------|-------------|
+| **[DOCKER_QUICK_START.md](docs/docker/DOCKER_QUICK_START.md)** | 🐳 Deploy local con Docker |
+| **[RENDER_DEPLOY.md](docs/deployment/RENDER_DEPLOY.md)** | ☁️ Deploy en producción (Render) |
+| **[DEPLOY_CHECKLIST.md](docs/deployment/DEPLOY_CHECKLIST.md)** | ✅ Checklist pre-deploy |
+
+### 📋 Roadmap & Planificación
+
+| Documento | Descripción |
+|-----------|-------------|
+| **[FINLY_FUNCTIONAL_SPECIFICATION.md](docs/FINLY_FUNCTIONAL_SPECIFICATION.md)** | 📋 Funcionalidades planificadas (Sprints 4+) |
+| **[ROADMAP_FINLY_V1.md](docs/ROADMAP_FINLY_V1.md)** | 🗺️ Hoja de ruta del proyecto |
+
+---
+
+## ✨ Features Implementadas
 
 ### 🎯 Para Usuarios
-- **Dashboard intuitivo** - Vista general de tus finanzas
-- **Registro de transacciones** - Ingresa gastos/ingresos fácilmente
-- **Categorías personalizables** - Organiza tus transacciones
-- **Reportes visuales** - Gráficos de torta, líneas y barras
-- **Filtros avanzados** - Por fecha, categoría, tipo
-- **Importación CSV** - Carga masiva de transacciones
-- **Exportación** - Descarga tus datos en CSV
+- ✅ **Dashboard intuitivo** - Vista general de tus finanzas
+- ✅ **Registro de transacciones** - Ingresa gastos/ingresos fácilmente
+- ✅ **Gestión de presupuesto** - Rastrea compromisos (préstamos, tarjetas, servicios)
+- ✅ **Categorías y formas de pago** - Organiza tus transacciones
+- ✅ **Reportes visuales** - Gráficos de torta y barras
+- ✅ **Filtros avanzados** - Por fecha, categoría, tipo
+- ✅ **Importación CSV** - Carga masiva de transacciones
+- ✅ **Sincronización Google Sheets** - Backup automático
 
 ### 🔐 Para Administradores
-- **Gestión de usuarios** - Crear, editar, eliminar usuarios
-- **Control de roles** - Admin, Writer, Reader
-- **Panel de administración** - Configura categorías y tipos
-- **Auditoría** - Registro de todas las operaciones
+- ✅ **Gestión de usuarios** - Crear, editar, eliminar usuarios
+- ✅ **Control de roles** - Admin, Writer, Reader
+- ✅ **Panel de sincronización** - PostgreSQL ↔ Google Sheets
+- ✅ **Auditoría** - Registro de todas las operaciones
 
 ### 🚀 Técnicas
-- **API REST completa** - Documentación automática con Swagger
-- **Autenticación JWT** - Segura y escalable
-- **Dockerizado** - Deploy consistente en cualquier plataforma
-- **Almacenamiento Google Sheets** - Sin base de datos (PostgreSQL en Sprint 3)
-- **Responsive design** - Funciona en móvil, tablet y desktop
+- ✅ **API REST completa** - Documentación automática con Swagger
+- ✅ **Autenticación JWT** - Segura y escalable
+- ✅ **Dockerizado** - Deploy consistente en cualquier plataforma
+- ✅ **PostgreSQL** - Base de datos principal robusta
+- ✅ **Google Sheets** - Respaldo y sincronización opcional
+- ✅ **Responsive design** - Funciona en móvil, tablet y desktop
+
+---
+
+## 🚀 Quick Start
+
+### Opción 1: Docker (Recomendado)
+
+```bash
+# 1. Clonar repositorio
+git clone https://github.com/cmessoftware/finly.git
+cd finly
+
+# 2. Configurar variables de entorno
+cp backend/.env.example backend/.env
+
+# 3. Levantar servicios
+docker-compose up --build
+
+# 4. Abrir en navegador
+# Frontend: http://localhost:3000
+# Backend API: http://localhost:8000
+# Swagger Docs: http://localhost:8000/docs
+```
+
+### Opción 2: Manual
+
+```bash
+# Backend
+cd backend
+python -m venv venv
+venv\Scripts\activate     # Windows
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+
+# Frontend (nueva terminal)
+cd frontend
+npm install
+npm run dev
+```
+
+**Ver guía completa:** [INSTALLATION.md](docs/INSTALLATION.md)
+
+---
 
 ## 👥 Usuarios de Prueba
 
+Una vez iniciada la aplicación, puedes acceder con estos usuarios predefinidos:
+
 | Usuario | Contraseña | Rol | Permisos |
 |---------|------------|-----|----------|
-| `admin` | `admin123` | Admin | Todos los permisos + gestión de usuarios |
-| `writer` | `writer123` | Writer | Crear, editar, ver transacciones |
-| `reader` | `reader123` | Reader | Solo visualizar transacciones y reportes |
+| `admin` | `admin123` | Admin | ✅ Todos los permisos + sincronización + gestión de usuarios |
+| `writer` | `writer123` | Writer | ✏️ Crear, editar, eliminar transacciones y presupuestos |
+| `reader` | `reader123` | Reader | 👁️ Solo visualizar dashboards y reportes |
+
+⚠️ **Importante:** Cambiar estas credenciales antes de deploy en producción.
 
 ---
 
@@ -182,11 +259,28 @@ docker-compose up postgres
 - ✅ Mapeo de columnas
 - ✅ Descarga de plantilla CSV
 
-### Sprint 3 - 🔄 En Preparación
+### Sprint 3 - ✅ Completado (Actual)
 
-- 🔄 Integración con PostgreSQL
+- ✅ Integración con PostgreSQL como base de datos principal
+- ✅ Módulo de Presupuesto (seguimiento de compromisos financieros)
+- ✅ Sincronización bidireccional PostgreSQL ↔ Google Sheets
+- ✅ Formateo consistente de fechas (DD/MM/YYYY)
+- ✅ Sistema de forma de pago (Débito/Crédito)
+- ✅ Vinculación transacciones ↔ items de presupuesto
+- ✅ Panel de administración con estadísticas
 
-## 🎨 Paleta de Colores
+### Sprint 4 - 📋 Planificado (Roadmap)
+
+- 📋 Planificación de flujos de caja proyectados
+- 📋 Dashboard de forecast balance
+- 📋 Clonación mensual de presupuestos
+- 📋 Alertas financieras automáticas
+- 📋 Análisis de desviación presupuestaria
+- 📋 Proyección diaria de balance
+
+**Ver roadmap completo:** [FINLY_FUNCTIONAL_SPECIFICATION.md](docs/FINLY_FUNCTIONAL_SPECIFICATION.md)
+
+---
 
 - **Fondo**: #F8FAFC (Slate 50)
 - **Tarjetas**: #FFFFFF

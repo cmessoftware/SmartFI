@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Papa from 'papaparse';
+import { formatDate } from '../utils/dateUtils';
 
 function CSVImport({ addMultipleTransactions }) {
   const [csvHeaders, setCsvHeaders] = useState([]);
@@ -276,7 +277,7 @@ function CSVImport({ addMultipleTransactions }) {
               <tbody>
                 {previewData.map((t, idx) => (
                   <tr key={idx} className="border-b border-gray-100">
-                    <td className="py-3 px-4 text-sm text-finly-text">{t.fecha}</td>
+                    <td className="py-3 px-4 text-sm text-finly-text">{formatDate(t.fecha)}</td>
                     <td className="py-3 px-4">
                       <span className={`inline-block px-2 py-1 rounded text-xs font-semibold ${
                         t.tipo === 'Ingreso' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'

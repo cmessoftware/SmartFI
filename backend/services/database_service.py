@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import text
-from database.database import Transaction as DBTransaction, Category, User as DBUser
+from database.database import Transaction as DBTransaction, Category, User as DBUser, Debt as DBDebt
 from database.database import get_db, init_db, engine
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -53,12 +53,31 @@ class DatabaseService:
                 necesidad=transaction_data['necesidad'],
                 forma_pago=transaction_data.get('forma_pago', 'Débito'),
                 partida=transaction_data.get('partida', transaction_data['categoria']),
-                detalle=transaction_data.get('detalle', '')
+                detalle=transaction_data.get('detalle', ''),
+                debt_id=transaction_data.get('debt_id')  # Agrega relación con deuda
             )
             
             db.add(db_transaction)
             db.commit()
             db.refresh(db_transaction)
+            
+            # Si la transacción está vinculada a una deuda, actualizar monto pagado
+            if db_transaction.debt_id and transaction_data['tipo'] == 'Gasto':
+                debt = db.query(DBDebt).filter(DBDebt.id == db_transaction.debt_id).first()
+                if debt:
+                    debt.monto_pagado += float(transaction_data['monto'])
+                    
+                    # Actualizar estado según monto pagado usando strings directamente
+                    if debt.monto_pagado >= debt.monto_total:
+                        debt.status = 'PAGADA'
+                    elif debt.monto_pagado > 0:
+                        debt.status = 'Pago parcial'
+                    else:
+                        debt.status = 'PENDIENTE'
+                    
+                    debt.updated_at = datetime.utcnow()
+                    db.commit()
+                    logger.info(f"✅ Updated debt {debt.id} payment: {debt.monto_pagado}/{debt.monto_total} - Status: {debt.status}")
             
             logger.info(f"✅ Transaction {db_transaction.id} saved to database")
             return db_transaction.id
@@ -128,7 +147,8 @@ class DatabaseService:
                     'necesidad': t.necesidad.value if hasattr(t.necesidad, 'value') else t.necesidad,
                     'forma_pago': t.forma_pago,
                     'partida': t.partida,
-                    'detalle': t.detalle or ''
+                    'detalle': t.detalle or '',
+                    'debt_id': t.debt_id  # Agregar debt_id para mostrar vinculación
                 })
             
             logger.info(f"✅ Retrieved {len(result)} transactions from database")
@@ -149,6 +169,44 @@ class DatabaseService:
                 logger.warning(f"⚠️ Transaction {transaction_id} not found")
                 return False
             
+            # Manejar cambios en debt_id o monto
+            old_debt_id = db_transaction.debt_id
+            old_monto = db_transaction.monto
+            new_debt_id = transaction_data.get('debt_id', db_transaction.debt_id)
+            new_monto = float(transaction_data.get('monto', old_monto))
+            
+            # Si cambia la deuda o el monto, actualizar deudas
+            if db_transaction.tipo == 'Gasto' and (old_debt_id != new_debt_id or old_monto != new_monto):
+                # Restar monto de deuda anterior
+                if old_debt_id:
+                    old_debt = db.query(DBDebt).filter(DBDebt.id == old_debt_id).first()
+                    if old_debt:
+                        old_debt.monto_pagado = max(0, old_debt.monto_pagado - old_monto)
+                        # Actualizar estado según monto pagado
+                        if old_debt.monto_pagado >= old_debt.monto_total:
+                            old_debt.status = 'PAGADA'
+                        elif old_debt.monto_pagado > 0:
+                            old_debt.status = 'Pago parcial'
+                        else:
+                            old_debt.status = 'PENDIENTE'
+                        old_debt.updated_at = datetime.utcnow()
+                        logger.info(f"✅ Removed {old_monto} from debt {old_debt_id} - Status: {old_debt.status}")
+                
+                # Sumar monto a deuda nueva
+                if new_debt_id:
+                    new_debt = db.query(DBDebt).filter(DBDebt.id == new_debt_id).first()
+                    if new_debt:
+                        new_debt.monto_pagado += new_monto
+                        # Actualizar estado según monto pagado
+                        if new_debt.monto_pagado >= new_debt.monto_total:
+                            new_debt.status = 'PAGADA'
+                        elif new_debt.monto_pagado > 0:
+                            new_debt.status = 'Pago parcial'
+                        else:
+                            new_debt.status = 'PENDIENTE'
+                        new_debt.updated_at = datetime.utcnow()
+                        logger.info(f"✅ Added {new_monto} to debt {new_debt_id} - Status: {new_debt.status}")
+            
             # Update fields
             if 'fecha' in transaction_data:
                 db_transaction.fecha = transaction_data['fecha']
@@ -157,7 +215,7 @@ class DatabaseService:
             if 'categoria' in transaction_data:
                 db_transaction.categoria = transaction_data['categoria']
             if 'monto' in transaction_data:
-                db_transaction.monto = float(transaction_data['monto'])
+                db_transaction.monto = new_monto
             if 'necesidad' in transaction_data:
                 db_transaction.necesidad = transaction_data['necesidad']
             if 'forma_pago' in transaction_data:
@@ -166,6 +224,8 @@ class DatabaseService:
                 db_transaction.partida = transaction_data['partida']
             if 'detalle' in transaction_data:
                 db_transaction.detalle = transaction_data['detalle']
+            if 'debt_id' in transaction_data:
+                db_transaction.debt_id = transaction_data['debt_id']
             
             db.commit()
             logger.info(f"✅ Transaction {transaction_id} updated in database")
@@ -186,6 +246,22 @@ class DatabaseService:
             if not db_transaction:
                 logger.warning(f"⚠️ Transaction {transaction_id} not found")
                 return False
+            
+            # Si la transacción estaba vinculada a una deuda, actualizar monto pagado
+            if db_transaction.debt_id:
+                debt = db.query(DBDebt).filter(DBDebt.id == db_transaction.debt_id).first()
+                if debt:
+                    debt.monto_pagado = max(0, debt.monto_pagado - float(db_transaction.monto))
+                    # Actualizar estado según monto pagado
+                    if debt.monto_pagado >= debt.monto_total:
+                        debt.status = 'PAGADA'
+                    elif debt.monto_pagado > 0:
+                        debt.status = 'Pago parcial'
+                    else:
+                        debt.status = 'PENDIENTE'
+                    debt.updated_at = datetime.utcnow()
+                    db.commit()
+                    logger.info(f"✅ Updated debt {debt.id} payment after deletion: {debt.monto_pagado}/{debt.monto_total} - Status: {debt.status}")
             
             db.delete(db_transaction)
             db.commit()

@@ -176,10 +176,8 @@ function App() {
       await transactionsAPI.deleteTransaction(id);
       console.log(`✅ Transaction ${id} deleted from PostgreSQL`);
       
-      // Update local state and cache
-      const updatedTransactions = transactions.filter(t => t.id !== id);
-      setTransactions(updatedTransactions);
-      localStorage.setItem('transactions_cache', JSON.stringify(updatedTransactions));
+      // Reload all data to refresh debt statuses if transaction was linked
+      await loadTransactionsFromDB();
     } catch (error) {
       console.error('❌ Error deleting transaction:', error);
       throw error;

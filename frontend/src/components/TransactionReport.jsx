@@ -1,7 +1,9 @@
 import { Chart as ChartJS, ArcElement, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
 import { Pie, Bar } from 'react-chartjs-2';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import ConfirmDialog from './ConfirmDialog';
+import { formatDate } from '../utils/dateUtils';
+import { debtsAPI } from '../services/api';
 
 ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
@@ -11,9 +13,24 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
   // Filtros y ordenamiento
   const [filterType, setFilterType] = useState('all');
   const [filterCategory, setFilterCategory] = useState('all');
+  const [filterBudget, setFilterBudget] = useState('all'); // all, vinculado, no_vinculado, o debt_id específico
   const [sortBy, setSortBy] = useState('fecha');
   const [sortOrder, setSortOrder] = useState('desc');
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, onConfirm: null, transaction: null });
+  const [debts, setDebts] = useState([]);
+
+  // Cargar presupuestos
+  useEffect(() => {
+    const loadDebts = async () => {
+      try {
+        const response = await debtsAPI.getDebts();
+        setDebts(response.data || []);
+      } catch (error) {
+        console.error('Error al cargar presupuestos:', error);
+      }
+    };
+    loadDebts();
+  }, []);
 
   // Obtener categorías únicas
   const categories = useMemo(() => {
@@ -31,6 +48,15 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
     }
     if (filterCategory !== 'all') {
       filtered = filtered.filter(t => t.categoria === filterCategory);
+    }
+    if (filterBudget === 'vinculado') {
+      filtered = filtered.filter(t => t.debt_id !== null && t.debt_id !== undefined);
+    } else if (filterBudget === 'no_vinculado') {
+      filtered = filtered.filter(t => t.debt_id === null || t.debt_id === undefined);
+    } else if (filterBudget !== 'all') {
+      // Filtrar por debt_id específico
+      const debtId = parseInt(filterBudget);
+      filtered = filtered.filter(t => t.debt_id === debtId);
     }
 
     // Aplicar ordenamiento
@@ -58,7 +84,7 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
     });
 
     return filtered;
-  }, [transactions, filterType, filterCategory, sortBy, sortOrder]);
+  }, [transactions, filterType, filterCategory, filterBudget, sortBy, sortOrder]);
 
   const handleEdit = (transaction) => {
     if (onEdit) {
@@ -255,6 +281,7 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
               onClick={() => {
                 setFilterType('all');
                 setFilterCategory('all');
+                setFilterBudget('all');
                 setSortBy('fecha');
                 setSortOrder('desc');
               }}
@@ -265,7 +292,7 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
           </div>
 
           {/* Filtros y Ordenamiento */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 p-4 bg-gray-50 rounded-lg">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6 p-4 bg-gray-50 rounded-lg">
             {/* Filtro por Tipo */}
             <div>
               <label className="block text-sm font-medium text-finly-text mb-2">
@@ -296,6 +323,31 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
                 {categories.map(cat => (
                   <option key={cat} value={cat}>{cat}</option>
                 ))}
+              </select>
+            </div>
+
+            {/* Filtro por Presupuesto */}
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">
+                Presupuesto
+              </label>
+              <select
+                value={filterBudget}
+                onChange={(e) => setFilterBudget(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary text-sm"
+              >
+                <option value="all">Todas</option>
+                <option value="vinculado">📊 Vinculadas</option>
+                <option value="no_vinculado">⭕ No vinculadas</option>
+                {debts.length > 0 && (
+                  <optgroup label="Por Presupuesto">
+                    {debts.map(debt => (
+                      <option key={debt.id} value={debt.id}>
+                        {debt.detalle} - ${debt.monto_total.toLocaleString('es-AR')}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </div>
 
@@ -349,13 +401,14 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
                   <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Categoría</th>
                   <th className="text-right py-3 px-4 text-sm font-semibold text-finly-text">Monto</th>
                   <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Detalle</th>
+                  <th className="text-center py-3 px-4 text-sm font-semibold text-finly-text">Presupuesto</th>
                   {canEdit && <th className="text-center py-3 px-4 text-sm font-semibold text-finly-text">Acciones</th>}
                 </tr>
               </thead>
               <tbody>
                 {filteredAndSortedTransactions.map((t, idx) => (
                   <tr key={t.id || idx} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="py-3 px-4 text-sm text-finly-text">{t.fecha}</td>
+                    <td className="py-3 px-4 text-sm text-finly-text">{formatDate(t.fecha)}</td>
                     <td className="py-3 px-4">
                       <span className={`inline-block px-2 py-1 rounded text-xs font-semibold ${
                         t.tipo === 'Ingreso' 
@@ -372,6 +425,15 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
                       ${(parseFloat(t.monto) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                     </td>
                     <td className="py-3 px-4 text-sm text-finly-textSecondary">{t.detalle || '-'}</td>
+                    <td className="py-3 px-4 text-center">
+                      {t.debt_id ? (
+                        <span className="inline-block px-2 py-1 rounded text-xs font-semibold bg-purple-100 text-purple-700" title={`Vinculado a presupuesto ID: ${t.debt_id}`}>
+                          📊 Vinculado
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 text-xs">-</span>
+                      )}
+                    </td>
                     {canEdit && (
                       <td className="py-3 px-4 text-center">
                         <div className="flex justify-center gap-2">
@@ -410,7 +472,7 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
         onConfirm={confirmDialog.onConfirm}
         title="Eliminar Transacción"
         message={confirmDialog.transaction ? 
-          `¿Estás seguro de eliminar esta transacción?\n\nFecha: ${confirmDialog.transaction.fecha}\nMonto: $${confirmDialog.transaction.monto}\nDetalle: ${confirmDialog.transaction.detalle || 'Sin detalle'}` 
+          `¿Estás seguro de eliminar esta transacción?\n\nFecha: ${formatDate(confirmDialog.transaction.fecha)}\nMonto: $${confirmDialog.transaction.monto}\nDetalle: ${confirmDialog.transaction.detalle || 'Sin detalle'}` 
           : ''
         }
         type="danger"

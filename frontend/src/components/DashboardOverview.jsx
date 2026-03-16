@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useToast } from './ToastContainer';
 import ConfirmDialog from './ConfirmDialog';
 import { transactionsAPI } from '../services/api';
+import { formatDate } from '../utils/dateUtils';
 
 function DashboardOverview({ transactions, user, refreshTransactions, loading, setCurrentView }) {
   const [showSyncModal, setShowSyncModal] = useState(false);
@@ -222,7 +223,7 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
                   <div>
                     <p className="font-semibold text-finly-text">{t.categoria}</p>
                     <p className="text-sm text-finly-textSecondary">
-                      {t.detalle || 'Sin detalle'} • {t.fecha}
+                      {t.detalle || 'Sin detalle'} • {formatDate(t.fecha)}
                     </p>
                   </div>
                 </div>
