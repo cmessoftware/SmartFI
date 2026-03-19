@@ -2,12 +2,19 @@ import { Chart as ChartJS, ArcElement, CategoryScale, LinearScale, BarElement, T
 import { Pie, Bar } from 'react-chartjs-2';
 import { useMemo, useState, useEffect } from 'react';
 import ConfirmDialog from './ConfirmDialog';
-import { formatDate } from '../utils/dateUtils';
+import { formatDate, toISODate } from '../utils/dateUtils';
+import { exportToCsv } from '../utils/csvExport';
 import { debtsAPI } from '../services/api';
 
 ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
-function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) {
+const parseComparableDate = (value) => {
+  const iso = toISODate(value);
+  const date = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+};
+
+function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEdit = false, isAdmin = false }) {
   const chartColors = ['#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#22C55E', '#3B82F6', '#EF4444'];
   
   // Filtros y ordenamiento
@@ -17,7 +24,20 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
   const [sortBy, setSortBy] = useState('fecha');
   const [sortOrder, setSortOrder] = useState('desc');
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, onConfirm: null, transaction: null });
+  const [bulkConfirmDialogOpen, setBulkConfirmDialogOpen] = useState(false);
+  const [selectedTransactionIds, setSelectedTransactionIds] = useState([]);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [showSelectedOnly, setShowSelectedOnly] = useState(false);
   const [debts, setDebts] = useState([]);
+
+  const handleSort = (field) => {
+    if (sortBy === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(field);
+      setSortOrder('desc');
+    }
+  };
 
   // Cargar presupuestos
   useEffect(() => {
@@ -65,7 +85,7 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
       
       switch (sortBy) {
         case 'fecha':
-          compareValue = new Date(a.fecha) - new Date(b.fecha);
+          compareValue = parseComparableDate(a.fecha) - parseComparableDate(b.fecha);
           break;
         case 'tipo':
           compareValue = a.tipo.localeCompare(b.tipo);
@@ -86,6 +106,12 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
     return filtered;
   }, [transactions, filterType, filterCategory, filterBudget, sortBy, sortOrder]);
 
+  useEffect(() => {
+    // Keep selection in sync with currently visible rows
+    const visibleIds = new Set(filteredAndSortedTransactions.map((t) => t.id));
+    setSelectedTransactionIds((prev) => prev.filter((id) => visibleIds.has(id)));
+  }, [filteredAndSortedTransactions]);
+
   const handleEdit = (transaction) => {
     if (onEdit) {
       onEdit(transaction);
@@ -101,6 +127,46 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
           onDelete(transaction);
         }
       });
+    }
+  };
+
+  const toggleTransactionSelection = (transactionId) => {
+    setSelectedTransactionIds((prev) => {
+      if (prev.includes(transactionId)) {
+        return prev.filter((id) => id !== transactionId);
+      }
+      return [...prev, transactionId];
+    });
+  };
+
+  const toggleSelectAllVisible = () => {
+    const visibleIds = filteredAndSortedTransactions.map((t) => t.id);
+    const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedTransactionIds.includes(id));
+
+    if (allSelected) {
+      setSelectedTransactionIds((prev) => prev.filter((id) => !visibleIds.includes(id)));
+      return;
+    }
+
+    setSelectedTransactionIds((prev) => {
+      const merged = new Set([...prev, ...visibleIds]);
+      return Array.from(merged);
+    });
+  };
+
+  const handleBulkDeleteConfirm = async () => {
+    if (!onBulkDelete || selectedTransactionIds.length === 0) {
+      setBulkConfirmDialogOpen(false);
+      return;
+    }
+
+    try {
+      setIsBulkDeleting(true);
+      await onBulkDelete(selectedTransactionIds);
+      setSelectedTransactionIds([]);
+    } finally {
+      setIsBulkDeleting(false);
+      setBulkConfirmDialogOpen(false);
     }
   };
 
@@ -126,14 +192,15 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
   const dateData = useMemo(() => {
     const grouped = filteredAndSortedTransactions.reduce((acc, t) => {
       const monto = parseFloat(t.monto) || 0;
-      acc[t.fecha] = (acc[t.fecha] || 0) + (t.tipo === 'Gasto' ? -monto : monto);
+      const dateKey = toISODate(t.fecha);
+      acc[dateKey] = (acc[dateKey] || 0) + (t.tipo === 'Gasto' ? -monto : monto);
       return acc;
     }, {});
 
-    const sortedDates = Object.keys(grouped).sort();
+    const sortedDates = Object.keys(grouped).sort((a, b) => parseComparableDate(a) - parseComparableDate(b));
 
     return {
-      labels: sortedDates,
+      labels: sortedDates.map((date) => formatDate(date)),
       datasets: [{
         label: 'Balance por Fecha',
         data: sortedDates.map(date => grouped[date]),
@@ -155,6 +222,42 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
 
     return { ingresos, gastos, balance };
   }, [filteredAndSortedTransactions]);
+
+  const handleExportCsv = () => {
+    const debtMap = new Map((debts || []).map((d) => [d.id, d]));
+    const rows = filteredAndSortedTransactions.map((t) => {
+      const linkedDebt = t.debt_id ? debtMap.get(t.debt_id) : null;
+      return {
+        fecha: formatDate(t.fecha),
+        tipo: t.tipo,
+        categoria: t.categoria,
+        monto: parseFloat(t.monto) || 0,
+        necesidad: t.necesidad || '',
+        forma_pago: t.forma_pago || '',
+        detalle: t.detalle || '',
+        debt_id: t.debt_id ?? '',
+        presupuesto: linkedDebt?.detalle || ''
+      };
+    });
+
+    const exported = exportToCsv({
+      filename: `reporte_transacciones_${new Date().toISOString().split('T')[0]}.csv`,
+      headers: ['fecha', 'tipo', 'categoria', 'monto', 'necesidad', 'forma_pago', 'detalle', 'debt_id', 'presupuesto'],
+      rows
+    });
+
+    if (!exported) {
+      console.warn('No hay datos para exportar');
+    }
+  };
+
+  const displayedTransactions = useMemo(() => {
+    if (!showSelectedOnly) return filteredAndSortedTransactions;
+    return filteredAndSortedTransactions.filter((t) => selectedTransactionIds.includes(t.id));
+  }, [filteredAndSortedTransactions, selectedTransactionIds, showSelectedOnly]);
+
+  const visibleIds = displayedTransactions.map((t) => t.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedTransactionIds.includes(id));
 
   return (
     <div className="space-y-6">
@@ -275,20 +378,48 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
         <div className="bg-white rounded-xl shadow-md p-6">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-lg font-bold text-finly-text">
-              Transacciones ({filteredAndSortedTransactions.length})
+              Transacciones ({displayedTransactions.length})
             </h3>
-            <button
-              onClick={() => {
-                setFilterType('all');
-                setFilterCategory('all');
-                setFilterBudget('all');
-                setSortBy('fecha');
-                setSortOrder('desc');
-              }}
-              className="text-sm text-finly-primary hover:text-finly-secondary font-semibold transition"
-            >
-              Limpiar Filtros
-            </button>
+            <div className="flex items-center gap-3">
+              {isAdmin && canEdit && (
+                <label className="text-sm text-finly-textSecondary inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={showSelectedOnly}
+                    onChange={(e) => setShowSelectedOnly(e.target.checked)}
+                  />
+                  Mostrar solo seleccionadas
+                </label>
+              )}
+              {isAdmin && canEdit && (
+                <button
+                  onClick={() => setBulkConfirmDialogOpen(true)}
+                  disabled={selectedTransactionIds.length === 0 || isBulkDeleting}
+                  className="text-sm bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                  Eliminar seleccionadas ({selectedTransactionIds.length})
+                </button>
+              )}
+              <button
+                onClick={handleExportCsv}
+                disabled={filteredAndSortedTransactions.length === 0}
+                className="text-sm bg-emerald-600 text-white px-3 py-2 rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                Exportar CSV
+              </button>
+              <button
+                onClick={() => {
+                  setFilterType('all');
+                  setFilterCategory('all');
+                  setFilterBudget('all');
+                  setSortBy('fecha');
+                  setSortOrder('desc');
+                }}
+                className="text-sm text-finly-primary hover:text-finly-secondary font-semibold transition"
+              >
+                Limpiar Filtros
+              </button>
+            </div>
           </div>
 
           {/* Filtros y Ordenamiento */}
@@ -396,7 +527,30 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200">
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Fecha</th>
+                  {isAdmin && canEdit && (
+                    <th className="text-center py-3 px-4 text-sm font-semibold text-finly-text w-12">
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={toggleSelectAllVisible}
+                        aria-label="Seleccionar todas las transacciones visibles"
+                      />
+                    </th>
+                  )}
+                  <th 
+                    className="text-left py-3 px-4 text-sm font-semibold text-finly-text cursor-pointer hover:bg-gray-100 select-none"
+                    onClick={() => handleSort('fecha')}
+                    title="Ordenar por fecha"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Fecha</span>
+                      {sortBy === 'fecha' && (
+                        <span className="text-blue-600">
+                          {sortOrder === 'asc' ? '↑' : '↓'}
+                        </span>
+                      )}
+                    </div>
+                  </th>
                   <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Tipo</th>
                   <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Categoría</th>
                   <th className="text-right py-3 px-4 text-sm font-semibold text-finly-text">Monto</th>
@@ -406,8 +560,18 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
                 </tr>
               </thead>
               <tbody>
-                {filteredAndSortedTransactions.map((t, idx) => (
+                {displayedTransactions.map((t, idx) => (
                   <tr key={t.id || idx} className="border-b border-gray-100 hover:bg-gray-50">
+                    {isAdmin && canEdit && (
+                      <td className="py-3 px-4 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedTransactionIds.includes(t.id)}
+                          onChange={() => toggleTransactionSelection(t.id)}
+                          aria-label={`Seleccionar transacción ${t.id}`}
+                        />
+                      </td>
+                    )}
                     <td className="py-3 px-4 text-sm text-finly-text">{formatDate(t.fecha)}</td>
                     <td className="py-3 px-4">
                       <span className={`inline-block px-2 py-1 rounded text-xs font-semibold ${
@@ -477,6 +641,20 @@ function TransactionReport({ transactions, onEdit, onDelete, canEdit = false }) 
         }
         type="danger"
         confirmText="Eliminar"
+      />
+
+      <ConfirmDialog
+        isOpen={bulkConfirmDialogOpen}
+        onClose={() => {
+          if (!isBulkDeleting) {
+            setBulkConfirmDialogOpen(false);
+          }
+        }}
+        onConfirm={handleBulkDeleteConfirm}
+        title="Eliminar Transacciones Seleccionadas"
+        message={`¿Estás seguro de eliminar ${selectedTransactionIds.length} transacción(es) seleccionada(s)?`}
+        type="danger"
+        confirmText={isBulkDeleting ? 'Eliminando...' : 'Eliminar seleccionadas'}
       />
     </div>
   );

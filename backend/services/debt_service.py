@@ -1,4 +1,4 @@
-from database.database import SessionLocal, Debt, DebtStatus, Transaction
+from database.database import SessionLocal, Debt, DebtStatus, Transaction, BudgetType, FlowType
 from datetime import datetime
 from sqlalchemy import func
 
@@ -32,12 +32,23 @@ class DebtService:
             monto_pagado = float(debt_data.get('monto_pagado', 0))
             fecha_vencimiento = debt_data.get('fecha_vencimiento')
             
-            # Calcular estado inicial basado en monto pagado
-            if monto_pagado >= monto_total:
+            # Nuevos campos refactor
+            tipo_presupuesto_str = debt_data.get('tipo_presupuesto', 'OBLIGATION')
+            tipo_flujo_str = debt_data.get('tipo_flujo', 'Gasto')
+            
+            # Convertir strings a enums
+            tipo_presupuesto = BudgetType.OBLIGATION if tipo_presupuesto_str == 'OBLIGATION' else BudgetType.VARIABLE
+            tipo_flujo = FlowType.GASTO if tipo_flujo_str == 'Gasto' else FlowType.INGRESO
+            
+            # monto_ejecutado: inicializar con monto_pagado para compatibilidad
+            monto_ejecutado = monto_pagado
+            
+            # Calcular estado inicial basado en monto ejecutado
+            if monto_ejecutado >= monto_total:
                 status = DebtStatus.PAGADA
             elif fecha_vencimiento < datetime.now().strftime('%Y-%m-%d'):
                 status = DebtStatus.VENCIDA
-            elif monto_pagado > 0:
+            elif monto_ejecutado > 0:
                 status = DebtStatus.PAGO_PARCIAL
             else:
                 status = DebtStatus.PENDIENTE
@@ -51,7 +62,10 @@ class DebtService:
                 monto_pagado=monto_pagado,
                 detalle=debt_data.get('detalle'),
                 fecha_vencimiento=fecha_vencimiento,
-                status=status
+                status=status,
+                tipo_presupuesto=tipo_presupuesto,
+                tipo_flujo=tipo_flujo,
+                monto_ejecutado=monto_ejecutado
             )
             
             db.add(debt)
@@ -87,6 +101,10 @@ class DebtService:
                     'detalle': debt.detalle,
                     'fecha_vencimiento': debt.fecha_vencimiento,
                     'status': debt.status.value if hasattr(debt.status, 'value') else debt.status,
+                    # Nuevos campos refactor
+                    'tipo_presupuesto': debt.tipo_presupuesto.value if hasattr(debt.tipo_presupuesto, 'value') else debt.tipo_presupuesto,
+                    'tipo_flujo': debt.tipo_flujo.value if hasattr(debt.tipo_flujo, 'value') else debt.tipo_flujo,
+                    'monto_ejecutado': debt.monto_ejecutado,
                     'created_at': debt.created_at.isoformat() if debt.created_at else None,
                     'updated_at': debt.updated_at.isoformat() if debt.updated_at else None
                 })
@@ -118,6 +136,10 @@ class DebtService:
                 'detalle': debt.detalle,
                 'fecha_vencimiento': debt.fecha_vencimiento,
                 'status': debt.status.value,
+                # Nuevos campos refactor
+                'tipo_presupuesto': debt.tipo_presupuesto.value if hasattr(debt.tipo_presupuesto, 'value') else debt.tipo_presupuesto,
+                'tipo_flujo': debt.tipo_flujo.value if hasattr(debt.tipo_flujo, 'value') else debt.tipo_flujo,
+                'monto_ejecutado': debt.monto_ejecutado,
                 'created_at': debt.created_at.isoformat() if debt.created_at else None,
                 'updated_at': debt.updated_at.isoformat() if debt.updated_at else None
             }
@@ -145,6 +167,9 @@ class DebtService:
                 debt.monto_total = float(debt_data['monto_total'])
             if 'monto_pagado' in debt_data:
                 debt.monto_pagado = float(debt_data['monto_pagado'])
+                # Sincronizar monto_ejecutado con monto_pagado (compatibilidad transitoria)
+                if debt.tipo_presupuesto == BudgetType.OBLIGATION:
+                    debt.monto_ejecutado = debt.monto_pagado
             if 'detalle' in debt_data:
                 debt.detalle = debt_data['detalle']
             if 'fecha_vencimiento' in debt_data:
@@ -152,12 +177,22 @@ class DebtService:
             if 'status' in debt_data:
                 debt.status = debt_data['status']
             
-            # Recalcular estado basado en monto pagado
-            if debt.monto_pagado >= debt.monto_total:
+            # Nuevos campos refactor
+            if 'tipo_presupuesto' in debt_data:
+                tipo_presupuesto_str = debt_data['tipo_presupuesto']
+                debt.tipo_presupuesto = BudgetType.OBLIGATION if tipo_presupuesto_str == 'OBLIGATION' else BudgetType.VARIABLE
+            if 'tipo_flujo' in debt_data:
+                tipo_flujo_str = debt_data['tipo_flujo']
+                debt.tipo_flujo = FlowType.GASTO if tipo_flujo_str == 'Gasto' else FlowType.INGRESO
+            if 'monto_ejecutado' in debt_data:
+                debt.monto_ejecutado = float(debt_data['monto_ejecutado'])
+            
+            # Recalcular estado basado en monto ejecutado
+            if debt.monto_ejecutado >= debt.monto_total:
                 debt.status = DebtStatus.PAGADA
             elif debt.fecha_vencimiento < datetime.now().strftime('%Y-%m-%d'):
                 debt.status = DebtStatus.VENCIDA
-            elif debt.monto_pagado > 0:
+            elif debt.monto_ejecutado > 0:
                 debt.status = DebtStatus.PAGO_PARCIAL
             else:
                 debt.status = DebtStatus.PENDIENTE
@@ -204,12 +239,17 @@ class DebtService:
                 return False
             
             debt.monto_pagado += float(payment_amount)
+            
+            # Sincronizar monto_ejecutado con monto_pagado (compatibilidad transitoria)
+            if debt.tipo_presupuesto == BudgetType.OBLIGATION:
+                debt.monto_ejecutado = debt.monto_pagado
+            
             debt.updated_at = datetime.utcnow()
             
-            # Update status based on payment
-            if debt.monto_pagado >= debt.monto_total:
+            # Update status based on monto_ejecutado
+            if debt.monto_ejecutado >= debt.monto_total:
                 debt.status = DebtStatus.PAGADA
-            elif debt.monto_pagado > 0:
+            elif debt.monto_ejecutado > 0:
                 debt.status = DebtStatus.PAGO_PARCIAL
             else:
                 debt.status = DebtStatus.PENDIENTE
@@ -231,6 +271,11 @@ class DebtService:
                 return False
             
             debt.monto_pagado = max(0, debt.monto_pagado - float(payment_amount))
+            
+            # Sincronizar monto_ejecutado con monto_pagado (compatibilidad transitoria)
+            if debt.tipo_presupuesto == BudgetType.OBLIGATION:
+                debt.monto_ejecutado = debt.monto_pagado
+            
             debt.updated_at = datetime.utcnow()
             
             # Update status

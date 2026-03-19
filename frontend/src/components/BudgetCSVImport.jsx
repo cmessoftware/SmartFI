@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Papa from 'papaparse';
+import { decodeCsvFile } from '../utils/csvEncoding';
 
 function BudgetCSVImport({ onImportSuccess }) {
   const [csvHeaders, setCsvHeaders] = useState([]);
@@ -46,15 +47,17 @@ function BudgetCSVImport({ onImportSuccess }) {
     document.body.removeChild(link);
   };
 
-  const handleFile = (e) => {
+  const handleFile = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
     setMessage(null);
-    Papa.parse(file, {
+    try {
+      const { text, encoding } = await decodeCsvFile(file);
+
+      Papa.parse(text, {
       header: true,
       skipEmptyLines: true,
-      encoding: 'UTF-8',
       complete: (results) => {
         if (results.data.length === 0) {
           setMessage({ type: 'error', text: 'El archivo CSV está vacío' });
@@ -64,13 +67,16 @@ function BudgetCSVImport({ onImportSuccess }) {
         setRawRows(results.data);
         setMessage({ 
           type: 'success', 
-          text: `Archivo cargado: ${results.data.length} filas detectadas` 
+          text: `Archivo cargado: ${results.data.length} filas detectadas (${encoding.toUpperCase()})` 
         });
       },
       error: (error) => {
         setMessage({ type: 'error', text: `Error al leer el archivo: ${error.message}` });
       }
-    });
+      });
+    } catch (error) {
+      setMessage({ type: 'error', text: `Error al leer el archivo: ${error.message}` });
+    }
   };
 
   const processImport = () => {
@@ -150,7 +156,7 @@ function BudgetCSVImport({ onImportSuccess }) {
 
     setIsImporting(true);
     try {
-      const response = await fetch('http://localhost:8000/api/debts/import-csv', {
+      const response = await fetch('http://localhost:8000/api/budget-items/import-csv', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

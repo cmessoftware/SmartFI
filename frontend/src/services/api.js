@@ -67,12 +67,12 @@ export const adminAPI = {
 };
 
 export const debtsAPI = {
-  getDebts: () => api.get('/api/debts'),
-  getDebtSummary: () => api.get('/api/debts/summary'),
-  getDebt: (id) => api.get(`/api/debts/${id}`),
-  createDebt: (debt) => api.post('/api/debts', debt),
-  updateDebt: (id, debt) => api.put(`/api/debts/${id}`, debt),
-  deleteDebt: (id) => api.delete(`/api/debts/${id}`),
+  getDebts: () => api.get('/api/budget-items'),
+  getDebtSummary: () => api.get('/api/budget-items/summary'),
+  getDebt: (id) => api.get(`/api/budget-items/${id}`),
+  createDebt: (debt) => api.post('/api/budget-items', debt),
+  updateDebt: (id, debt) => api.put(`/api/budget-items/${id}`, debt),
+  deleteDebt: (id) => api.delete(`/api/budget-items/${id}`),
 };
 
 export default api;

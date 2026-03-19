@@ -62,7 +62,6 @@ class GoogleSheetsService:
                 transaction_data.get('monto'),
                 transaction_data.get('necesidad'),
                 transaction_data.get('forma_pago', 'Débito'),
-                transaction_data.get('partida'),
                 transaction_data.get('detalle', '')
             ]
             
@@ -88,7 +87,6 @@ class GoogleSheetsService:
                     transaction.get('monto'),
                     transaction.get('necesidad'),
                     transaction.get('forma_pago', 'Débito'),
-                    transaction.get('partida'),
                     transaction.get('detalle', '')
                 ]
                 rows.append(row)
@@ -126,7 +124,6 @@ class GoogleSheetsService:
                     'monto': monto,
                     'necesidad': record.get('Necesidad', record.get('necesidad', '')),
                     'forma_pago': record.get('Forma de Pago', record.get('forma_pago', 'Débito')),
-                    'partida': record.get('Partida', record.get('partida', '')),
                     'detalle': record.get('Detalle', record.get('detalle', ''))
                 }
                 normalized.append(normalized_record)
@@ -151,12 +148,11 @@ class GoogleSheetsService:
                 transaction_data.get('monto'),
                 transaction_data.get('necesidad'),
                 transaction_data.get('forma_pago', 'Débito'),
-                transaction_data.get('partida'),
                 transaction_data.get('detalle', '')
             ]
             
             # Update the specific row
-            self.sheet.update(f'A{row_id}:I{row_id}', [row_values])
+            self.sheet.update(f'A{row_id}:H{row_id}', [row_values])
             print(f"✅ Transaction updated at row {row_id}")
             return True
         except Exception as e:
@@ -227,7 +223,6 @@ class GoogleSheetsService:
                 'Monto',
                 'Necesidad',
                 'Forma de Pago',
-                'Partida',
                 'Detalle'
             ]
             

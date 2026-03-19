@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
-import { toISODate, formatDate } from '../utils/dateUtils';
+import { toISODate } from '../utils/dateUtils';
 
-function EditTransactionModal({ transaction, onSave, onClose, categories, necessityTypes }) {
+function EditTransactionModal({ transaction, onSave, onClose, categories, necessityTypes, debts = [] }) {
   const [formData, setFormData] = useState({
     fecha: '',
     tipo: 'Gasto',
     categoria: '',
     monto: '',
     necesidad: '',
-    partida: '',
-    detalle: ''
+    detalle: '',
+    debt_id: ''
   });
 
   useEffect(() => {
@@ -20,16 +20,18 @@ function EditTransactionModal({ transaction, onSave, onClose, categories, necess
         categoria: transaction.categoria || '',
         monto: transaction.monto || '',
         necesidad: transaction.necesidad || '',
-        partida: transaction.partida || '',
-        detalle: transaction.detalle || ''
+        detalle: transaction.detalle || '',
+        debt_id: transaction.debt_id ?? ''
       });
     }
   }, [transaction]);
 
   const handleChange = (e) => {
+    const { name, value } = e.target;
+
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value
+      [name]: value
     });
   };
 
@@ -38,9 +40,27 @@ function EditTransactionModal({ transaction, onSave, onClose, categories, necess
     onSave({
       ...transaction,
       ...formData,
-      monto: parseFloat(formData.monto)
+      monto: parseFloat(formData.monto),
+      debt_id: formData.debt_id ? parseInt(formData.debt_id, 10) : null
     });
   };
+
+  // Filtrar debts por tipo de flujo coincidente
+  const suggestedDebts = debts
+    .filter((debt) => debt.tipo_flujo === formData.tipo)
+    .sort((a, b) => {
+      const labelA = (a.detalle || `Presupuesto ${a.tipo || ''}`).trim().toLowerCase();
+      const labelB = (b.detalle || `Presupuesto ${b.tipo || ''}`).trim().toLowerCase();
+      return labelA.localeCompare(labelB, 'es');
+    });
+
+  const otherDebts = debts
+    .filter((debt) => debt.tipo_flujo !== formData.tipo)
+    .sort((a, b) => {
+      const labelA = (a.detalle || `Presupuesto ${a.tipo || ''}`).trim().toLowerCase();
+      const labelB = (b.detalle || `Presupuesto ${b.tipo || ''}`).trim().toLowerCase();
+      return labelA.localeCompare(labelB, 'es');
+    });
 
   if (!transaction) return null;
 
@@ -147,20 +167,62 @@ function EditTransactionModal({ transaction, onSave, onClose, categories, necess
               </select>
             </div>
 
-            {/* Partida */}
-            <div>
-              <label className="block text-sm font-medium text-finly-text mb-2">
-                Partida *
-              </label>
-              <input
-                type="text"
-                name="partida"
-                value={formData.partida}
-                onChange={handleChange}
-                required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
-              />
-            </div>
+            {/* Vinculación con presupuesto en edición - para gastos e ingresos */}
+            {debts.length > 0 && (
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-finly-text mb-2">
+                  Asociar a Item de Presupuesto (Opcional)
+                  {formData.categoria && (
+                    <span className="ml-2 text-xs font-normal text-blue-600">
+                      💡 Sugerencia: {formData.tipo === 'Gasto' ? 'gastos' : 'ingresos'} en categoría "{formData.categoria}"
+                    </span>
+                  )}
+                </label>
+                <select
+                  name="debt_id"
+                  value={formData.debt_id}
+                  onChange={handleChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
+                >
+                  <option value="">-- Sin asignar --</option>
+                  {suggestedDebts.length > 0 && (
+                    <optgroup label="🎯 Sugeridos por tipo de flujo">
+                      {suggestedDebts.map((debt) => {
+                        const montoEjecutado = debt.monto_ejecutado ?? debt.monto_pagado ?? 0;
+                        const remaining = Number(debt.monto_total) - montoEjecutado;
+                        const tipoPresupuesto = debt.tipo_presupuesto || 'OBLIGATION';
+                        const tipoBadge = tipoPresupuesto === 'OBLIGATION' ? '🔴' : '🔵';
+                        const flujoIcon = debt.tipo_flujo === 'Gasto' ? '💸' : '💰';
+                        return (
+                          <option key={debt.id} value={debt.id}>
+                            {tipoBadge} {flujoIcon} {debt.detalle || `${debt.tipo} - ${debt.categoria}`} - Resta: ${remaining.toFixed(2)}
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                  )}
+                  {otherDebts.length > 0 && (
+                    <optgroup label="📋 Otros items de presupuesto">
+                      {otherDebts.map((debt) => {
+                        const montoEjecutado = debt.monto_ejecutado ?? debt.monto_pagado ?? 0;
+                        const remaining = Number(debt.monto_total) - montoEjecutado;
+                        const tipoPresupuesto = debt.tipo_presupuesto || 'OBLIGATION';
+                        const tipoBadge = tipoPresupuesto === 'OBLIGATION' ? '🔴' : '🔵';
+                        const flujoIcon = debt.tipo_flujo === 'Gasto' ? '💸' : '💰';
+                        return (
+                          <option key={debt.id} value={debt.id}>
+                            {tipoBadge} {flujoIcon} {debt.detalle || `${debt.tipo} - ${debt.categoria}`} - Resta: ${remaining.toFixed(2)}
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                  )}
+                </select>
+                <p className="text-xs text-finly-textSecondary mt-1">
+                  Seleccione un item de presupuesto si esta transacción corresponde al mismo
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Detalle */}

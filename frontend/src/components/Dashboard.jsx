@@ -7,12 +7,14 @@ import DashboardOverview from './DashboardOverview';
 import DebtManager from './DebtManager';
 import EditTransactionModal from './EditTransactionModal';
 import { useToast } from './ToastContainer';
-import { transactionsAPI } from '../services/api';
+import { transactionsAPI, debtsAPI } from '../services/api';
 
 function Dashboard({ currentView, user, transactions, addTransaction, addMultipleTransactions, updateTransaction, deleteTransaction, refreshTransactions, loading, setCurrentView }) {
   const [editingTransaction, setEditingTransaction] = useState(null);
   const [categories, setCategories] = useState([]);
   const [necessityTypes, setNecessityTypes] = useState([]);
+  const [debts, setDebts] = useState([]);
+  const [debtRefreshKey, setDebtRefreshKey] = useState(0);
   const toast = useToast();
 
   useEffect(() => {
@@ -21,12 +23,14 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
 
   const loadFormData = async () => {
     try {
-      const [categoriesRes, necessityTypesRes] = await Promise.all([
+      const [categoriesRes, necessityTypesRes, debtsRes] = await Promise.all([
         transactionsAPI.getCategories(),
-        transactionsAPI.getNecessityTypes()
+        transactionsAPI.getNecessityTypes(),
+        debtsAPI.getDebts()
       ]);
       setCategories(categoriesRes.data || []);
       setNecessityTypes(necessityTypesRes.data || []);
+      setDebts(debtsRes.data || []);
     } catch (error) {
       console.error('Error loading form data:', error);
     }
@@ -40,6 +44,8 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
     try {
       await updateTransaction(updatedTransaction.id, updatedTransaction);
       setEditingTransaction(null);
+      // Refresh budget data if transaction was linked/unlinked
+      setDebtRefreshKey(prev => prev + 1);
       toast.success('Transacción actualizada correctamente');
     } catch (error) {
       toast.error('Error al actualizar la transacción');
@@ -50,6 +56,10 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
   const handleDelete = async (transaction) => {
     try {
       await deleteTransaction(transaction.id);
+      // Refresh budget data if transaction was linked
+      if (transaction.debt_id) {
+        setDebtRefreshKey(prev => prev + 1);
+      }
       toast.success('Transacción eliminada correctamente');
     } catch (error) {
       toast.error('Error al eliminar la transacción');
@@ -57,7 +67,45 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
     }
   };
 
+  const handleBulkDeleteTransactions = async (transactionIds) => {
+    if (!Array.isArray(transactionIds) || transactionIds.length === 0) return;
+
+    let deletedCount = 0;
+    let failedCount = 0;
+
+    for (const id of transactionIds) {
+      try {
+        await transactionsAPI.deleteTransaction(id);
+        deletedCount += 1;
+      } catch (error) {
+        failedCount += 1;
+        console.error(`Error deleting transaction ${id}:`, error);
+      }
+    }
+
+    await refreshTransactions();
+
+    // Refresh budget data since some deleted transactions may have been linked
+    setDebtRefreshKey(prev => prev + 1);
+
+    if (deletedCount > 0) {
+      toast.success(`${deletedCount} transacción(es) eliminada(s) correctamente`);
+    }
+    if (failedCount > 0) {
+      toast.warning(`${failedCount} transacción(es) no se pudieron eliminar`);
+    }
+  };
+
+  const handleAddTransaction = async (transaction) => {
+    await addTransaction(transaction);
+    // Refresh budget data if transaction is linked to a budget item
+    if (transaction.debt_id) {
+      setDebtRefreshKey(prev => prev + 1);
+    }
+  };
+
   const canEdit = user && (user.role === 'admin' || user.role === 'writer');
+  const isAdmin = user?.role === 'admin';
 
   return (
     <div className="p-8">
@@ -72,7 +120,7 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
       )}
       
       {currentView === 'add' && (
-        <TransactionForm addTransaction={addTransaction} />
+        <TransactionForm addTransaction={handleAddTransaction} />
       )}
       
       {currentView === 'import' && (
@@ -84,7 +132,9 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
           transactions={transactions}
           onEdit={handleEdit}
           onDelete={handleDelete}
+          onBulkDelete={handleBulkDeleteTransactions}
           canEdit={canEdit}
+          isAdmin={isAdmin}
         />
       )}
       
@@ -93,7 +143,7 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
       )}
 
       {currentView === 'debts' && (
-        <DebtManager key={currentView} canEdit={canEdit} />
+        <DebtManager key={`${currentView}-${debtRefreshKey}`} canEdit={canEdit} isAdmin={isAdmin} />
       )}
 
       {editingTransaction && (
@@ -103,6 +153,7 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
           onClose={() => setEditingTransaction(null)}
           categories={categories}
           necessityTypes={necessityTypes}
+          debts={debts}
         />
       )}
     </div>

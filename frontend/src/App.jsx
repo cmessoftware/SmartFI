@@ -139,13 +139,11 @@ function App() {
   const addMultipleTransactions = async (newTransactions) => {
     try {
       // Send to PostgreSQL (primary storage)
-      await transactionsAPI.importCSV(newTransactions);
-      console.log(`✅ ${newTransactions.length} transactions saved to PostgreSQL`);
-      
-      // Update local state and cache
-      const updatedTransactions = [...transactions, ...newTransactions];
-      setTransactions(updatedTransactions);
-      localStorage.setItem('transactions_cache', JSON.stringify(updatedTransactions));
+      const response = await transactionsAPI.importCSV(newTransactions);
+      console.log('✅ CSV import result:', response.data);
+
+      // Reload from source of truth to avoid local mismatch on partial imports
+      await loadTransactionsFromDB();
     } catch (error) {
       console.error('❌ Error importing transactions:', error);
       throw error;

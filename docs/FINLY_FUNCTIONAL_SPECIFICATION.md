@@ -99,6 +99,12 @@ fecha,tipo,categoria,monto,forma_pago,detalle
 - Conversión automática de formato de fechas (DD/MM/YYYY ↔ YYYY-MM-DD)
 - Actualización en tiempo real
 
+#### 6. Edición con Vinculación a Presupuesto
+- Al editar una transacción de tipo **Gasto**, se puede asociar o desasociar un `debt_id`
+- El selector muestra items con saldo pendiente (`monto_pagado < monto_total`) y el item ya vinculado actual
+- Si se cambia el tipo a **Ingreso**, se limpia automáticamente la vinculación de presupuesto
+- La actualización impacta automáticamente en `monto_pagado` y estado del presupuesto vinculado
+
 ### API Endpoints
 
 ```
@@ -219,6 +225,14 @@ else:
 - Calculado automáticamente por suma de transacciones vinculadas
 - Estilo: `bg-gray-50 cursor-not-allowed`
 
+#### 7. Exportación CSV de Presupuestos
+- Botón **Exportar CSV** en el módulo de Presupuesto
+- Exporta todos los items visibles en la tabla con columnas:
+  - `id`, `fecha`, `tipo`, `categoria`, `detalle`
+  - `monto_total`, `monto_pagado`, `monto_pendiente`, `progreso_pct`
+  - `status`, `fecha_vencimiento`
+- Compatible con Excel (UTF-8 BOM)
+
 ### API Endpoints
 
 ```
@@ -308,6 +322,12 @@ Resetea todos los filtros a valores por defecto:
 - Categoría: all
 - Presupuesto: all
 - Orden: fecha desc
+
+#### 6. Exportación CSV de Reportes
+- Botón **Exportar CSV** en la tabla de transacciones del módulo Reportes
+- Exporta el resultado **filtrado y ordenado** actual
+- Incluye columnas: `fecha`, `tipo`, `categoria`, `monto`, `necesidad`, `forma_pago`, `partida`, `detalle`, `debt_id`, `presupuesto`
+- Mantiene formato de fecha legible y compatibilidad con Excel
 
 ### Lógica de Filtrado
 
@@ -529,6 +549,21 @@ formatDate("2024-03-15")  // Output: 15/03/2024
 ```javascript
 `${((monto_pagado / monto_total) * 100).toFixed(1)}%`
 ```
+
+### 5. Exportación CSV Reutilizable (csvExport.js)
+
+Utilidad compartida para generar descargas CSV desde múltiples módulos:
+
+```javascript
+exportToCsv({ filename, headers, rows })
+```
+
+**Características:**
+- Escapado de comillas, comas y saltos de línea
+- UTF-8 BOM para correcta apertura en Excel
+- Reutilizada en:
+  - Módulo de Reportes
+  - Módulo de Presupuesto
 
 ---
 
@@ -1297,7 +1332,7 @@ Balance Proyectado - Próximos 30 días
 | Fase | Funcionalidad | Prioridad | Estimación | Sprint | Estado |
 |------|--------------|-----------|------------|---------|--------|
 | 1 | Migración de modelo de datos + Forecast Balance | 🔴 Alta | 5 días | 4.1 | 🟡 **Parcial** (Forecast ✅) |
-| **2** | **Importación CSV de Presupuestos** | 🔴 Alta | 2 días | **4.2** | ✅ **COMPLETADO** |
+| **2** | **Importación CSV de Presupuestos** | 🔴 Alta | 2 días | **4.2** | ✅ **Completado** |
 | 3 | Clonación mensual | 🟡 Media | 3 días | 4.3 | ⬜ Pendiente |
 | 4 | Vinculación automática | 🟡 Media | 3-4 días | 4.4 | ⬜ Pendiente |
 | 5 | Alertas financieras | 🟢 Baja | 4 días | 4.5 | ⬜ Pendiente |
@@ -1308,15 +1343,19 @@ Balance Proyectado - Próximos 30 días
 
 **Progreso:**
 - 🟡 **Fase 1 (Parcial):** Forecast Balance Dashboard completado ✅
-- ✅ **Fase 2 (Completa):** Importación CSV de Presupuestos completada ✅
   - Widget "Balance Pendiente" implementado en dashboard
   - Fórmula: `Balance Pendiente = Ingresos - (Gastos + Presupuesto Pendiente)`
   - Integración con `debtsAPI.getDebtSummary()`
   - UI actualizada con 5 columnas en grid
   - **Pendiente:** Migración del modelo de datos a `budget_items`
+- ✅ **Fase 2 (Completada):** Importación CSV de Presupuestos operativa
+  - Endpoint `POST /api/debts/import-csv` implementado y protegido por roles
+  - Componente `BudgetCSVImport.jsx` integrado en Presupuesto
+  - Manejo de errores por fila y respuesta con estadísticas de importación
+  - Soporte de codificación UTF-8/Windows-1252 para preservar acentos y caracteres especiales
 
 **Siguiente paso:**
-- 🎯 **Fase 2: Importación CSV de Presupuestos** - Habilita carga rápida de datos para testing de fases posteriores
+- 🎯 **Fase 3: Clonación mensual de presupuestos** - Reutilizar presupuestos recurrentes para acelerar la planificación
 
 ---
 
@@ -1379,6 +1418,6 @@ FROM debts;
 
 ---
 
-**Última actualización:** 16 de Marzo de 2026  
-**Estado:** 📋 Roadmap - Pendiente de implementación  
-**Próximo Sprint:** 4.1 - Migración del Modelo de Datos
+**Última actualización:** 17 de Marzo de 2026  
+**Estado:** 🚧 Roadmap en ejecución (Fase 2 completada, Fase 1 parcial)  
+**Próximo Sprint:** 4.3 - Clonación Mensual de Presupuestos

@@ -31,6 +31,20 @@ class DebtStatus(str, enum.Enum):
     PAGADA = "PAGADA"
     VENCIDA = "VENCIDA"
 
+class BudgetType(str, enum.Enum):
+    OBLIGATION = "OBLIGATION"
+    VARIABLE = "VARIABLE"
+
+class FlowType(str, enum.Enum):
+    GASTO = "Gasto"
+    INGRESO = "Ingreso"
+
+class AssignmentStatus(str, enum.Enum):
+    ASIGNADA_MANUAL = "ASIGNADA_MANUAL"
+    ASIGNADA_AUTOMATICA = "ASIGNADA_AUTOMATICA"
+    NO_PLANIFICADA = "NO_PLANIFICADA"
+    REASIGNADA_AUTOMATICA = "REASIGNADA_AUTOMATICA"
+
 # Models
 class Debt(Base):
     __tablename__ = "debts"
@@ -44,6 +58,12 @@ class Debt(Base):
     detalle = Column(String, nullable=True)
     fecha_vencimiento = Column(String, nullable=False)
     status = Column(SQLEnum(DebtStatus, values_callable=lambda x: [e.value for e in x]), default=DebtStatus.PENDIENTE, nullable=False)
+    
+    # Nuevas columnas Fase A - Budget Model Refactor
+    tipo_presupuesto = Column(SQLEnum(BudgetType, values_callable=lambda x: [e.value for e in x]), default=BudgetType.OBLIGATION, nullable=False)
+    tipo_flujo = Column(SQLEnum(FlowType, values_callable=lambda x: [e.value for e in x]), default=FlowType.GASTO, nullable=False)
+    monto_ejecutado = Column(Float, default=0.0, nullable=False)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -58,9 +78,12 @@ class Transaction(Base):
     monto = Column(Float, nullable=False)
     necesidad = Column(SQLEnum(NecessityType), nullable=False)
     forma_pago = Column(String, default="Débito", nullable=False)
-    partida = Column(String, nullable=False)
     detalle = Column(String(50), nullable=True)
     debt_id = Column(Integer, ForeignKey('debts.id'), nullable=True)  # Nueva relación con deudas
+    
+    # Nueva columna - estado de asignación automática/manual
+    estado_asignacion = Column(SQLEnum(AssignmentStatus, values_callable=lambda x: [e.value for e in x]), default=AssignmentStatus.ASIGNADA_MANUAL, nullable=False)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Category(Base):

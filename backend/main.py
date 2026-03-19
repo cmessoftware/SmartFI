@@ -7,8 +7,13 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
 import os
+import sys
 from dotenv import load_dotenv
 from database.database import SessionLocal, Transaction as DBTransaction
+
+# Fix Windows console encoding for Unicode characters
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding='utf-8')
 
 load_dotenv()
 
@@ -119,6 +124,10 @@ class Debt(BaseModel):
     detalle: Optional[str] = None
     fecha_vencimiento: str
     status: Optional[str] = "Pendiente"
+    # Nuevos campos - Fase A Refactor
+    tipo_presupuesto: Optional[str] = "OBLIGATION"
+    tipo_flujo: Optional[str] = "Gasto"
+    monto_ejecutado: Optional[float] = 0.0
 
 class Transaction(BaseModel):
     id: Optional[int] = None
@@ -129,9 +138,9 @@ class Transaction(BaseModel):
     monto: float
     necesidad: str
     forma_pago: str = "Débito"
-    partida: str
     detalle: str
     debt_id: Optional[int] = None  # Nueva relación con deuda
+    estado_asignacion: Optional[str] = "ASIGNADA_MANUAL"  # Estado de asignación automática/manual
 
 # Hardcoded users database
 fake_users_db = {
@@ -263,6 +272,7 @@ async def create_transaction(
 ):
     # Save to PostgreSQL (primary storage)
     transaction_id = None
+    error_detail = None
     if database_service:
         try:
             transaction_id = database_service.add_transaction(transaction.dict())
@@ -271,7 +281,10 @@ async def create_transaction(
             else:
                 print(f"❌ Failed to save to PostgreSQL")
         except Exception as e:
+            error_detail = str(e)
             print(f"❌ Error saving to PostgreSQL: {e}")
+            import traceback
+            traceback.print_exc()
     
     # Also save to Google Sheets as backup if configured
     sheets_success = False
@@ -291,42 +304,56 @@ async def create_transaction(
             "saved_to_sheets": sheets_success
         }
     else:
-        raise HTTPException(status_code=500, detail="Failed to save transaction")
+        detail_msg = f"Failed to save transaction: {error_detail}" if error_detail else "Failed to save transaction"
+        raise HTTPException(status_code=500, detail=detail_msg)
 
 @app.post("/api/transactions/import")
 async def import_transactions(
     transactions: List[Transaction],
     current_user: User = Depends(require_role(["admin", "writer"]))
 ):
-    # Save to PostgreSQL (primary storage)
-    success = False
-    if database_service:
+    if not database_service:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    added_count = 0
+    errors = []
+    imported_transactions = []
+
+    for index, transaction in enumerate(transactions):
         try:
-            success = database_service.add_transactions_batch([t.dict() for t in transactions])
-            if success:
-                print(f"✅ {len(transactions)} transactions saved to PostgreSQL")
+            transaction_data = transaction.dict()
+            transaction_id = database_service.add_transaction(transaction_data)
+            if transaction_id:
+                added_count += 1
+                imported_transactions.append(transaction_data)
             else:
-                print(f"❌ Failed to save batch to PostgreSQL")
+                errors.append(f"Fila {index + 1}: no se pudo guardar (validar tipo, necesidad y formato de datos)")
         except Exception as e:
-            print(f"❌ Error saving batch to PostgreSQL: {e}")
-    
-    # Also save to Google Sheets as backup if configured
+            errors.append(f"Fila {index + 1}: {str(e)}")
+
+    # Backup a Google Sheets solo de filas exitosas
     sheets_success = False
-    if sheets_service and success:
+    if sheets_service and imported_transactions:
         try:
-            sheets_success = sheets_service.add_transactions_batch([t.dict() for t in transactions])
+            sheets_success = sheets_service.add_transactions_batch(imported_transactions)
             if sheets_success:
-                print(f"✅ {len(transactions)} transactions also saved to Google Sheets (backup)")
+                print(f"✅ {len(imported_transactions)} transactions also saved to Google Sheets (backup)")
         except Exception as e:
-            print(f"⚠️ Could not save to Google Sheets backup: {e}")
-    
-    if success:
-        return {
-            "message": f"{len(transactions)} transactions imported successfully",
-            "saved_to_sheets": sheets_success
-        }
-    else:
-        raise HTTPException(status_code=500, detail="Failed to import transactions")
+            print(f"⚠️ Could not save imported transactions to Google Sheets backup: {e}")
+
+    if added_count == 0:
+        detail = "No se pudo importar ninguna transacción"
+        if errors:
+            detail = f"{detail}. {errors[0]}"
+        raise HTTPException(status_code=400, detail=detail)
+
+    return {
+        "message": f"{added_count} transacciones importadas exitosamente",
+        "added": added_count,
+        "total": len(transactions),
+        "errors": errors if errors else None,
+        "saved_to_sheets": sheets_success
+    }
 
 @app.get("/api/transactions")
 async def get_transactions(current_user: User = Depends(get_current_user)):
@@ -751,6 +778,35 @@ async def get_debt_summary(current_user: User = Depends(get_current_user)):
         print(f"❌ Error getting debt summary: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/debts/import-csv")
+async def import_debts_csv(
+    debts: List[Debt],
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Importación masiva de presupuestos desde CSV"""
+    if not debt_service:
+        raise HTTPException(status_code=503, detail="Debt service not configured")
+
+    added_count = 0
+    errors = []
+
+    for index, debt in enumerate(debts):
+        try:
+            debt_id = debt_service.add_debt(debt.dict())
+            if debt_id:
+                added_count += 1
+            else:
+                errors.append(f"Fila {index + 1}: Error al guardar")
+        except Exception as e:
+            errors.append(f"Fila {index + 1}: {str(e)}")
+
+    return {
+        "message": f"{added_count} presupuestos importados exitosamente",
+        "added": added_count,
+        "total": len(debts),
+        "errors": errors if errors else None
+    }
+
 @app.get("/api/debts/{debt_id}")
 async def get_debt(
     debt_id: int,
@@ -791,44 +847,6 @@ async def create_debt(
             raise HTTPException(status_code=500, detail="Failed to create debt")
     except Exception as e:
         print(f"❌ Error creating debt: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/debts/import-csv")
-async def import_debts_csv(
-    debts: List[Debt],
-    current_user: User = Depends(require_role(["admin", "writer"]))
-):
-    """Import multiple debts from CSV"""
-    if not debt_service:
-        raise HTTPException(status_code=503, detail="Debt service not configured")
-    
-    if not debts:
-        raise HTTPException(status_code=400, detail="No hay items de presupuesto para importar")
-    
-    try:
-        added_count = 0
-        errors = []
-        
-        for index, debt in enumerate(debts):
-            try:
-                debt_id = debt_service.add_debt(debt.dict())
-                if debt_id:
-                    added_count += 1
-                else:
-                    errors.append(f"Fila {index + 1}: Error al guardar")
-            except Exception as e:
-                errors.append(f"Fila {index + 1}: {str(e)}")
-        
-        print(f"✅ CSV Import: {added_count} presupuestos agregados, {len(errors)} errores")
-        
-        return {
-            "message": f"{added_count} presupuestos importados exitosamente",
-            "added": added_count,
-            "total": len(debts),
-            "errors": errors if errors else None
-        }
-    except Exception as e:
-        print(f"❌ Error importing debts CSV: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.put("/api/debts/{debt_id}")
@@ -884,6 +902,168 @@ async def delete_debt(
     except Exception as e:
         print(f"❌ Error deleting debt: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# FASE B - Budget Items API Aliases (mantiene compatibilidad)
+# ============================================================
+
+@app.get("/api/budget-items")
+async def get_budget_items(current_user: User = Depends(get_current_user)):
+    """Alias for GET /api/debts - Get all budget items"""
+    if not debt_service:
+        raise HTTPException(status_code=503, detail="Debt service not configured")
+    
+    try:
+        debts = debt_service.get_all_debts()
+        return debts
+    except Exception as e:
+        print(f"❌ Error getting budget items: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/budget-items/summary")
+async def get_budget_items_summary(current_user: User = Depends(get_current_user)):
+    """Alias for GET /api/debts/summary - Get budget items summary"""
+    if not debt_service:
+        raise HTTPException(status_code=503, detail="Debt service not configured")
+    
+    try:
+        summary = debt_service.get_debt_summary()
+        return summary
+    except Exception as e:
+        print(f"❌ Error getting budget items summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/budget-items/import-csv")
+async def import_budget_items_csv(
+    debts: List[Debt],
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Alias for POST /api/debts/import-csv - Import budget items from CSV"""
+    if not debt_service:
+        raise HTTPException(status_code=503, detail="Debt service not configured")
+    
+    try:
+        added_count = 0
+        errors = []
+        
+        for debt_data in debts:
+            try:
+                debt_id = debt_service.add_debt(debt_data.dict())
+                if debt_id:
+                    added_count += 1
+                    print(f"✅ Budget item {debt_id} added")
+                else:
+                    errors.append(f"Failed to add budget item: {debt_data.detalle}")
+            except Exception as e:
+                errors.append(f"Error adding budget item {debt_data.detalle}: {str(e)}")
+        
+        return {
+            "message": f"{added_count} budget items imported successfully",
+            "added": added_count,
+            "total": len(debts),
+            "errors": errors if errors else None
+        }
+    except Exception as e:
+        print(f"❌ Error importing budget items: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/budget-items/{item_id}")
+async def get_budget_item(
+    item_id: int,
+    current_user: User = Depends(get_current_user)
+):
+    """Alias for GET /api/debts/{id} - Get a specific budget item"""
+    if not debt_service:
+        raise HTTPException(status_code=503, detail="Debt service not configured")
+    
+    try:
+        debt = debt_service.get_debt_by_id(item_id)
+        if not debt:
+            raise HTTPException(status_code=404, detail="Budget item not found")
+        return debt
+    except Exception as e:
+        print(f"❌ Error getting budget item: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/budget-items")
+async def create_budget_item(
+    debt: Debt,
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Alias for POST /api/debts - Create a new budget item"""
+    if not debt_service:
+        raise HTTPException(status_code=503, detail="Debt service not configured")
+    
+    try:
+        debt_id = debt_service.add_debt(debt.dict())
+        if debt_id:
+            print(f"✅ Budget item {debt_id} created in PostgreSQL")
+            return {
+                "message": "Budget item created successfully",
+                "debt": debt,
+                "id": debt_id
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create budget item")
+    except Exception as e:
+        print(f"❌ Error creating budget item: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/budget-items/{item_id}")
+async def update_budget_item(
+    item_id: int,
+    debt: Debt,
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Alias for PUT /api/debts/{id} - Update an existing budget item"""
+    if not debt_service:
+        raise HTTPException(status_code=503, detail="Debt service not configured")
+    
+    try:
+        success = debt_service.update_debt(item_id, debt.dict())
+        if success:
+            print(f"✅ Budget item {item_id} updated in PostgreSQL")
+            return {"message": "Budget item updated successfully", "debt": debt}
+        else:
+            raise HTTPException(status_code=404, detail="Budget item not found")
+    except Exception as e:
+        print(f"❌ Error updating budget item: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/budget-items/{item_id}")
+async def delete_budget_item(
+    item_id: int,
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Alias for DELETE /api/debts/{id} - Delete a budget item"""
+    if not debt_service:
+        raise HTTPException(status_code=503, detail="Debt service not configured")
+    
+    try:
+        # Check if there are linked transactions first
+        db = SessionLocal()
+        linked_count = db.query(DBTransaction).filter(DBTransaction.debt_id == item_id).count()
+        db.close()
+        
+        if linked_count > 0:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"No se puede eliminar: hay {linked_count} transacción(es) vinculada(s). Elimínelas primero."
+            )
+        
+        success = debt_service.delete_debt(item_id)
+        if success:
+            print(f"✅ Budget item {item_id} deleted from PostgreSQL")
+            return {"message": "Budget item deleted successfully", "id": item_id}
+        else:
+            raise HTTPException(status_code=404, detail="Item de presupuesto no encontrado")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error deleting budget item: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # Admin routes
 @app.get("/api/admin/users")
@@ -944,3 +1124,4 @@ async def delete_user(
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+

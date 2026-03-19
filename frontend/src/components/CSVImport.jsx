@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Papa from 'papaparse';
 import { formatDate } from '../utils/dateUtils';
+import { decodeCsvFile } from '../utils/csvEncoding';
 
 function CSVImport({ addMultipleTransactions }) {
   const [csvHeaders, setCsvHeaders] = useState([]);
@@ -11,6 +12,20 @@ function CSVImport({ addMultipleTransactions }) {
 
   const requiredFields = ['fecha', 'monto'];
   const optionalFields = ['concepto', 'tipo', 'categoria', 'forma_pago'];
+
+  const normalizeTipo = (value) => {
+    if (!value) return 'Gasto';
+    const text = value.toString().trim().toLowerCase();
+    if (text === 'ingreso' || text === 'income' || text === 'entrada') return 'Ingreso';
+    return 'Gasto';
+  };
+
+  const normalizeFormaPago = (value) => {
+    if (!value) return 'Débito';
+    const text = value.toString().trim().toLowerCase();
+    if (text === 'credito' || text === 'crédito' || text === 'credit') return 'Crédito';
+    return 'Débito';
+  };
 
   const downloadTemplate = () => {
     // Create CSV content with headers and example row
@@ -36,15 +51,17 @@ function CSVImport({ addMultipleTransactions }) {
     document.body.removeChild(link);
   };
 
-  const handleFile = (e) => {
+  const handleFile = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
     setMessage(null);
-    Papa.parse(file, {
+    try {
+      const { text, encoding } = await decodeCsvFile(file);
+
+      Papa.parse(text, {
       header: true,
       skipEmptyLines: true,
-      encoding: 'UTF-8',
       complete: (results) => {
         if (results.data.length === 0) {
           setMessage({ type: 'error', text: 'El archivo CSV está vacío' });
@@ -52,12 +69,15 @@ function CSVImport({ addMultipleTransactions }) {
         }
         setCsvHeaders(Object.keys(results.data[0]));
         setRawRows(results.data);
-        setMessage({ type: 'success', text: `Archivo cargado: ${results.data.length} filas detectadas` });
+        setMessage({ type: 'success', text: `Archivo cargado: ${results.data.length} filas detectadas (${encoding.toUpperCase()})` });
       },
       error: (error) => {
         setMessage({ type: 'error', text: `Error al leer el archivo: ${error.message}` });
       }
-    });
+      });
+    } catch (error) {
+      setMessage({ type: 'error', text: `Error al leer el archivo: ${error.message}` });
+    }
   };
 
   const processImport = () => {
@@ -100,14 +120,13 @@ function CSVImport({ addMultipleTransactions }) {
         return {
           id: Date.now() + index,
           marca_temporal: new Date().toISOString(),
-          fecha: row[mapping.fecha],
-          tipo: mapping.tipo ? row[mapping.tipo] : 'Gasto',
-          categoria: mapping.categoria ? row[mapping.categoria] : 'Comida',
+          fecha: row[mapping.fecha]?.toString().trim(),
+          tipo: normalizeTipo(mapping.tipo ? row[mapping.tipo] : 'Gasto'),
+          categoria: mapping.categoria ? row[mapping.categoria]?.toString().trim() : 'Comida',
           monto: monto,
           necesidad: 'Necesario',
-          forma_pago: mapping.forma_pago ? row[mapping.forma_pago] : 'Débito',
-          partida: mapping.categoria ? row[mapping.categoria] : 'Comida',
-          detalle: mapping.concepto ? row[mapping.concepto] : ''
+          forma_pago: normalizeFormaPago(mapping.forma_pago ? row[mapping.forma_pago] : 'Débito'),
+          detalle: mapping.concepto ? row[mapping.concepto]?.toString().trim() : ''
         };
       });
 
@@ -141,9 +160,11 @@ function CSVImport({ addMultipleTransactions }) {
         setPreviewData([]);
         window.formattedTransactions = null;
       } catch (error) {
+        const backendDetail = error?.response?.data?.detail;
+        const backendMessage = error?.response?.data?.message;
         setMessage({ 
           type: 'error', 
-          text: '❌ Error al guardar las transacciones. Verifica tu conexión con el servidor.' 
+          text: `❌ Error al guardar las transacciones.${backendDetail || backendMessage ? ` ${backendDetail || backendMessage}` : ''}` 
         });
       }
     }

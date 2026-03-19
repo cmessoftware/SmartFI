@@ -43,13 +43,14 @@ function TransactionForm({ addTransaction }) {
   const loadDebts = async () => {
     try {
       const response = await debtsAPI.getDebts();
-      // Solo mostrar items de presupuesto que no estén completamente pagados
-      const activeDebts = response.data.filter(d => 
-        d.status === 'PENDIENTE' || 
-        d.status === 'VENCIDA' || 
-        d.status === 'Pago parcial'
-      );
-      setDebts(activeDebts);
+      // Mostrar todos los items de presupuesto (tanto gastos como ingresos)
+      const allDebts = (response.data || [])
+        .sort((a, b) => {
+          const labelA = (a.detalle || `Presupuesto ${a.tipo || ''}`).trim().toLowerCase();
+          const labelB = (b.detalle || `Presupuesto ${b.tipo || ''}`).trim().toLowerCase();
+          return labelA.localeCompare(labelB, 'es');
+        });
+      setDebts(allDebts);
     } catch (error) {
       console.error('Error loading debts:', error);
     }
@@ -64,7 +65,6 @@ function TransactionForm({ addTransaction }) {
       const transaction = {
         ...formData,
         marca_temporal: new Date().toISOString(),
-        partida: formData.categoria,
         monto: parseFloat(formData.monto),
         id: Date.now(),
         debt_id: formData.debt_id ? parseInt(formData.debt_id) : null
@@ -217,11 +217,16 @@ function TransactionForm({ addTransaction }) {
               </select>
             </div>
 
-            {/* Mostrar selector de presupuesto solo cuando tipo es "Gasto" */}
-            {formData.tipo === 'Gasto' && debts.length > 0 && (
+            {/* Selector de presupuesto para gastos e ingresos */}
+            {debts.length > 0 && (
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-finly-text mb-2">
                   Asociar a Item de Presupuesto (Opcional)
+                  {formData.categoria && (
+                    <span className="ml-2 text-xs font-normal text-blue-600">
+                      💡 Sugerencia: Busque {formData.tipo === 'Gasto' ? 'gastos' : 'ingresos'} en categoría "{formData.categoria}"
+                    </span>
+                  )}
                 </label>
                 <select
                   name="debt_id"
@@ -229,18 +234,47 @@ function TransactionForm({ addTransaction }) {
                   onChange={handleChange}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
                 >
-                  <option value="">-- Ninguna --</option>
-                  {debts.map(debt => {
-                    const remaining = debt.monto_total - debt.monto_pagado;
-                    return (
-                      <option key={debt.id} value={debt.id}>
-                        {debt.detalle || `Presupuesto ${debt.tipo}`} - Resta: ${remaining.toFixed(2)} ({debt.status})
-                      </option>
-                    );
-                  })}
+                  <option value="">-- Sin asignar (se asignará automáticamente) --</option>
+                  <optgroup label="🎯 Sugeridos por categoría y tipo de flujo">
+                    {debts
+                      .filter(debt => 
+                        debt.categoria === formData.categoria && 
+                        debt.tipo_flujo === formData.tipo
+                      )
+                      .map(debt => {
+                        const montoEjecutado = debt.monto_ejecutado ?? debt.monto_pagado ?? 0;
+                        const remaining = debt.monto_total - montoEjecutado;
+                        const tipoPresupuesto = debt.tipo_presupuesto || 'OBLIGATION';
+                        const tipoBadge = tipoPresupuesto === 'OBLIGATION' ? '🔴' : '🔵';
+                        const flujoIcon = debt.tipo_flujo === 'Gasto' ? '💸' : '💰';
+                        return (
+                          <option key={debt.id} value={debt.id}>
+                            {tipoBadge} {flujoIcon} {debt.detalle || `${debt.tipo} - ${debt.categoria}`} - Resta: ${remaining.toFixed(2)}
+                          </option>
+                        );
+                      })}
+                  </optgroup>
+                  <optgroup label="📋 Otros items de presupuesto">
+                    {debts
+                      .filter(debt => 
+                        !(debt.categoria === formData.categoria && debt.tipo_flujo === formData.tipo)
+                      )
+                      .map(debt => {
+                        const montoEjecutado = debt.monto_ejecutado ?? debt.monto_pagado ?? 0;
+                        const remaining = debt.monto_total - montoEjecutado;
+                        const tipoPresupuesto = debt.tipo_presupuesto || 'OBLIGATION';
+                        const tipoBadge = tipoPresupuesto === 'OBLIGATION' ? '🔴' : '🔵';
+                        const flujoIcon = debt.tipo_flujo === 'Gasto' ? '💸' : '💰';
+                        return (
+                          <option key={debt.id} value={debt.id}>
+                            {tipoBadge} {flujoIcon} {debt.detalle || `${debt.tipo} - ${debt.categoria}`} - Resta: ${remaining.toFixed(2)}
+                          </option>
+                        );
+                      })}
+                  </optgroup>
                 </select>
                 <p className="text-xs text-finly-textSecondary mt-1">
-                  Seleccione un item de presupuesto si este gasto es un pago al mismo
+                  🔴 Obligación (Deuda/Compromiso) | 🔵 Variable (Flexible) | Si no selecciona, se asignará automáticamente
                 </p>
               </div>
             )}
