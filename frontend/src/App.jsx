@@ -123,11 +123,13 @@ function App() {
   const addTransaction = async (newTransaction) => {
     try {
       // Send to PostgreSQL (primary storage)
-      await transactionsAPI.saveTransaction(newTransaction);
-      console.log('✅ Transaction saved to PostgreSQL');
+      const response = await transactionsAPI.saveTransaction(newTransaction);
+      const savedId = response.data?.id;
+      console.log(`✅ Transaction ${savedId} saved to PostgreSQL`);
       
-      // Update local state and cache
-      const updatedTransactions = [...transactions, newTransaction];
+      // Update local state with real DB id
+      const savedTransaction = { ...newTransaction, id: savedId };
+      const updatedTransactions = [...transactions, savedTransaction];
       setTransactions(updatedTransactions);
       localStorage.setItem('transactions_cache', JSON.stringify(updatedTransactions));
     } catch (error) {

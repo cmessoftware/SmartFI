@@ -3,13 +3,13 @@ import { transactionsAPI, debtsAPI } from '../services/api';
 
 function TransactionForm({ addTransaction }) {
   const [formData, setFormData] = useState({
-    fecha: new Date().toISOString().split('T')[0],
-    tipo: 'Gasto',
-    categoria: 'Comida',
-    monto: '',
-    necesidad: 'Necesario',
-    forma_pago: 'Débito',
-    detalle: '',
+    date: new Date().toISOString().split('T')[0],
+    type: 'Gasto',
+    category: 'Comida',
+    amount: '',
+    necessity: 'Necesario',
+    payment_method: 'Débito',
+    detail: '',
     debt_id: null
   });
 
@@ -64,9 +64,8 @@ function TransactionForm({ addTransaction }) {
     try {
       const transaction = {
         ...formData,
-        marca_temporal: new Date().toISOString(),
-        monto: parseFloat(formData.monto),
-        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        amount: parseFloat(formData.amount),
         debt_id: formData.debt_id ? parseInt(formData.debt_id) : null
       };
 
@@ -76,13 +75,13 @@ function TransactionForm({ addTransaction }) {
       
       // Reset form
       setFormData({
-        fecha: new Date().toISOString().split('T')[0],
-        tipo: 'Gasto',
-        categoria: 'Comida',
-        monto: '',
-        necesidad: 'Necesario',
-        forma_pago: 'Débito',
-        detalle: '',
+        date: new Date().toISOString().split('T')[0],
+        type: 'Gasto',
+        category: 'Comida',
+        amount: '',
+        necessity: 'Necesario',
+        payment_method: 'Débito',
+        detail: '',
         debt_id: null
       });
     } catch (error) {
@@ -125,8 +124,8 @@ function TransactionForm({ addTransaction }) {
               </label>
               <input
                 type="date"
-                name="fecha"
-                value={formData.fecha}
+                name="date"
+                value={formData.date}
                 onChange={handleChange}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
                 required
@@ -138,8 +137,8 @@ function TransactionForm({ addTransaction }) {
                 Tipo *
               </label>
               <select
-                name="tipo"
-                value={formData.tipo}
+                name="type"
+                value={formData.type}
                 onChange={handleChange}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
                 required
@@ -155,14 +154,14 @@ function TransactionForm({ addTransaction }) {
                 Categoría *
               </label>
               <select
-                name="categoria"
-                value={formData.categoria}
+                name="category"
+                value={formData.category}
                 onChange={handleChange}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
                 required
               >
                 {categories.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
+                  <option key={cat.id || cat} value={cat.name || cat}>{cat.name || cat}</option>
                 ))}
               </select>
             </div>
@@ -173,8 +172,8 @@ function TransactionForm({ addTransaction }) {
               </label>
               <input
                 type="number"
-                name="monto"
-                value={formData.monto}
+                name="amount"
+                value={formData.amount}
                 onChange={handleChange}
                 step="0.01"
                 min="0"
@@ -189,8 +188,8 @@ function TransactionForm({ addTransaction }) {
                 Necesidad *
               </label>
               <select
-                name="necesidad"
-                value={formData.necesidad}
+                name="necessity"
+                value={formData.necessity}
                 onChange={handleChange}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
                 required
@@ -206,8 +205,8 @@ function TransactionForm({ addTransaction }) {
                 Forma de Pago *
               </label>
               <select
-                name="forma_pago"
-                value={formData.forma_pago}
+                name="payment_method"
+                value={formData.payment_method}
                 onChange={handleChange}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
                 required
@@ -218,13 +217,19 @@ function TransactionForm({ addTransaction }) {
             </div>
 
             {/* Selector de presupuesto para gastos e ingresos */}
-            {debts.length > 0 && (
+            {debts.length > 0 && (() => {
+              // Filtrar deudas por el mes de la transacción (Mejora 4)
+              const txMonth = formData.date ? formData.date.substring(0, 7) : ''; // YYYY-MM
+              const debtsForMonth = txMonth
+                ? debts.filter(d => d.fecha && d.fecha.substring(0, 7) === txMonth)
+                : debts;
+              return debtsForMonth.length > 0 && (
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-finly-text mb-2">
                   Asociar a Item de Presupuesto (Opcional)
-                  {formData.categoria && (
+                  {formData.category && (
                     <span className="ml-2 text-xs font-normal text-blue-600">
-                      💡 Sugerencia: Busque {formData.tipo === 'Gasto' ? 'gastos' : 'ingresos'} en categoría "{formData.categoria}"
+                      💡 Sugerencia: Busque {formData.type === 'Gasto' ? 'gastos' : 'ingresos'} en categoría "{formData.category}"
                     </span>
                   )}
                 </label>
@@ -236,10 +241,10 @@ function TransactionForm({ addTransaction }) {
                 >
                   <option value="">-- Sin asignar (se asignará automáticamente) --</option>
                   <optgroup label="🎯 Sugeridos por categoría y tipo de flujo">
-                    {debts
+                    {debtsForMonth
                       .filter(debt => 
-                        debt.categoria === formData.categoria && 
-                        debt.tipo_flujo === formData.tipo
+                        debt.categoria === formData.category && 
+                        debt.tipo_flujo === formData.type
                       )
                       .map(debt => {
                         const montoEjecutado = debt.monto_ejecutado ?? debt.monto_pagado ?? 0;
@@ -249,15 +254,15 @@ function TransactionForm({ addTransaction }) {
                         const flujoIcon = debt.tipo_flujo === 'Gasto' ? '💸' : '💰';
                         return (
                           <option key={debt.id} value={debt.id}>
-                            {tipoBadge} {flujoIcon} {debt.detalle || `${debt.tipo} - ${debt.categoria}`} - Resta: ${remaining.toFixed(2)}
+                            {tipoBadge} {flujoIcon} {debt.detalle || `${debt.tipo} - ${debt.categoria}`} - Resta: {new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(remaining)}
                           </option>
                         );
                       })}
                   </optgroup>
                   <optgroup label="📋 Otros items de presupuesto">
-                    {debts
+                    {debtsForMonth
                       .filter(debt => 
-                        !(debt.categoria === formData.categoria && debt.tipo_flujo === formData.tipo)
+                        !(debt.categoria === formData.category && debt.tipo_flujo === formData.type)
                       )
                       .map(debt => {
                         const montoEjecutado = debt.monto_ejecutado ?? debt.monto_pagado ?? 0;
@@ -267,7 +272,7 @@ function TransactionForm({ addTransaction }) {
                         const flujoIcon = debt.tipo_flujo === 'Gasto' ? '💸' : '💰';
                         return (
                           <option key={debt.id} value={debt.id}>
-                            {tipoBadge} {flujoIcon} {debt.detalle || `${debt.tipo} - ${debt.categoria}`} - Resta: ${remaining.toFixed(2)}
+                            {tipoBadge} {flujoIcon} {debt.detalle || `${debt.tipo} - ${debt.categoria}`} - Resta: {new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(remaining)}
                           </option>
                         );
                       })}
@@ -277,7 +282,7 @@ function TransactionForm({ addTransaction }) {
                   🔴 Obligación (Deuda/Compromiso) | 🔵 Variable (Flexible) | Si no selecciona, se asignará automáticamente
                 </p>
               </div>
-            )}
+            );})()}
           </div>
 
           <div>
@@ -286,15 +291,15 @@ function TransactionForm({ addTransaction }) {
             </label>
             <input
               type="text"
-              name="detalle"
-              value={formData.detalle}
+              name="detail"
+              value={formData.detail}
               onChange={handleChange}
               maxLength={50}
               placeholder="Descripción de la transacción (máx. 50 caracteres)"
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
             />
             <p className="text-xs text-finly-textSecondary mt-1">
-              {formData.detalle.length}/50 caracteres
+              {formData.detail.length}/50 caracteres
             </p>
           </div>
 

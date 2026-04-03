@@ -30,54 +30,74 @@ class DatabaseService:
         except Exception:
             return False
 
+    def _resolve_category_id(self, db, transaction_data: Dict) -> int:
+        """Resolve category_id from transaction data. Accepts category_id directly or category name."""
+        category_id = transaction_data.get('category_id')
+        if category_id:
+            return int(category_id)
+        # Fallback: look up by category name
+        category_name = transaction_data.get('category', '')
+        if category_name:
+            cat = db.query(Category).filter(Category.name == category_name).first()
+            if cat:
+                return cat.id
+            # Auto-create if not found
+            new_cat = Category(name=category_name)
+            db.add(new_cat)
+            db.flush()
+            return new_cat.id
+        raise ValueError("category_id or category name is required")
+
     def add_transaction(self, transaction_data: Dict) -> Optional[int]:
         """Add a single transaction to the database"""
         db = next(get_db())
         try:
-            # Parse marca_temporal if it's a string
-            marca_temporal = transaction_data.get('marca_temporal')
-            if isinstance(marca_temporal, str):
+            # Parse timestamp if it's a string
+            ts = transaction_data.get('timestamp')
+            if isinstance(ts, str):
                 try:
-                    marca_temporal = datetime.fromisoformat(marca_temporal.replace('Z', '+00:00'))
+                    ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
                 except:
-                    marca_temporal = datetime.utcnow()
+                    ts = datetime.utcnow()
             else:
-                marca_temporal = datetime.utcnow()
+                ts = datetime.utcnow()
+
+            category_id = self._resolve_category_id(db, transaction_data)
 
             db_transaction = DBTransaction(
-                marca_temporal=marca_temporal,
-                fecha=transaction_data['fecha'],
-                tipo=transaction_data['tipo'],
-                categoria=transaction_data['categoria'],
-                monto=float(transaction_data['monto']),
-                necesidad=transaction_data['necesidad'],
-                forma_pago=transaction_data.get('forma_pago', 'Débito'),
-                detalle=transaction_data.get('detalle', ''),
-                debt_id=transaction_data.get('debt_id'),  # Agrega relación con deuda
-                estado_asignacion=transaction_data.get('estado_asignacion', 'ASIGNADA_MANUAL')
+                timestamp=ts,
+                date=transaction_data['date'],
+                type=transaction_data['type'],
+                category_id=category_id,
+                amount=float(transaction_data['amount']),
+                necessity=transaction_data['necessity'],
+                payment_method=transaction_data.get('payment_method', 'Débito'),
+                detail=transaction_data.get('detail', ''),
+                debt_id=transaction_data.get('debt_id'),
+                assignment_status=transaction_data.get('assignment_status', 'ASIGNADA_MANUAL')
             )
             
             db.add(db_transaction)
             db.commit()
             db.refresh(db_transaction)
             
-            # Si la transacción está vinculada a una deuda, actualizar monto ejecutado
-            if db_transaction.debt_id and transaction_data['tipo'] == 'Gasto':
+            # Si la transacción está vinculada a un presupuesto, actualizar monto ejecutado
+            if db_transaction.debt_id:
                 debt = db.query(DBDebt).filter(DBDebt.id == db_transaction.debt_id).first()
                 if debt:
-                    debt.monto_ejecutado = (debt.monto_ejecutado or 0) + float(transaction_data['monto'])
+                    debt.monto_ejecutado = (debt.monto_ejecutado or 0) + float(transaction_data['amount'])
                     
-                    # Actualizar estado según monto ejecutado usando strings directamente
-                    if debt.monto_ejecutado >= debt.monto_total:
-                        debt.status = 'PAGADA'
-                    elif debt.monto_ejecutado > 0:
-                        debt.status = 'Pago parcial'
-                    else:
-                        debt.status = 'PENDIENTE'
+                    if transaction_data['type'] == 'Gasto':
+                        if debt.monto_ejecutado >= debt.monto_total:
+                            debt.status = 'PAGADA'
+                        elif debt.monto_ejecutado > 0:
+                            debt.status = 'Pago parcial'
+                        else:
+                            debt.status = 'PENDIENTE'
                     
                     debt.updated_at = datetime.utcnow()
                     db.commit()
-                    logger.info(f"✅ Updated debt {debt.id} payment: {debt.monto_ejecutado}/{debt.monto_total} - Status: {debt.status}")
+                    logger.info(f"✅ Updated debt {debt.id} executed amount: {debt.monto_ejecutado}/{debt.monto_total} - Type: {transaction_data['type']}")
             
             logger.info(f"✅ Transaction {db_transaction.id} saved to database")
             return db_transaction.id
@@ -87,7 +107,7 @@ class DatabaseService:
             print(f"❌ SQLAlchemyError details: {e}")
             import traceback
             traceback.print_exc()
-            raise  # Re-raise the exception so main.py can catch it
+            raise
         finally:
             db.close()
 
@@ -97,31 +117,41 @@ class DatabaseService:
         try:
             db_transactions = []
             for t_data in transactions:
-                # Parse marca_temporal if it's a string
-                marca_temporal = t_data.get('marca_temporal')
-                if isinstance(marca_temporal, str):
+                ts = t_data.get('timestamp')
+                if isinstance(ts, str):
                     try:
-                        marca_temporal = datetime.fromisoformat(marca_temporal.replace('Z', '+00:00'))
+                        ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
                     except:
-                        marca_temporal = datetime.utcnow()
+                        ts = datetime.utcnow()
                 else:
-                    marca_temporal = datetime.utcnow()
+                    ts = datetime.utcnow()
+
+                category_id = self._resolve_category_id(db, t_data)
 
                 db_transaction = DBTransaction(
-                    marca_temporal=marca_temporal,
-                    fecha=t_data['fecha'],
-                    tipo=t_data['tipo'],
-                    categoria=t_data['categoria'],
-                    monto=float(t_data['monto']),
-                    necesidad=t_data['necesidad'],
-                    forma_pago=t_data.get('forma_pago', 'Débito'),
-                    detalle=t_data.get('detalle', ''),
+                    timestamp=ts,
+                    date=t_data['date'],
+                    type=t_data['type'],
+                    category_id=category_id,
+                    amount=float(t_data['amount']),
+                    necessity=t_data['necessity'],
+                    payment_method=t_data.get('payment_method', 'Débito'),
+                    detail=t_data.get('detail', ''),
                     debt_id=t_data.get('debt_id'),
-                    estado_asignacion=t_data.get('estado_asignacion', 'ASIGNADA_MANUAL')
+                    assignment_status=t_data.get('assignment_status', 'ASIGNADA_MANUAL')
                 )
                 db_transactions.append(db_transaction)
             
             db.bulk_save_objects(db_transactions)
+            db.commit()
+            
+            for t_data in transactions:
+                if t_data.get('debt_id'):
+                    debt = db.query(DBDebt).filter(DBDebt.id == t_data['debt_id']).first()
+                    if debt:
+                        debt.monto_ejecutado = (debt.monto_ejecutado or 0) + float(t_data['amount'])
+                        debt.updated_at = datetime.utcnow()
+            
             db.commit()
             
             logger.info(f"✅ {len(transactions)} transactions saved to database")
@@ -137,21 +167,22 @@ class DatabaseService:
         """Get all transactions from the database"""
         db = next(get_db())
         try:
-            transactions = db.query(DBTransaction).order_by(DBTransaction.fecha.desc()).all()
+            transactions = db.query(DBTransaction).order_by(DBTransaction.date.desc()).all()
             
             result = []
             for t in transactions:
                 result.append({
                     'id': t.id,
-                    'marca_temporal': t.marca_temporal.isoformat() if t.marca_temporal else None,
-                    'fecha': t.fecha,
-                    'tipo': t.tipo.value if hasattr(t.tipo, 'value') else t.tipo,
-                    'categoria': t.categoria,
-                    'monto': float(t.monto),
-                    'necesidad': t.necesidad.value if hasattr(t.necesidad, 'value') else t.necesidad,
-                    'forma_pago': t.forma_pago,
-                    'detalle': t.detalle or '',
-                    'debt_id': t.debt_id  # Agregar debt_id para mostrar vinculación
+                    'timestamp': t.timestamp.isoformat() if t.timestamp else None,
+                    'date': t.date,
+                    'type': t.type.value if hasattr(t.type, 'value') else t.type,
+                    'category_id': t.category_id,
+                    'category': t.category.name if t.category else '',
+                    'amount': float(t.amount),
+                    'necessity': t.necessity.value if hasattr(t.necessity, 'value') else t.necessity,
+                    'payment_method': t.payment_method,
+                    'detail': t.detail or '',
+                    'debt_id': t.debt_id
                 })
             
             logger.info(f"✅ Retrieved {len(result)} transactions from database")
@@ -172,59 +203,55 @@ class DatabaseService:
                 logger.warning(f"⚠️ Transaction {transaction_id} not found")
                 return False
             
-            # Manejar cambios en debt_id o monto
             old_debt_id = db_transaction.debt_id
-            old_monto = db_transaction.monto
+            old_amount = db_transaction.amount
             new_debt_id = transaction_data.get('debt_id', db_transaction.debt_id)
-            new_monto = float(transaction_data.get('monto', old_monto))
+            new_amount = float(transaction_data.get('amount', old_amount))
             
-            # Si cambia la deuda o el monto, actualizar deudas
-            if db_transaction.tipo == 'Gasto' and (old_debt_id != new_debt_id or old_monto != new_monto):
-                # Restar monto de deuda anterior
+            if old_debt_id != new_debt_id or old_amount != new_amount:
                 if old_debt_id:
                     old_debt = db.query(DBDebt).filter(DBDebt.id == old_debt_id).first()
                     if old_debt:
-                        old_debt.monto_ejecutado = max(0, (old_debt.monto_ejecutado or 0) - old_monto)
-                        # Actualizar estado según monto ejecutado
-                        if old_debt.monto_ejecutado >= old_debt.monto_total:
-                            old_debt.status = 'PAGADA'
-                        elif old_debt.monto_ejecutado > 0:
-                            old_debt.status = 'Pago parcial'
-                        else:
-                            old_debt.status = 'PENDIENTE'
+                        old_debt.monto_ejecutado = max(0, (old_debt.monto_ejecutado or 0) - old_amount)
+                        if db_transaction.type == 'Gasto':
+                            if old_debt.monto_ejecutado >= old_debt.monto_total:
+                                old_debt.status = 'PAGADA'
+                            elif old_debt.monto_ejecutado > 0:
+                                old_debt.status = 'Pago parcial'
+                            else:
+                                old_debt.status = 'PENDIENTE'
                         old_debt.updated_at = datetime.utcnow()
-                        logger.info(f"✅ Removed {old_monto} from debt {old_debt_id} - Status: {old_debt.status}")
+                        logger.info(f"✅ Removed {old_amount} from budget {old_debt_id} - Executed: {old_debt.monto_ejecutado}")
                 
-                # Sumar monto a deuda nueva
                 if new_debt_id:
                     new_debt = db.query(DBDebt).filter(DBDebt.id == new_debt_id).first()
                     if new_debt:
-                        new_debt.monto_ejecutado = (new_debt.monto_ejecutado or 0) + new_monto
-                        # Actualizar estado según monto ejecutado
-                        if new_debt.monto_ejecutado >= new_debt.monto_total:
-                            new_debt.status = 'PAGADA'
-                        elif new_debt.monto_ejecutado > 0:
-                            new_debt.status = 'Pago parcial'
-                        else:
-                            new_debt.status = 'PENDIENTE'
+                        new_debt.monto_ejecutado = (new_debt.monto_ejecutado or 0) + new_amount
+                        if db_transaction.type == 'Gasto':
+                            if new_debt.monto_ejecutado >= new_debt.monto_total:
+                                new_debt.status = 'PAGADA'
+                            elif new_debt.monto_ejecutado > 0:
+                                new_debt.status = 'Pago parcial'
+                            else:
+                                new_debt.status = 'PENDIENTE'
                         new_debt.updated_at = datetime.utcnow()
-                        logger.info(f"✅ Added {new_monto} to debt {new_debt_id} - Status: {new_debt.status}")
+                        logger.info(f"✅ Added {new_amount} to budget {new_debt_id} - Executed: {new_debt.monto_ejecutado}")
             
             # Update fields
-            if 'fecha' in transaction_data:
-                db_transaction.fecha = transaction_data['fecha']
-            if 'tipo' in transaction_data:
-                db_transaction.tipo = transaction_data['tipo']
-            if 'categoria' in transaction_data:
-                db_transaction.categoria = transaction_data['categoria']
-            if 'monto' in transaction_data:
-                db_transaction.monto = new_monto
-            if 'necesidad' in transaction_data:
-                db_transaction.necesidad = transaction_data['necesidad']
-            if 'forma_pago' in transaction_data:
-                db_transaction.forma_pago = transaction_data['forma_pago']
-            if 'detalle' in transaction_data:
-                db_transaction.detalle = transaction_data['detalle']
+            if 'date' in transaction_data:
+                db_transaction.date = transaction_data['date']
+            if 'type' in transaction_data:
+                db_transaction.type = transaction_data['type']
+            if 'category' in transaction_data or 'category_id' in transaction_data:
+                db_transaction.category_id = self._resolve_category_id(db, transaction_data)
+            if 'amount' in transaction_data:
+                db_transaction.amount = new_amount
+            if 'necessity' in transaction_data:
+                db_transaction.necessity = transaction_data['necessity']
+            if 'payment_method' in transaction_data:
+                db_transaction.payment_method = transaction_data['payment_method']
+            if 'detail' in transaction_data:
+                db_transaction.detail = transaction_data['detail']
             if 'debt_id' in transaction_data:
                 db_transaction.debt_id = transaction_data['debt_id']
             
@@ -248,21 +275,20 @@ class DatabaseService:
                 logger.warning(f"⚠️ Transaction {transaction_id} not found")
                 return False
             
-            # Si la transacción estaba vinculada a una deuda, actualizar monto ejecutado
             if db_transaction.debt_id:
                 debt = db.query(DBDebt).filter(DBDebt.id == db_transaction.debt_id).first()
                 if debt:
-                    debt.monto_ejecutado = max(0, (debt.monto_ejecutado or 0) - float(db_transaction.monto))
-                    # Actualizar estado según monto ejecutado
-                    if debt.monto_ejecutado >= debt.monto_total:
-                        debt.status = 'PAGADA'
-                    elif debt.monto_ejecutado > 0:
-                        debt.status = 'Pago parcial'
-                    else:
-                        debt.status = 'PENDIENTE'
+                    debt.monto_ejecutado = max(0, (debt.monto_ejecutado or 0) - float(db_transaction.amount))
+                    if db_transaction.type == 'Gasto':
+                        if debt.monto_ejecutado >= debt.monto_total:
+                            debt.status = 'PAGADA'
+                        elif debt.monto_ejecutado > 0:
+                            debt.status = 'Pago parcial'
+                        else:
+                            debt.status = 'PENDIENTE'
                     debt.updated_at = datetime.utcnow()
                     db.commit()
-                    logger.info(f"✅ Updated debt {debt.id} payment after deletion: {debt.monto_ejecutado}/{debt.monto_total} - Status: {debt.status}")
+                    logger.info(f"✅ Updated budget {debt.id} after deletion: Executed={debt.monto_ejecutado}/{debt.monto_total}")
             
             db.delete(db_transaction)
             db.commit()
@@ -275,16 +301,17 @@ class DatabaseService:
         finally:
             db.close()
 
-    def get_categories(self) -> List[str]:
+    def get_categories(self) -> List[Dict]:
         """Get all categories from the database"""
-        # For now, return hardcoded categories
-        # TODO: Store in database when implementing admin panel
-        return [
-            "Ahorro", "Comida", "Cuidado Personal", "Tarjeta VISA",
-            "Educación", "Alquiler", "Hogar", "Impuestos",
-            "Ingresos", "Ocio", "Préstamos", "Ropa",
-            "Salud", "Seguros", "Servicios", "Trámites", "Transporte"
-        ]
+        db = next(get_db())
+        try:
+            cats = db.query(Category).order_by(Category.name).all()
+            return [{'id': c.id, 'name': c.name} for c in cats]
+        except SQLAlchemyError as e:
+            logger.error(f"❌ Error getting categories: {e}")
+            return []
+        finally:
+            db.close()
 
 # Create singleton instance
 database_service = DatabaseService()

@@ -2,6 +2,32 @@ import { useState, useEffect } from 'react';
 import { toISODate } from '../utils/dateUtils';
 
 function EditDebtModal({ debt, onSave, onClose, categories }) {
+  // Opciones de Tipo según Tipo de Flujo
+  const tiposGasto = [
+    'Servicios',
+    'Alimentación',
+    'Transporte',
+    'Vivienda',
+    'Educación',
+    'Salud',
+    'Entretenimiento',
+    'Seguros',
+    'Impuestos',
+    'Préstamo',
+    'Tarjeta',
+    'Otro'
+  ];
+  
+  const tiposIngreso = [
+    'Sueldos',
+    'Honorarios',
+    'Alquileres',
+    'Inversiones',
+    'Freelance',
+    'Ventas',
+    'Otro'
+  ];
+  
   const [formData, setFormData] = useState({
     fecha: '',
     tipo: 'Préstamo',
@@ -32,10 +58,20 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData({
-      ...formData,
-      [name]: value
-    });
+    
+    // Si cambia el tipo_flujo, resetear el campo tipo
+    if (name === 'tipo_flujo') {
+      setFormData({
+        ...formData,
+        tipo_flujo: value,
+        tipo: value === 'Ingreso' ? tiposIngreso[0] : tiposGasto[0]
+      });
+    } else {
+      setFormData({
+        ...formData,
+        [name]: value
+      });
+    }
   };
 
   const handleSubmit = (e) => {
@@ -89,17 +125,24 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
             {/* Tipo */}
             <div>
               <label className="block text-sm font-medium text-finly-text mb-2">
-                Tipo *
+                Tipo de {formData.tipo_flujo} *
               </label>
-              <input
-                type="text"
+              <select
                 name="tipo"
                 value={formData.tipo}
                 onChange={handleChange}
                 required
-                placeholder="Préstamo, Tarjeta, Servicios, etc."
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
-              />
+              >
+                {formData.tipo_flujo === 'Ingreso' 
+                  ? tiposIngreso.map(tipo => (
+                      <option key={tipo} value={tipo}>{tipo}</option>
+                    ))
+                  : tiposGasto.map(tipo => (
+                      <option key={tipo} value={tipo}>{tipo}</option>
+                    ))
+                }
+              </select>
             </div>
 
             {/* Categoría */}

@@ -138,24 +138,29 @@ POST   /api/transactions/import   - Importación masiva CSV
 ## B. Módulo de Presupuesto
 
 ### Objetivo
-Gestionar compromisos financieros (préstamos, tarjetas de crédito, servicios recurrentes) con seguimiento de pagos y estados.
+Gestionar compromisos financieros (préstamos, tarjetas de crédito, servicios recurrentes) con seguimiento de pagos y estados. Integrado con el módulo de Tarjetas de Crédito para tracking automático de cuotas.
 
 ### Modelo de Datos
 
 ```python
-Debt (BudgetItem actual):
-  id: int                      # Identificador único
-  fecha: string                # Fecha de creación (DD/MM/YYYY)
-  tipo: string                 # Préstamo | Tarjeta | Servicio | Otro
-  categoria: string            # Categoría del commitment
-  monto_total: float           # Monto total del compromiso
-  monto_pagado: float          # Monto pagado hasta el momento (auto-calculado)
-  detalle: string              # Descripción del item
-  fecha_vencimiento: string    # Fecha límite de pago
-  status: enum                 # Estado actual del item
-  created_at: datetime         # Creación en sistema
-  updated_at: datetime         # Última modificación
+BudgetItem (tabla: budget_items):
+  id: int                        # Identificador único
+  fecha: string                  # Fecha de creación (YYYY-MM-DD)
+  tipo: string                   # Préstamo | Tarjeta de Crédito | Servicio | Gasto Planificado | etc.
+  categoria: string              # Categoría del compromiso
+  monto_total: float             # Monto total del compromiso
+  monto_pagado: float            # Monto pagado hasta el momento (auto-calculado)
+  detalle: string                # Descripción del item
+  fecha_vencimiento: string      # Fecha límite de pago
+  status: DebtStatus             # Estado actual del item
+  tipo_presupuesto: BudgetType   # OBLIGATION | VARIABLE
+  tipo_flujo: FlowType           # Gasto | Ingreso
+  monto_ejecutado: float         # Monto ejecutado (calculado por transacciones vinculadas)
+  created_at: datetime           # Creación en sistema
+  updated_at: datetime           # Última modificación
 ```
+
+**Nota:** La tabla fue renombrada de `debts` a `budget_items`. Se mantiene alias de compatibilidad `Debt = BudgetItem` en el ORM.
 
 ### Enumeraciones
 
@@ -165,6 +170,14 @@ DebtStatus:
   PAGO_PARCIAL = "Pago parcial"      # Pagado parcialmente
   PAGADA = "PAGADA"                  # Pagado completamente
   VENCIDA = "VENCIDA"                # Vencido sin pagar
+
+BudgetType:
+  OBLIGATION = "OBLIGATION"          # Gasto obligatorio (alquiler, servicios)
+  VARIABLE = "VARIABLE"              # Gasto variable (entretenimiento, compras)
+
+FlowType:
+  GASTO = "Gasto"                    # Salida de dinero
+  INGRESO = "Ingreso"               # Entrada de dinero
 ```
 
 ### Funcionalidades Implementadas
@@ -190,9 +203,13 @@ Columnas:
 - Monto Total
 - Pagado
 - Progreso (barra visual)
-- Estado (badge)
+- Estado (badge con fracción de cuotas si aplica, ej: "Pago parcial 1/12")
 - Vencimiento
 - Acciones (Editar/Eliminar)
+
+**Progreso para items con cuotas:**
+- Items vinculados a plan de cuotas: `(paid_installments / total_installments) * 100%`
+- Items sin plan de cuotas: `(monto_ejecutado / monto_total) * 100%`
 
 #### 3. Cálculo Automático de Estado
 
@@ -209,11 +226,17 @@ else:
 ```
 
 #### 4. Progreso Visual
-- Barra de progreso: `(monto_pagado / monto_total) * 100%`
+- Barra de progreso:
+  - **Con plan de cuotas:** `(paid_installments / total_installments) * 100%` (ej: 1/12 = 8%)
+  - **Sin plan de cuotas:** `(monto_pagado / monto_total) * 100%`
 - Color:
   - Verde: >= 75%
   - Amarillo: 25-74%
   - Rojo: < 25%
+
+#### 4.1 Badge de Estado con Fracción de Cuotas
+- Items vinculados a plan de cuotas muestran fracción: `"Pago parcial 1/12"`
+- La fracción se obtiene de `paid_installments` y `total_installments` retornados por la API
 
 #### 5. Validación de Eliminación
 - No permite eliminar si tiene transacciones vinculadas
@@ -242,7 +265,34 @@ GET    /api/debts/summary      - Resumen con montos por estado
 GET    /api/debts/{id}         - Obtener item específico
 PUT    /api/debts/{id}         - Actualizar item
 DELETE /api/debts/{id}         - Eliminar item (valida transacciones)
+POST   /api/debts/import-csv   - Importar items desde CSV
 ```
+
+#### Respuesta GET /api/debts (por item)
+
+```json
+{
+  "id": 1,
+  "fecha": "2024-03-01",
+  "tipo": "Tarjeta de Crédito",
+  "categoria": "Tarjeta de Crédito",
+  "monto_total": 120000.0,
+  "monto_pagado": 10000.0,
+  "monto_restante": 110000.0,
+  "detalle": "Compra TV (12 cuotas)",
+  "fecha_vencimiento": "2025-03-01",
+  "status": "Pago parcial",
+  "tipo_presupuesto": "OBLIGATION",
+  "tipo_flujo": "Gasto",
+  "monto_ejecutado": 10000.0,
+  "paid_installments": 1,
+  "total_installments": 12,
+  "created_at": "2024-03-01T00:00:00",
+  "updated_at": "2024-03-15T00:00:00"
+}
+```
+
+**Nota:** `paid_installments` y `total_installments` solo aparecen en items vinculados a un plan de cuotas (InstallmentPlan).
 
 ### Cálculo de Resumen
 
@@ -567,26 +617,27 @@ exportToCsv({ filename, headers, rows })
 
 ---
 
-## F. Widget de Forecast Balance (Balance Pendiente)
+## F. Widgets de Forecast Balance (Balance Pendiente)
 
 ### Objetivo
-Mostrar proyección financiera considerando presupuestos pendientes. Responde la pregunta: **"¿Cuánto dinero me quedaría si pago todos mis compromisos presupuestados?"**
+Mostrar proyección financiera considerando presupuestos pendientes, separada por tipo de presupuesto (Obligatorio vs Variable). Responde la pregunta: **"¿Cuánto dinero me quedaría si pago todos mis compromisos presupuestados?"**
 
 ### Ubicación
-Dashboard principal (DashboardOverview.jsx) - 4to widget en grid de 5 columnas.
+Dashboard principal (DashboardOverview.jsx) - 4to y 5to widgets en grid de 6 columnas.
 
 ### Cálculo
 
 ```javascript
-// Presupuesto Pendiente = suma de todos los items no pagados
-presupuestoPendiente = 
-  debtSummary.pending_amount +     // Items PENDIENTE
-  debtSummary.partial_amount +     // Items PAGO_PARCIAL
-  debtSummary.overdue_amount       // Items VENCIDA
+// Balance Pendiente Obligatorio
+obligationPending = debtSummary.obligation_pending  // Items OBLIGATION pendientes
+balancePendienteObligatorio = ingresos - (gastos + obligationPending)
 
-// Balance Pendiente = lo que quedaría si pago todo
-balancePendiente = ingresos - (gastos + presupuestoPendiente)
+// Balance Pendiente Variable
+variablePending = debtSummary.variable_pending      // Items VARIABLE pendientes
+balancePendienteVariable = ingresos - (gastos + variablePending)
 ```
+
+**Nota:** Los montos pendientes se calculan como `monto_total - monto_ejecutado` para items con estado PENDIENTE, PAGO_PARCIAL o VENCIDA y tipo_flujo='Gasto'.
 
 ### Implementación Técnica
 
@@ -610,24 +661,35 @@ useEffect(() => {
 ```
 GET /api/debts/summary
 Response: {
-  "pending_amount": float,    // Suma de items PENDIENTE
-  "partial_amount": float,    // Suma de items PAGO_PARCIAL
-  "overdue_amount": float,    // Suma de items VENCIDA
-  "paid_amount": float        // Suma de items PAGADA
+  "pending_amount": float,         // Suma de items PENDIENTE (deprecated)
+  "partial_amount": float,         // Suma de items PAGO_PARCIAL (deprecated)
+  "overdue_amount": float,         // Suma de items VENCIDA (deprecated)
+  "paid_amount": float,           // Suma de items PAGADA
+  "obligation_pending": float,     // Items OBLIGATION pendientes (monto_total - monto_ejecutado)
+  "variable_pending": float        // Items VARIABLE pendientes (monto_total - monto_ejecutado)
 }
 ```
 
 ### UI/UX
 
-**Card Widget:**
-- **Título:** "Balance Pendiente"
+**Widget 1 - Balance Pendiente Obligatorio:**
+- **Título:** "Balance Pendiente" / **Subtítulo:** "Obligatorio"
 - **Valor:** Monto formateado con color condicional
   - Verde (text-finly-income) si ≥ 0
   - Rojo (text-finly-expense) si < 0
-- **Subtítulo:** "Si se paga todo el presupuesto"
 - **Icono:** 🎯
 - **Background:** 
   - purple-100 si balance positivo
+  - red-100 si balance negativo
+
+**Widget 2 - Balance Pendiente Variable:**
+- **Título:** "Balance Pendiente" / **Subtítulo:** "Variable"
+- **Valor:** Monto formateado con color condicional
+  - Verde (text-finly-income) si ≥ 0
+  - Rojo (text-finly-expense) si < 0
+- **Icono:** 📊
+- **Background:** 
+  - teal-100 si balance positivo
   - yellow-100 si balance negativo
 
 **Formato de Monto:**
@@ -645,15 +707,18 @@ Gastos vinculados:      $20.000 (pagos parciales a presupuestos)
 
 Gastos totales:         $70.000
 
-Presupuestos pendientes:
+Presupuestos pendientes OBLIGATORIOS:
   - Alquiler (PENDIENTE):     $40.000
-  - Tarjeta (PAGO_PARCIAL):   $30.000 (falta pagar)
   - Seguro (VENCIDA):         $10.000
+  Presupuesto Obligatorio Pendiente: $50.000
 
-Presupuesto Pendiente: $80.000
+Presupuestos pendientes VARIABLES:
+  - Tarjeta (PAGO_PARCIAL):   $30.000 (falta pagar)
+  Presupuesto Variable Pendiente: $30.000
 
-Balance actual:    200.000 - 70.000 = $130.000  (lo que tengo hoy)
-Balance Pendiente: 200.000 - (70.000 + 80.000) = $50.000  (lo que me quedaría)
+Balance actual:                200.000 - 70.000 = $130.000  (lo que tengo hoy)
+Balance Pendiente Obligatorio: 200.000 - (70.000 + 50.000) = $80.000
+Balance Pendiente Variable:    200.000 - (70.000 + 30.000) = $100.000
 ```
 
 ### Actualización Automática
@@ -671,6 +736,210 @@ El widget se recalcula automáticamente cuando:
 - **Alertas tempranas:** Si Balance Pendiente es negativo, hay riesgo de insolvencia
 - **Planificación:** Ayuda a decidir si puede asumir nuevos compromisos
 - **Forecast simple:** Proyección básica sin necesidad de configuración compleja
+
+---
+
+## G. Módulo de Tarjetas de Crédito
+
+### Objetivo
+Gestionar tarjetas de crédito, compras en cuotas, planes de financiación y cronograma de pagos. Las compras en cuotas generan automáticamente un item de presupuesto vinculado para tracking financiero integrado.
+
+### Modelos de Datos
+
+#### CreditCard (tabla: credit_cards)
+```python
+CreditCard:
+  id: int                    # Identificador único
+  user_id: int               # FK a users (nullable, futuro)
+  card_name: string(100)     # Nombre de la tarjeta (único)
+  bank_name: string(100)     # Nombre del banco
+  closing_day: int           # Día de cierre (1-31)
+  due_day: int               # Día de vencimiento (1-31)
+  currency: string(3)        # Moneda (default: USD)
+  credit_limit: float        # Límite de crédito (nullable)
+  is_active: boolean         # Activa/Inactiva (soft delete)
+  notes: text                # Notas
+  created_at: datetime
+  updated_at: datetime
+```
+
+#### CreditCardPurchase (tabla: credit_card_purchases)
+```python
+CreditCardPurchase:
+  id: int
+  card_id: int               # FK → credit_cards (CASCADE)
+  transaction_id: int         # FK → transactions (SET NULL)
+  purchase_date: date
+  total_amount: float
+  category: string(100)
+  description: text
+  installments: int           # Número de cuotas (default: 1)
+  has_financing: boolean      # true si installments > 1
+  created_at: datetime
+  updated_at: datetime
+```
+
+#### InstallmentPlan (tabla: installment_plans)
+```python
+InstallmentPlan:
+  id: int
+  purchase_id: int            # FK → credit_card_purchases (CASCADE, unique)
+  debt_id: int                # FK → budget_items (SET NULL) — vinculación con Presupuesto
+  total_amount: float
+  number_of_installments: int
+  interest_rate: float        # Tasa de interés (default: 0.0)
+  start_date: date            # Primera cuota = purchase_date + 1 mes
+  plan_type: InstallmentPlanType  # REGULAR | PROMOTIONAL | ZERO_INTEREST
+  notes: text
+  created_at: datetime
+  updated_at: datetime
+```
+
+#### InstallmentScheduleItem (tabla: installment_schedule)
+```python
+InstallmentScheduleItem:
+  id: int
+  plan_id: int                        # FK → installment_plans (CASCADE)
+  installment_number: int             # Número de cuota (1, 2, 3...)
+  due_date: date                      # Fecha de vencimiento
+  principal_amount: float             # Capital
+  interest_amount: float              # Interés (default: 0)
+  total_installment_amount: float     # Total cuota = capital + interés
+  status: InstallmentStatus           # PENDING | PAID
+  paid_date: date                     # Fecha de pago (nullable)
+  payment_transaction_id: int         # FK → transactions (SET NULL)
+  notes: text
+  created_at: datetime
+  updated_at: datetime
+```
+
+### Enumeraciones
+
+```python
+InstallmentStatus:
+  PENDING = "PENDING"
+  PAID = "PAID"
+
+InstallmentPlanType:
+  REGULAR = "REGULAR"
+  PROMOTIONAL = "PROMOTIONAL"
+  ZERO_INTEREST = "ZERO_INTEREST"
+
+StatementStatus:
+  PENDING = "PENDING"
+  PARTIALLY_PAID = "PARTIALLY_PAID"
+  PAID = "PAID"
+  OVERDUE = "OVERDUE"
+```
+
+### Funcionalidades Implementadas
+
+#### 1. Gestión de Tarjetas (CRUD)
+- Crear tarjeta con nombre, banco, día de cierre/vencimiento, moneda, límite
+- Editar datos de tarjeta
+- Eliminar tarjeta (soft delete: marca como inactiva)
+- Ver tarjetas activas/inactivas (toggle)
+- Vista en grid con resumen por tarjeta
+
+#### 2. Compras en Cuotas
+- Registrar compra asociada a una tarjeta
+- Datos: monto, descripción, fecha, número de cuotas, tasa de interés
+- Si cuotas > 1: genera automáticamente:
+  - **InstallmentPlan:** Plan de financiación vinculado
+  - **InstallmentScheduleItem(s):** Cronograma con cada cuota detallada
+  - **BudgetItem:** Item de presupuesto con `tipo='Tarjeta de Crédito'` y `categoria='Tarjeta de Crédito'`
+
+#### 3. Edición de Compras
+- Modificar descripción, categoría, notas
+- Modificar monto (recalcula cuotas pendientes proporcionalmente)
+- Modificar fecha de compra (recalcula fechas de cuotas pendientes)
+- Modificar número de cuotas (regenera cuotas pendientes, preserva las pagadas)
+- Actualiza automáticamente el BudgetItem vinculado
+
+#### 4. Cronograma de Cuotas (Installment Schedule)
+- Vista en tabla con todas las cuotas del plan
+- Columnas: N° Cuota, Vencimiento, Capital, Interés, Total, Estado, Fecha Pago
+- Footer con totales acumulados
+- Botón "📋 Ver en Presupuesto" para navegar al item vinculado en el módulo de Presupuesto
+
+#### 5. Pagar Cuota (Pay Installment)
+- Marcar cuota individual como PAID
+- Registra fecha de pago
+- Actualiza `monto_pagado` del BudgetItem vinculado (+= total_installment_amount)
+- Actualiza status del BudgetItem:
+  - Si `monto_pagado >= monto_total` → PAGADA
+  - Si `monto_pagado > 0` → PAGO_PARCIAL
+
+#### 6. Revertir Pago (Unpay Installment)
+- Revertir cuota pagada a PENDING
+- Limpia fecha de pago y transaction_id
+- Actualiza `monto_pagado` del BudgetItem vinculado (-= total_installment_amount)
+- Actualiza status del BudgetItem:
+  - Si `monto_pagado <= 0` → PENDIENTE
+  - Si `monto_pagado < monto_total` → PAGO_PARCIAL
+
+#### 7. Cálculo de Cuotas
+- **Sin interés:** cuota = monto_total / número_cuotas
+- **Con interés:** fórmula de amortización:
+  ```
+  cuota = (monto * tasa * (1+tasa)^n) / ((1+tasa)^n - 1)
+  ```
+- Última cuota ajusta diferencia de redondeo
+- Fechas: primera cuota = purchase_date + 1 mes, incremento mensual
+
+### API Endpoints
+
+```
+GET    /api/credit-cards                         - Listar tarjetas (filtro active_only)
+GET    /api/credit-cards/{card_id}               - Obtener tarjeta específica
+POST   /api/credit-cards                         - Crear tarjeta
+PUT    /api/credit-cards/{card_id}               - Actualizar tarjeta
+DELETE /api/credit-cards/{card_id}               - Desactivar tarjeta (soft delete)
+GET    /api/credit-cards/{card_id}/summary       - Resumen de tarjeta
+POST   /api/credit-cards/purchases               - Crear compra
+GET    /api/credit-cards/{card_id}/purchases     - Listar compras de tarjeta
+PUT    /api/credit-cards/purchases/{purchase_id} - Actualizar compra
+GET    /api/installment-plans/{plan_id}/schedule  - Obtener cronograma de cuotas
+PUT    /api/installments/{installment_id}/pay    - Pagar cuota
+PUT    /api/installments/{installment_id}/unpay  - Revertir pago de cuota
+```
+
+### Integración con Módulo de Presupuesto
+
+Cuando se registra una compra en cuotas:
+
+1. Se crea un **BudgetItem** automáticamente con:
+   - `tipo = "Tarjeta de Crédito"`
+   - `categoria = "Tarjeta de Crédito"`
+   - `monto_total = total_con_intereses`
+   - `detalle = "{descripción} ({N} cuotas)"`
+   - `tipo_presupuesto = OBLIGATION`
+   - `tipo_flujo = Gasto`
+   - `status = PENDIENTE`
+
+2. El **InstallmentPlan** se vincula al BudgetItem via `debt_id`
+
+3. Al pagar/revertir cuotas, el `monto_pagado` y `status` del BudgetItem se actualizan automáticamente
+
+4. En la tabla de Presupuesto:
+   - El badge de estado muestra la fracción de cuotas: "Pago parcial 1/12"
+   - La barra de progreso usa `(paid_installments / total_installments) * 100%`
+
+5. Desde el Cronograma de Cuotas se puede navegar directamente al item de Presupuesto con botón "📋 Ver en Presupuesto"
+
+### UI/UX
+
+**Layout:** Split-screen (dos columnas)
+- **Izquierda:** Lista de tarjetas en grid + lista de compras de la tarjeta seleccionada
+- **Derecha:** Cronograma de cuotas de la compra seleccionada
+
+**Componentes React:**
+- `CreditCardManager.jsx` - Componente principal con estado y lógica
+- `NewCreditCardModal.jsx` - Modal para crear tarjeta
+- `EditCreditCardModal.jsx` - Modal para editar tarjeta
+- `PurchaseModal.jsx` - Modal unificado para crear/editar compra
+- `InstallmentScheduleModal.jsx` - Vista de cronograma de cuotas
+- `ConfirmDialog.jsx` - Diálogo de confirmación para eliminación
 
 ---
 
@@ -958,32 +1227,36 @@ This design enables Finly to function as a financial planning system, not only a
 
 # ROADMAP DE IMPLEMENTACIÓN
 
-## Fase 1: Migración del Modelo de Datos + Forecast Balance (Sprint 4.1)
+## Fase 1: Migración del Modelo de Datos + Forecast Balance (Sprint 4.1) ✅ COMPLETADO
 
-### Tareas Backend:
-- [ ] Crear tabla `budget_items` con campos especificados
-- [ ] Migrar datos existentes de tabla `debts` a `budget_items`
-- [ ] Agregar campos: `flow_type`, `estimated`, `linked_expense_id`, `linked_income_id`, `source_budget_id`
-- [ ] Crear enums: `CashFlowType` (Income/Expense), `BudgetStatus` (Pending/Completed/Expired/Cancelled)
-- [ ] Actualizar endpoints API para usar nuevo modelo
-- [ ] Mantener compatibilidad con endpoints existentes `/api/debts`
+### ✅ Tareas Backend (Completado):
+- [x] Crear tabla `budget_items` con campos especificados (renombrada de `debts`)
+- [x] Migrar datos existentes de tabla `debts` a `budget_items`
+- [x] Agregar campos: `tipo_presupuesto`, `tipo_flujo`, `monto_ejecutado`
+- [x] Crear enums: `BudgetType` (OBLIGATION/VARIABLE), `FlowType` (Gasto/Ingreso)
+- [x] Endpoints API usan nuevo modelo con alias `Debt = BudgetItem`
+- [x] Compatibilidad con endpoints existentes `/api/debts` mantenida
 
-### Tareas Frontend:
-- [ ] Actualizar DTOs/interfaces TypeScript
-- [ ] Modificar componente `DebtManager` → `BudgetPlanner`
-- [ ] Agregar selector de tipo de flujo (Ingreso/Gasto)
-- [ ] Nueva UI para items estimados vs confirmados
+### ✅ Tareas Frontend (Completado):
+- [x] Componente `DebtManager` actualizado con campos de budget model
+- [x] Selector de tipo de presupuesto (Obligatorio/Variable)
+- [x] Selector de tipo de flujo (Gasto/Ingreso)
 
-### ✅ Forecast Balance Dashboard (COMPLETADO)
-- [x] Widget "Balance Pendiente" en Dashboard
-- [x] Fórmula: `Balance Pendiente = Ingresos - (Gastos + Presupuesto Pendiente)`
-- [x] Integración con `debtsAPI.getDebtSummary()`
-- [x] UI: Grid de 5 columnas, icono 🎯, colores condicionales
+### ✅ Forecast Balance Dashboard (COMPLETADO + MEJORADO)
+- [x] Widget "Balance Pendiente Obligatorio" en Dashboard
+- [x] Widget "Balance Pendiente Variable" en Dashboard
+- [x] Fórmula Obligatorio: `Balance = Ingresos - (Gastos + Presupuesto Obligatorio Pendiente)`
+- [x] Fórmula Variable: `Balance = Ingresos - (Gastos + Presupuesto Variable Pendiente)`
+- [x] Integración con `debtsAPI.getDebtSummary()` - retorna `obligation_pending` y `variable_pending`
+- [x] UI: Grid de 6 columnas, iconos 🎯 y 📊, colores condicionales
 - [x] Actualización automática con cambios en transacciones
+- [x] Separación por tipo_presupuesto (OBLIGATION vs VARIABLE)
+- [x] Cálculo basado en `monto_total - monto_ejecutado` (lo que falta pagar)
 - [x] **Ver detalles:** PARTE I - Sección F. Widget de Forecast Balance
 
 **Estimación:** 5 días (3-5 migración + forecast ya completado)  
-**Criterio de éxito:** Migración sin pérdida de datos, endpoints funcionando, forecast balance operativo ✅
+**Tiempo real:** ~4 horas ⚡  
+**Criterio de éxito:** ✅ Dos widgets funcionando, cálculo correcto por tipo de presupuesto, visualización clara
 
 ---
 
@@ -1331,8 +1604,9 @@ Balance Proyectado - Próximos 30 días
 
 | Fase | Funcionalidad | Prioridad | Estimación | Sprint | Estado |
 |------|--------------|-----------|------------|---------|--------|
-| 1 | Migración de modelo de datos + Forecast Balance | 🔴 Alta | 5 días | 4.1 | 🟡 **Parcial** (Forecast ✅) |
+| 1 | Migración de modelo de datos + Forecast Balance | 🔴 Alta | 5 días | 4.1 | ✅ **Completado** |
 | **2** | **Importación CSV de Presupuestos** | 🔴 Alta | 2 días | **4.2** | ✅ **Completado** |
+| **CC** | **Módulo de Tarjetas de Crédito** | 🔴 Alta | - | **4.2** | ✅ **Completado** |
 | 3 | Clonación mensual | 🟡 Media | 3 días | 4.3 | ⬜ Pendiente |
 | 4 | Vinculación automática | 🟡 Media | 3-4 días | 4.4 | ⬜ Pendiente |
 | 5 | Alertas financieras | 🟢 Baja | 4 días | 4.5 | ⬜ Pendiente |
@@ -1342,17 +1616,28 @@ Balance Proyectado - Próximos 30 días
 **Total estimado:** 24 días de desarrollo (~5 semanas)
 
 **Progreso:**
-- 🟡 **Fase 1 (Parcial):** Forecast Balance Dashboard completado ✅
-  - Widget "Balance Pendiente" implementado en dashboard
-  - Fórmula: `Balance Pendiente = Ingresos - (Gastos + Presupuesto Pendiente)`
-  - Integración con `debtsAPI.getDebtSummary()`
-  - UI actualizada con 5 columnas en grid
-  - **Pendiente:** Migración del modelo de datos a `budget_items`
+- ✅ **Fase 1 (Completada):** Migración del modelo de datos + Forecast Balance
+  - Tabla `budget_items` creada (renombrada de `debts`)
+  - Enums `BudgetType` (OBLIGATION/VARIABLE) y `FlowType` (Gasto/Ingreso) implementados
+  - Campo `monto_ejecutado` para tracking de ejecución presupuestal
+  - Widget "Balance Pendiente Obligatorio" y "Balance Pendiente Variable" en Dashboard
+  - Fórmulas de forecast implementadas y funcionando
+  - Alias `Debt = BudgetItem` para compatibilidad con endpoints existentes
 - ✅ **Fase 2 (Completada):** Importación CSV de Presupuestos operativa
   - Endpoint `POST /api/debts/import-csv` implementado y protegido por roles
   - Componente `BudgetCSVImport.jsx` integrado en Presupuesto
   - Manejo de errores por fila y respuesta con estadísticas de importación
   - Soporte de codificación UTF-8/Windows-1252 para preservar acentos y caracteres especiales
+- ✅ **Módulo de Tarjetas de Crédito (Completado):**
+  - CRUD de tarjetas de crédito con soft delete
+  - Compras en cuotas con generación automática de plan + cronograma + item de presupuesto
+  - Edición de compras (monto, fecha, cuotas) con recálculo automático
+  - Pago/reversión de cuotas individuales
+  - Integración bidireccional con módulo de Presupuesto:
+    - Item creado con categoria='Tarjeta de Crédito'
+    - Badge de estado muestra fracción de cuotas (ej: "Pago parcial 1/12")
+    - Progreso basado en cuotas pagadas vs totales
+    - Navegación cruzada "Ver en Presupuesto"
 
 **Siguiente paso:**
 - 🎯 **Fase 3: Clonación mensual de presupuestos** - Reutilizar presupuestos recurrentes para acelerar la planificación
@@ -1418,6 +1703,6 @@ FROM debts;
 
 ---
 
-**Última actualización:** 17 de Marzo de 2026  
-**Estado:** 🚧 Roadmap en ejecución (Fase 2 completada, Fase 1 parcial)  
+**Última actualización:** 12 de Julio de 2025  
+**Estado:** 🚧 Roadmap en ejecución (Fase 1 ✅, Fase 2 ✅, Módulo Tarjetas ✅)  
 **Próximo Sprint:** 4.3 - Clonación Mensual de Presupuestos

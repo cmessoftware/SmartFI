@@ -9,7 +9,7 @@ from pydantic import BaseModel
 import os
 import sys
 from dotenv import load_dotenv
-from database.database import SessionLocal, Transaction as DBTransaction
+from database.database import SessionLocal, Transaction as DBTransaction, Debt as DBDebt, AppSetting
 
 # Fix Windows console encoding for Unicode characters
 if sys.platform == "win32":
@@ -47,6 +47,15 @@ try:
 except Exception as e:
     print(f"⚠️ Debt service not available: {e}")
     debt_service = None
+
+# Initialize Credit Card Service
+try:
+    from services.credit_card_service import CreditCardService
+    credit_card_service = CreditCardService()
+    print("✅ Credit Card service initialized successfully")
+except Exception as e:
+    print(f"⚠️ Credit Card service not available: {e}")
+    credit_card_service = None
 
 # Initialize Google Sheets (optional backup)
 try:
@@ -118,7 +127,7 @@ class Debt(BaseModel):
     id: Optional[int] = None
     fecha: str
     tipo: str
-    categoria: str
+    categoria: Optional[str] = None
     monto_total: float
     monto_pagado: Optional[float] = 0.0
     detalle: Optional[str] = None
@@ -141,6 +150,58 @@ class Transaction(BaseModel):
     detalle: str
     debt_id: Optional[int] = None  # Nueva relación con deuda
     estado_asignacion: Optional[str] = "ASIGNADA_MANUAL"  # Estado de asignación automática/manual
+
+class CloneMonthRequest(BaseModel):
+    source_month: int  # 1-12
+    source_year: int
+    target_month: int  # 1-12
+    target_year: int
+
+# Credit Card Models
+class CreditCardCreate(BaseModel):
+    card_name: str
+    bank_name: str
+    closing_day: int  # 1-31
+    due_day: int  # 1-31
+    currency: Optional[str] = "USD"
+    credit_limit: Optional[float] = None
+    is_active: Optional[bool] = True
+    notes: Optional[str] = None
+
+class CreditCardUpdate(BaseModel):
+    card_name: Optional[str] = None
+    bank_name: Optional[str] = None
+    closing_day: Optional[int] = None
+    due_day: Optional[int] = None
+    currency: Optional[str] = None
+    credit_limit: Optional[float] = None
+    is_active: Optional[bool] = None
+    notes: Optional[str] = None
+
+class CreditCardPurchaseCreate(BaseModel):
+    card_id: int
+    transaction_id: Optional[int] = None
+    description: str
+    amount: float
+    purchase_date: str  # ISO format
+    installments: int = 1
+    interest_rate: Optional[float] = 0.0
+    plan_type: Optional[str] = "MANUAL"  # MANUAL or AUTOMATIC
+    currency: Optional[str] = "ARS"  # ARS or USD
+
+class InstallmentPayment(BaseModel):
+    payment_date: str  # ISO format
+    amount_paid: float
+    notes: Optional[str] = None
+
+class CreditCardBulkPurchaseItem(BaseModel):
+    card_id: int
+    description: str
+    amount: float
+    purchase_date: str  # ISO format YYYY-MM-DD
+    installments: int = 1
+    interest_rate: Optional[float] = 0.0
+    detalle: Optional[str] = None
 
 # Hardcoded users database
 fake_users_db = {
@@ -249,12 +310,10 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
 
 @app.get("/api/categories")
 async def get_categories(current_user: User = Depends(get_current_user)):
-    return [
-        "Ahorro", "Comida", "Cuidado Personal", "Tarjeta VISA",
-        "Educación", "Alquiler", "Hogar", "Impuestos",
-        "Ingresos", "Ocio", "Préstamos", "Ropa",
-        "Salud", "Seguros", "Servicios", "Trámites", "Transporte"
-    ]
+    if database_service:
+        cats = database_service.get_categories()
+        return cats
+    return []
 
 @app.get("/api/transaction-types")
 async def get_transaction_types(current_user: User = Depends(get_current_user)):
@@ -476,11 +535,11 @@ async def sync_from_sheets(
             db_transactions = database_service.get_all_transactions()
             print(f"✅ Found {len(db_transactions)} existing transactions in PostgreSQL")
             
-            # Build set of existing transaction fingerprints (fecha + monto + categoria + detalle)
+            # Build set of existing transaction fingerprints (date + amount + category + detail)
             # Since Google Sheets IDs are row numbers, we can't rely on them
             existing_fingerprints = set()
             for t in db_transactions:
-                fingerprint = f"{t.get('fecha')}_{t.get('monto')}_{t.get('categoria')}_{t.get('detalle', '')}"
+                fingerprint = f"{t.get('date')}_{t.get('amount')}_{t.get('category')}_{t.get('detail', '')}"
                 existing_fingerprints.add(fingerprint)
                 
             print(f"📊 Sample fingerprints from DB (first 3):")
@@ -493,15 +552,15 @@ async def sync_from_sheets(
             
             for t in sheets_transactions:
                 # Create fingerprint
-                fingerprint = f"{t.get('fecha')}_{t.get('monto')}_{t.get('categoria')}_{t.get('detalle', '')}"
+                fingerprint = f"{t.get('date')}_{t.get('amount')}_{t.get('category')}_{t.get('detail', '')}"
                 
                 if fingerprint in existing_fingerprints:
                     skipped += 1
                     continue
                 
-                # Ensure forma_pago field exists
-                if 'forma_pago' not in t:
-                    t['forma_pago'] = 'Débito'  # Default value
+                # Ensure payment_method field exists
+                if 'payment_method' not in t:
+                    t['payment_method'] = 'Débito'  # Default value
                 
                 new_transactions.append(t)
         
@@ -601,7 +660,7 @@ async def sync_to_sheets(
             # Build set of existing transaction fingerprints in Sheets
             existing_fingerprints = set()
             for t in sheets_transactions:
-                fingerprint = f"{t.get('fecha')}_{t.get('monto')}_{t.get('categoria')}_{t.get('detalle', '')}"
+                fingerprint = f"{t.get('date')}_{t.get('amount')}_{t.get('category')}_{t.get('detail', '')}"
                 existing_fingerprints.add(fingerprint)
             
             # Filter new transactions
@@ -609,7 +668,7 @@ async def sync_to_sheets(
             skipped = 0
             
             for t in db_transactions:
-                fingerprint = f"{t.get('fecha')}_{t.get('monto')}_{t.get('categoria')}_{t.get('detalle', '')}"
+                fingerprint = f"{t.get('date')}_{t.get('amount')}_{t.get('category')}_{t.get('detail', '')}"
                 
                 if fingerprint in existing_fingerprints:
                     skipped += 1
@@ -666,12 +725,12 @@ async def debug_sync_status(
         
         sheets_fingerprints = set()
         for t in sheets_txs:
-            fp = f"{t.get('fecha')}_{t.get('monto')}_{t.get('categoria')}_{t.get('detalle', '')}"
+            fp = f"{t.get('date')}_{t.get('amount')}_{t.get('category')}_{t.get('detail', '')}"
             sheets_fingerprints.add(fp)
         
         db_fingerprints = set()
         for t in db_txs:
-            fp = f"{t.get('fecha')}_{t.get('monto')}_{t.get('categoria')}_{t.get('detalle', '')}"
+            fp = f"{t.get('date')}_{t.get('amount')}_{t.get('category')}_{t.get('detail', '')}"
             db_fingerprints.add(fp)
         
         only_in_sheets = sheets_fingerprints - db_fingerprints
@@ -807,6 +866,109 @@ async def import_debts_csv(
         "errors": errors if errors else None
     }
 
+@app.post("/api/debts/clone-month")
+async def clone_month_debts(
+    request: CloneMonthRequest,
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Clonar presupuestos de un mes a otro"""
+    if not debt_service:
+        raise HTTPException(status_code=503, detail="Debt service not configured")
+    
+    try:
+        from datetime import date
+        import calendar
+        
+        # Validar meses y años
+        if not (1 <= request.source_month <= 12 and 1 <= request.target_month <= 12):
+            raise HTTPException(status_code=400, detail="Mes debe estar entre 1 y 12")
+        
+        if not (2000 <= request.source_year <= 2100 and 2000 <= request.target_year <= 2100):
+            raise HTTPException(status_code=400, detail="Año debe estar entre 2000 y 2100")
+        
+        # Obtener todos los debts del mes origen
+        db = SessionLocal()
+        debts = db.query(DBDebt).all()
+        
+        cloned_count = 0
+        cloned_items = []
+        
+        for debt in debts:
+            # Parsear fecha de vencimiento
+            try:
+                from datetime import datetime
+                # Manejar formato DD/MM/YYYY o YYYY-MM-DD
+                if '/' in debt.fecha_vencimiento:
+                    fecha_parts = debt.fecha_vencimiento.split('/')
+                    debt_day = int(fecha_parts[0])
+                    debt_month = int(fecha_parts[1])
+                    debt_year = int(fecha_parts[2])
+                else:
+                    fecha_parts = debt.fecha_vencimiento.split('-')
+                    debt_year = int(fecha_parts[0])
+                    debt_month = int(fecha_parts[1])
+                    debt_day = int(fecha_parts[2])
+                
+                # Verificar si es del mes origen
+                if debt_month == request.source_month and debt_year == request.source_year:
+                    # Calcular nuevo día (ajustar si el día no existe en el mes destino)
+                    max_day_target = calendar.monthrange(request.target_year, request.target_month)[1]
+                    new_day = min(debt_day, max_day_target)
+                    
+                    # Crear nueva fecha en formato YYYY-MM-DD
+                    new_fecha_venc = f"{request.target_year}-{request.target_month:02d}-{new_day:02d}"
+                    
+                    # Crear nuevo debt
+                    new_debt_data = {
+                        'fecha': new_fecha_venc,
+                        'tipo': debt.tipo,
+                        'categoria': debt.categoria,
+                        'monto_total': debt.monto_total,
+                        'monto_pagado': 0.0,
+                        'detalle': debt.detalle,
+                        'fecha_vencimiento': new_fecha_venc,
+                        'status': 'PENDIENTE',
+                        'tipo_presupuesto': debt.tipo_presupuesto.value if hasattr(debt.tipo_presupuesto, 'value') else debt.tipo_presupuesto,
+                        'tipo_flujo': debt.tipo_flujo.value if hasattr(debt.tipo_flujo, 'value') else debt.tipo_flujo,
+                        'monto_ejecutado': 0.0
+                    }
+                    
+                    new_debt_id = debt_service.add_debt(new_debt_data)
+                    if new_debt_id:
+                        cloned_count += 1
+                        cloned_items.append({
+                            'original_id': debt.id,
+                            'new_id': new_debt_id,
+                            'detalle': debt.detalle,
+                            'monto': debt.monto_total,
+                            'original_date': debt.fecha_vencimiento,
+                            'new_date': new_fecha_venc
+                        })
+            
+            except Exception as e:
+                print(f"Error clonando debt {debt.id}: {e}")
+                continue
+        
+        db.close()
+        
+        return {
+            "message": f"{cloned_count} presupuestos clonados exitosamente",
+            "cloned_count": cloned_count,
+            "source_month": request.source_month,
+            "source_year": request.source_year,
+            "target_month": request.target_month,
+            "target_year": request.target_year,
+            "cloned_items": cloned_items
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error clonando presupuestos: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/debts/{debt_id}")
 async def get_debt(
     debt_id: int,
@@ -922,13 +1084,17 @@ async def get_budget_items(current_user: User = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/budget-items/summary")
-async def get_budget_items_summary(current_user: User = Depends(get_current_user)):
-    """Alias for GET /api/debts/summary - Get budget items summary"""
+async def get_budget_items_summary(
+    month: Optional[int] = None,
+    year: Optional[int] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """Get budget items summary, optionally filtered by month/year"""
     if not debt_service:
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
     try:
-        summary = debt_service.get_debt_summary()
+        summary = debt_service.get_debt_summary(month=month, year=year)
         return summary
     except Exception as e:
         print(f"❌ Error getting budget items summary: {e}")
@@ -1120,6 +1286,454 @@ async def delete_user(
     
     del fake_users_db[username]
     return {"message": "User deleted successfully"}
+
+# ============================================================
+# CREDIT CARD MANAGEMENT API
+# ============================================================
+
+@app.get("/api/credit-cards")
+async def get_credit_cards(
+    active_only: bool = True,
+    current_user: User = Depends(get_current_user)
+):
+    """Get all credit cards"""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+    
+    try:
+        cards = credit_card_service.get_credit_cards(active_only=active_only)
+        return cards
+    except Exception as e:
+        print(f"❌ Error fetching credit cards: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/credit-cards/{card_id}")
+async def get_credit_card(
+    card_id: int,
+    current_user: User = Depends(get_current_user)
+):
+    """Get a specific credit card"""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+    
+    try:
+        card = credit_card_service.get_credit_card(card_id)
+        if not card:
+            raise HTTPException(status_code=404, detail="Credit card not found")
+        return card
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error fetching credit card: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/credit-cards")
+async def create_credit_card(
+    card: CreditCardCreate,
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Create a new credit card"""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+    
+    try:
+        card_id = credit_card_service.create_credit_card(card.dict())
+        if card_id:
+            print(f"✅ Credit card {card_id} created successfully")
+            return {
+                "message": "Credit card created successfully",
+                "id": card_id,
+                "card": card
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create credit card")
+    except ValueError as e:
+        print(f"⚠️ Validation error creating credit card: {e}")
+        raise HTTPException(status_code=409, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error creating credit card: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/credit-cards/{card_id}")
+async def update_credit_card(
+    card_id: int,
+    card: CreditCardUpdate,
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Update an existing credit card"""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+    
+    try:
+        updated_card = credit_card_service.update_credit_card(card_id, card.dict(exclude_unset=True))
+        if updated_card:
+            print(f"✅ Credit card {card_id} updated successfully")
+            return {
+                "message": "Credit card updated successfully",
+                "card": updated_card
+            }
+        else:
+            raise HTTPException(status_code=404, detail="Credit card not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error updating credit card: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/credit-cards/{card_id}")
+async def delete_credit_card(
+    card_id: int,
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Delete a credit card"""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+    
+    try:
+        success = credit_card_service.delete_credit_card(card_id)
+        if success:
+            print(f"✅ Credit card {card_id} deleted successfully")
+            return {"message": "Credit card deleted successfully", "id": card_id}
+        else:
+            raise HTTPException(status_code=404, detail="Credit card not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error deleting credit card: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/credit-cards/{card_id}/summary")
+async def get_credit_card_summary(
+    card_id: int,
+    current_user: User = Depends(get_current_user)
+):
+    """Get credit card summary with analytics"""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+    
+    try:
+        summary = credit_card_service.get_card_summary(card_id)
+        if not summary:
+            raise HTTPException(status_code=404, detail="Credit card not found")
+        return summary
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error fetching credit card summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/credit-cards/{card_id}/purchases-summary")
+async def get_credit_card_purchases_summary(
+    card_id: int,
+    current_user: User = Depends(get_current_user)
+):
+    """Get aggregated purchases summary for a credit card (for pie chart)"""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+    
+    try:
+        summary = credit_card_service.get_purchases_summary(card_id)
+        return summary
+    except Exception as e:
+        print(f"❌ Error fetching purchases summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/credit-cards/purchases")
+async def create_purchase(
+    purchase: CreditCardPurchaseCreate,
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Create a new credit card purchase with installment plan"""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+    
+    try:
+        purchase_id = credit_card_service.create_purchase(purchase.dict())
+        if purchase_id:
+            print(f"✅ Purchase {purchase_id} created successfully")
+            return {
+                "message": "Purchase created successfully",
+                "id": purchase_id,
+                "purchase": purchase
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create purchase")
+    except Exception as e:
+        print(f"❌ Error creating purchase: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/credit-cards/{card_id}/purchases")
+async def get_card_purchases(
+    card_id: int,
+    current_user: User = Depends(get_current_user)
+):
+    """Get all purchases for a specific credit card"""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+    
+    try:
+        purchases = credit_card_service.get_purchases(card_id=card_id)
+        return purchases
+    except Exception as e:
+        print(f"❌ Error fetching purchases: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/installment-plans/{plan_id}/schedule")
+async def get_installment_schedule(
+    plan_id: int,
+    current_user: User = Depends(get_current_user)
+):
+    """Get the installment schedule for a plan"""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+    
+    try:
+        schedule = credit_card_service.get_installment_schedule(plan_id)
+        if not schedule:
+            raise HTTPException(status_code=404, detail="Installment plan not found")
+        return schedule
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error fetching installment schedule: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/installments/{installment_id}/pay")
+async def pay_installment(
+    installment_id: int,
+    payment: InstallmentPayment,
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Mark an installment as paid"""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+    
+    try:
+        success = credit_card_service.pay_installment(installment_id, payment.dict())
+        if success:
+            print(f"✅ Installment {installment_id} marked as paid")
+            return {
+                "message": "Installment marked as paid successfully",
+                "installment_id": installment_id
+            }
+        else:
+            raise HTTPException(status_code=404, detail="Installment not found or already paid")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error paying installment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/installments/{installment_id}/unpay")
+async def unpay_installment(
+    installment_id: int,
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Revert a paid installment back to pending"""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+    
+    try:
+        success = credit_card_service.unpay_installment(installment_id)
+        if success:
+            print(f"✅ Installment {installment_id} reverted to pending")
+            return {
+                "message": "Payment reverted successfully",
+                "installment_id": installment_id
+            }
+        else:
+            raise HTTPException(status_code=404, detail="Installment not found or not paid")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error unpaying installment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/credit-cards/purchases/{purchase_id}")
+async def update_purchase(
+    purchase_id: int,
+    purchase_data: dict,
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Update an existing credit card purchase"""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+    
+    try:
+        success = credit_card_service.update_purchase(purchase_id, purchase_data)
+        if success:
+            print(f"✅ Purchase {purchase_id} updated successfully")
+            return {
+                "message": "Purchase updated successfully",
+                "purchase_id": purchase_id
+            }
+        else:
+            raise HTTPException(status_code=404, detail="Purchase not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error updating purchase: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/credit-cards/purchases/{purchase_id}")
+async def delete_purchase(
+    purchase_id: int,
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Delete a credit card purchase"""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+    
+    try:
+        success = credit_card_service.delete_purchase(purchase_id)
+        if success:
+            print(f"✅ Purchase {purchase_id} deleted successfully")
+            return {"message": "Purchase deleted successfully", "purchase_id": purchase_id}
+        else:
+            raise HTTPException(status_code=404, detail="Purchase not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error deleting purchase: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/credit-cards/{card_id}/period-installments")
+async def get_card_period_installments(
+    card_id: int,
+    year: int,
+    month: int,
+    current_user: User = Depends(require_role(["admin", "writer", "reader"]))
+):
+    """Get all installments for a card in a specific month"""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+    
+    try:
+        result = credit_card_service.get_card_period_installments(card_id, year, month)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Credit card not found")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error fetching period installments: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/credit-cards/{card_id}/register-period-budget")
+async def register_card_period_budget(
+    card_id: int,
+    period_data: dict,
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Register a budget item for all installments due in a card period"""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+    
+    year = period_data.get('year')
+    month = period_data.get('month')
+    payment_type = period_data.get('payment_type', 'total')
+    custom_minimum = period_data.get('minimum_payment', 0)
+    if not year or not month:
+        raise HTTPException(status_code=400, detail="year and month are required")
+    if payment_type not in ('total', 'minimum'):
+        raise HTTPException(status_code=400, detail="payment_type must be 'total' or 'minimum'")
+    
+    try:
+        result = credit_card_service.register_card_period_budget(
+            card_id, int(year), int(month), payment_type, float(custom_minimum)
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="Credit card not found")
+        if 'error' in result:
+            raise HTTPException(status_code=400, detail=result['error'])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error registering period budget: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/credit-cards/{card_id}/import-csv")
+async def bulk_import_credit_card_purchases(
+    card_id: int,
+    purchases: List[CreditCardBulkPurchaseItem],
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Bulk import credit card purchases from CSV data"""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+
+    # Verify card exists
+    card = credit_card_service.get_credit_card(card_id)
+    if not card:
+        raise HTTPException(status_code=404, detail="Credit card not found")
+
+    added_count = 0
+    errors = []
+
+    for index, purchase in enumerate(purchases):
+        try:
+            purchase_data = {
+                'card_id': card_id,
+                'description': purchase.description,
+                'amount': purchase.amount,
+                'purchase_date': purchase.purchase_date,
+                'installments': purchase.installments,
+                'interest_rate': purchase.interest_rate or 0.0,
+                'category': 'General'
+            }
+            purchase_id = credit_card_service.create_purchase(purchase_data)
+            if purchase_id:
+                added_count += 1
+            else:
+                errors.append(f"Fila {index + 1}: Error al crear compra")
+        except Exception as e:
+            errors.append(f"Fila {index + 1} ({purchase.description}): {str(e)}")
+
+    return {
+        "message": f"{added_count} gastos importados exitosamente",
+        "added": added_count,
+        "total": len(purchases),
+        "errors": errors if errors else None
+    }
+
+# ==================== SETTINGS ENDPOINTS ====================
+
+@app.get("/api/settings/{key}")
+async def get_setting(key: str, current_user: dict = Depends(get_current_user)):
+    """Get a specific setting value"""
+    db = SessionLocal()
+    try:
+        setting = db.query(AppSetting).filter(AppSetting.key == key).first()
+        if not setting:
+            raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
+        return {"key": setting.key, "value": setting.value, "description": setting.description}
+    finally:
+        db.close()
+
+@app.put("/api/settings/{key}")
+async def update_setting(key: str, body: dict, current_user: User = Depends(require_role(["admin"]))):
+    """Update a setting value (admin only)"""
+    db = SessionLocal()
+    try:
+        setting = db.query(AppSetting).filter(AppSetting.key == key).first()
+        if not setting:
+            setting = AppSetting(key=key, value=str(body.get("value", "")), description=body.get("description", ""))
+            db.add(setting)
+        else:
+            setting.value = str(body.get("value", setting.value))
+            if "description" in body:
+                setting.description = body["description"]
+        db.commit()
+        db.refresh(setting)
+        return {"key": setting.key, "value": setting.value, "description": setting.description}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
 
 if __name__ == "__main__":
     import uvicorn

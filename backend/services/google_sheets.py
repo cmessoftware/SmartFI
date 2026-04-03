@@ -55,14 +55,14 @@ class GoogleSheetsService:
                 self.connect()
             
             row = [
-                transaction_data.get('marca_temporal', datetime.now().isoformat()),
-                transaction_data.get('fecha'),
-                transaction_data.get('tipo'),
-                transaction_data.get('categoria'),
-                transaction_data.get('monto'),
-                transaction_data.get('necesidad'),
-                transaction_data.get('forma_pago', 'Débito'),
-                transaction_data.get('detalle', '')
+                transaction_data.get('timestamp', transaction_data.get('marca_temporal', datetime.now().isoformat())),
+                transaction_data.get('date', transaction_data.get('fecha')),
+                transaction_data.get('type', transaction_data.get('tipo')),
+                transaction_data.get('category', transaction_data.get('categoria')),
+                transaction_data.get('amount', transaction_data.get('monto')),
+                transaction_data.get('necessity', transaction_data.get('necesidad')),
+                transaction_data.get('payment_method', transaction_data.get('forma_pago', 'Débito')),
+                transaction_data.get('detail', transaction_data.get('detalle', ''))
             ]
             
             self.sheet.append_row(row)
@@ -80,14 +80,14 @@ class GoogleSheetsService:
             rows = []
             for transaction in transactions:
                 row = [
-                    transaction.get('marca_temporal', datetime.now().isoformat()),
-                    transaction.get('fecha'),
-                    transaction.get('tipo'),
-                    transaction.get('categoria'),
-                    transaction.get('monto'),
-                    transaction.get('necesidad'),
-                    transaction.get('forma_pago', 'Débito'),
-                    transaction.get('detalle', '')
+                    transaction.get('timestamp', transaction.get('marca_temporal', datetime.now().isoformat())),
+                    transaction.get('date', transaction.get('fecha')),
+                    transaction.get('type', transaction.get('tipo')),
+                    transaction.get('category', transaction.get('categoria')),
+                    transaction.get('amount', transaction.get('monto')),
+                    transaction.get('necessity', transaction.get('necesidad')),
+                    transaction.get('payment_method', transaction.get('forma_pago', 'Débito')),
+                    transaction.get('detail', transaction.get('detalle', ''))
                 ]
                 rows.append(row)
             
@@ -117,14 +117,14 @@ class GoogleSheetsService:
                 
                 normalized_record = {
                     'id': idx,  # Row number as ID
-                    'marca_temporal': record.get('Marca temporal', record.get('marca_temporal', '')),
-                    'fecha': record.get('Fecha', record.get('fecha', '')),
-                    'tipo': record.get('Tipo', record.get('tipo', '')),
-                    'categoria': record.get('Categoría', record.get('categoria', '')),
-                    'monto': monto,
-                    'necesidad': record.get('Necesidad', record.get('necesidad', '')),
-                    'forma_pago': record.get('Forma de Pago', record.get('forma_pago', 'Débito')),
-                    'detalle': record.get('Detalle', record.get('detalle', ''))
+                    'timestamp': record.get('Marca temporal', record.get('marca_temporal', '')),
+                    'date': record.get('Fecha', record.get('fecha', '')),
+                    'type': record.get('Tipo', record.get('tipo', '')),
+                    'category': record.get('Categoría', record.get('categoria', '')),
+                    'amount': monto,
+                    'necessity': record.get('Necesidad', record.get('necesidad', '')),
+                    'payment_method': record.get('Forma de Pago', record.get('forma_pago', 'Débito')),
+                    'detail': record.get('Detalle', record.get('detalle', ''))
                 }
                 normalized.append(normalized_record)
             
@@ -141,14 +141,14 @@ class GoogleSheetsService:
             
             # Row ID is the actual row number in the sheet (includes header row)
             row_values = [
-                transaction_data.get('marca_temporal', datetime.now().isoformat()),
-                transaction_data.get('fecha'),
-                transaction_data.get('tipo'),
-                transaction_data.get('categoria'),
-                transaction_data.get('monto'),
-                transaction_data.get('necesidad'),
-                transaction_data.get('forma_pago', 'Débito'),
-                transaction_data.get('detalle', '')
+                transaction_data.get('timestamp', transaction_data.get('marca_temporal', datetime.now().isoformat())),
+                transaction_data.get('date', transaction_data.get('fecha')),
+                transaction_data.get('type', transaction_data.get('tipo')),
+                transaction_data.get('category', transaction_data.get('categoria')),
+                transaction_data.get('amount', transaction_data.get('monto')),
+                transaction_data.get('necessity', transaction_data.get('necesidad')),
+                transaction_data.get('payment_method', transaction_data.get('forma_pago', 'Débito')),
+                transaction_data.get('detail', transaction_data.get('detalle', ''))
             ]
             
             # Update the specific row

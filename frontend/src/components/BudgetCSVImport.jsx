@@ -125,7 +125,7 @@ function BudgetCSVImport({ onImportSuccess }) {
             year: 'numeric' 
           }),
           tipo: mapping.tipo ? row[mapping.tipo] : 'Préstamo',
-          categoria: mapping.categoria ? row[mapping.categoria] : 'Otro',
+          categoria: mapping.categoria ? row[mapping.categoria] : '',
           monto_total: monto,
           monto_pagado: 0.0,
           detalle: row[mapping.detalle] || '',

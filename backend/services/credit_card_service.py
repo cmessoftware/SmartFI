@@ -1,0 +1,1100 @@
+from database.database import (
+    SessionLocal, 
+    CreditCard, CreditCardPurchase, InstallmentPlan, InstallmentScheduleItem,
+    CreditCardStatement, CreditCardPayment,
+    BudgetItem, DebtStatus, BudgetType, FlowType,
+    Transaction, TransactionType,
+    InstallmentStatus, StatementStatus, InstallmentPlanType,
+    AppSetting
+)
+from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
+import logging
+
+logger = logging.getLogger(__name__)
+
+class CreditCardService:
+    def __init__(self):
+        self.db = SessionLocal()
+    
+    def close(self):
+        """Close database session"""
+        if self.db:
+            self.db.close()
+    
+    # ========================================================================
+    # CREDIT CARDS CRUD
+    # ========================================================================
+    
+    def create_credit_card(self, card_data: dict) -> int:
+        """Create a new credit card"""
+        from sqlalchemy.exc import IntegrityError
+        try:
+            card = CreditCard(
+                card_name=card_data['card_name'],
+                bank_name=card_data['bank_name'],
+                closing_day=card_data['closing_day'],
+                due_day=card_data['due_day'],
+                currency=card_data.get('currency', 'USD'),
+                credit_limit=card_data.get('credit_limit'),
+                is_active=card_data.get('is_active', True),
+                notes=card_data.get('notes')
+            )
+            
+            self.db.add(card)
+            self.db.commit()
+            self.db.refresh(card)
+            
+            logger.info(f"✅ Credit card '{card.card_name}' created successfully (ID: {card.id})")
+            return card.id
+            
+        except IntegrityError:
+            self.db.rollback()
+            raise ValueError(f"Ya existe una tarjeta con el nombre '{card_data['card_name']}'")
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"❌ Error creating credit card: {e}")
+            raise
+    
+    def get_credit_cards(self, active_only=True) -> list:
+        """Get all credit cards"""
+        try:
+            query = self.db.query(CreditCard)
+            if active_only:
+                query = query.filter(CreditCard.is_active == True)
+            
+            cards = query.order_by(CreditCard.card_name).all()
+            
+            return [{
+                'id': card.id,
+                'card_name': card.card_name,
+                'bank_name': card.bank_name,
+                'closing_day': card.closing_day,
+                'due_day': card.due_day,
+                'currency': card.currency,
+                'credit_limit': card.credit_limit,
+                'is_active': card.is_active,
+                'notes': card.notes,
+                'created_at': card.created_at.isoformat() if card.created_at else None
+            } for card in cards]
+            
+        except Exception as e:
+            logger.error(f"❌ Error fetching credit cards: {e}")
+            raise
+    
+    def get_credit_card(self, card_id: int) -> dict:
+        """Get a single credit card"""
+        try:
+            card = self.db.query(CreditCard).filter(CreditCard.id == card_id).first()
+            
+            if not card:
+                return None
+            
+            return {
+                'id': card.id,
+                'card_name': card.card_name,
+                'bank_name': card.bank_name,
+                'closing_day': card.closing_day,
+                'due_day': card.due_day,
+                'currency': card.currency,
+                'credit_limit': card.credit_limit,
+                'is_active': card.is_active,
+                'notes': card.notes,
+                'created_at': card.created_at.isoformat() if card.created_at else None
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Error fetching credit card {card_id}: {e}")
+            raise
+    
+    def update_credit_card(self, card_id: int, card_data: dict) -> dict:
+        """Update an existing credit card"""
+        try:
+            card = self.db.query(CreditCard).filter(CreditCard.id == card_id).first()
+            
+            if not card:
+                return None
+            
+            if 'card_name' in card_data:
+                card.card_name = card_data['card_name']
+            if 'bank_name' in card_data:
+                card.bank_name = card_data['bank_name']
+            if 'closing_day' in card_data:
+                card.closing_day = card_data['closing_day']
+            if 'due_day' in card_data:
+                card.due_day = card_data['due_day']
+            if 'currency' in card_data:
+                card.currency = card_data['currency']
+            if 'credit_limit' in card_data:
+                card.credit_limit = card_data['credit_limit']
+            if 'is_active' in card_data:
+                card.is_active = card_data['is_active']
+            if 'notes' in card_data:
+                card.notes = card_data['notes']
+            
+            card.updated_at = datetime.utcnow()
+            self.db.commit()
+            self.db.refresh(card)
+            
+            logger.info(f"✅ Credit card {card_id} updated successfully")
+            return self.get_credit_card(card_id)
+            
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"❌ Error updating credit card {card_id}: {e}")
+            raise
+    
+    def delete_credit_card(self, card_id: int) -> bool:
+        """Delete a credit card (soft delete by marking inactive)"""
+        try:
+            card = self.db.query(CreditCard).filter(CreditCard.id == card_id).first()
+            
+            if not card:
+                return False
+            
+            # Soft delete
+            card.is_active = False
+            card.updated_at = datetime.utcnow()
+            self.db.commit()
+            
+            logger.info(f"✅ Credit card {card_id} deactivated successfully")
+            return True
+            
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"❌ Error deleting credit card {card_id}: {e}")
+            raise
+    
+    # ========================================================================
+    # CREDIT CARD PURCHASES
+    # ========================================================================
+    
+    def create_purchase(self, purchase_data: dict) -> int:
+        """
+        Create a credit card purchase
+        
+        Args:
+            purchase_data: {
+                'card_id': int,
+                'transaction_id': int (optional),
+                'purchase_date': str (YYYY-MM-DD),
+                'amount': float,
+                'description': str,
+                'installments': int (default 1),
+                'interest_rate': float (default 0.0),
+                'plan_type': str (default 'MANUAL')
+            }
+        
+        Returns:
+            purchase_id: int
+        """
+        try:
+            installments = purchase_data.get('installments', 1)
+            has_financing = installments > 1
+            
+            # Get amount (support both 'amount' and 'total_amount' for backward compatibility)
+            amount = purchase_data.get('amount') or purchase_data.get('total_amount')
+            if not amount:
+                raise ValueError("Amount is required")
+            
+            # Get category (optional, defaults to 'General')
+            category = purchase_data.get('category', 'General')
+            
+            # Handle currency conversion
+            currency = purchase_data.get('currency', 'ARS')
+            exchange_rate = None
+            amount_in_pesos = None
+            
+            if currency == 'USD':
+                # Fetch exchange rate from app_settings
+                setting = self.db.query(AppSetting).filter(AppSetting.key == 'dollar_exchange_rate').first()
+                exchange_rate = float(setting.value) if setting else 1.0
+                amount_in_pesos = amount * exchange_rate
+            
+            # 1. Create purchase record
+            purchase = CreditCardPurchase(
+                card_id=purchase_data['card_id'],
+                transaction_id=purchase_data.get('transaction_id'),
+                purchase_date=datetime.strptime(purchase_data['purchase_date'], '%Y-%m-%d').date(),
+                total_amount=amount,
+                category=category,
+                description=purchase_data.get('description', ''),
+                installments=installments,
+                has_financing=has_financing,
+                currency=currency,
+                exchange_rate=exchange_rate,
+                amount_in_pesos=amount_in_pesos
+            )
+            
+            self.db.add(purchase)
+            self.db.flush()
+            
+            # 2. Only create installment plan for multi-cuota purchases
+            if installments > 1:
+                self._create_installment_plan(purchase, purchase_data)
+            
+            self.db.commit()
+            self.db.refresh(purchase)
+            
+            logger.info(f"✅ Purchase created (ID: {purchase.id}, Amount: {purchase.total_amount}, Installments: {installments})")
+            return purchase.id
+            
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"❌ Error creating purchase: {e}")
+            raise
+    
+    def _create_installment_plan(self, purchase: CreditCardPurchase, purchase_data: dict):
+        """Create installment plan and schedule for a purchase"""
+        try:
+            installments = purchase_data.get('installments', 1)
+            interest_rate = purchase_data.get('interest_rate', 0.0)
+            total_amount = purchase.total_amount
+            
+            # Calculate installment amounts
+            if interest_rate > 0:
+                # With interest: use amortization formula (interest_rate is annual %)
+                monthly_rate = interest_rate / 12 / 100
+                installment_amount = (total_amount * monthly_rate * (1 + monthly_rate)**installments) / ((1 + monthly_rate)**installments - 1)
+                total_with_interest = installment_amount * installments
+                total_interest = total_with_interest - total_amount
+            else:
+                # Without interest
+                installment_amount = total_amount / installments
+                total_with_interest = total_amount
+                total_interest = 0
+            
+            # Create installment plan (budget item created per card period via register_card_period_budget)
+            plan = InstallmentPlan(
+                purchase_id=purchase.id,
+                debt_id=None,
+                total_amount=total_with_interest,
+                number_of_installments=installments,
+                interest_rate=interest_rate,
+                start_date=purchase.purchase_date + relativedelta(months=1),
+                plan_type=InstallmentPlanType.ZERO_INTEREST if interest_rate == 0 else InstallmentPlanType.REGULAR,
+                notes=purchase_data.get('notes')
+            )
+            
+            self.db.add(plan)
+            self.db.flush()
+            
+            # Create installment schedule
+            start_date = purchase.purchase_date + relativedelta(months=1)
+            
+            for i in range(1, installments + 1):
+                due_date = start_date + relativedelta(months=i-1)
+                
+                # Last installment may have rounding difference
+                if i == installments:
+                    remaining = total_with_interest - (installment_amount * (installments - 1))
+                    current_installment = remaining
+                else:
+                    current_installment = installment_amount
+                
+                principal = (total_amount / installments) if interest_rate == 0 else (current_installment - (total_interest / installments))
+                interest = current_installment - principal if interest_rate > 0 else 0
+                
+                schedule_item = InstallmentScheduleItem(
+                    plan_id=plan.id,
+                    installment_number=i,
+                    due_date=due_date,
+                    principal_amount=round(principal, 2),
+                    interest_amount=round(interest, 2),
+                    total_installment_amount=round(current_installment, 2),
+                    status=InstallmentStatus.PENDING
+                )
+                
+                self.db.add(schedule_item)
+            
+            logger.info(f"✅ Installment plan created: {installments} installments of ${installment_amount:.2f}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error creating installment plan: {e}")
+            raise
+    
+    def get_purchases(self, card_id: int = None, filters: dict = None) -> list:
+        """Get credit card purchases"""
+        try:
+            query = self.db.query(CreditCardPurchase)
+            
+            if card_id:
+                query = query.filter(CreditCardPurchase.card_id == card_id)
+            
+            if filters:
+                if 'start_date' in filters:
+                    query = query.filter(CreditCardPurchase.purchase_date >= filters['start_date'])
+                if 'end_date' in filters:
+                    query = query.filter(CreditCardPurchase.purchase_date <= filters['end_date'])
+                if 'category' in filters:
+                    query = query.filter(CreditCardPurchase.category == filters['category'])
+            
+            purchases = query.order_by(CreditCardPurchase.purchase_date.desc()).all()
+            
+            result = []
+            for purchase in purchases:
+                # Get card info
+                card = self.db.query(CreditCard).filter(CreditCard.id == purchase.card_id).first()
+                
+                # Get installment plan (always query, plans are created for all purchases)
+                plan = None
+                plan_data = None
+                plan = self.db.query(InstallmentPlan).filter(InstallmentPlan.purchase_id == purchase.id).first()
+                if plan:
+                        # Count paid installments
+                        paid_count = self.db.query(InstallmentScheduleItem)\
+                            .filter(
+                                InstallmentScheduleItem.plan_id == plan.id,
+                                InstallmentScheduleItem.status == InstallmentStatus.PAID
+                            ).count()
+                        
+                        plan_data = {
+                            'id': plan.id,
+                            'total_amount': plan.total_amount,
+                            'total_installments': plan.number_of_installments,
+                            'interest_rate': plan.interest_rate,
+                            'paid_installments': paid_count,
+                            'plan_type': plan.plan_type.value if plan.plan_type else None
+                        }
+                
+                result.append({
+                    'id': purchase.id,
+                    'card_id': purchase.card_id,
+                    'card_name': card.card_name if card else None,
+                    'transaction_id': purchase.transaction_id,
+                    'purchase_date': purchase.purchase_date.strftime('%Y-%m-%d'),
+                    'total_amount': purchase.total_amount,
+                    'category': purchase.category,
+                    'description': purchase.description,
+                    'installments': purchase.installments,
+                    'has_financing': purchase.has_financing,
+                    'installment_plan': plan_data,
+                    'plan_id': plan.id if plan else None,
+                    'debt_id': plan.debt_id if plan else None,
+                    'interest_rate': plan.interest_rate if plan else 0.0,
+                    'currency': purchase.currency or 'ARS',
+                    'exchange_rate': purchase.exchange_rate,
+                    'amount_in_pesos': purchase.amount_in_pesos,
+                    'created_at': purchase.created_at.isoformat() if purchase.created_at else None
+                })
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ Error fetching purchases: {e}")
+            raise
+    
+    def get_installment_schedule(self, plan_id: int) -> list:
+        """Get installment schedule for a plan"""
+        try:
+            schedule = self.db.query(InstallmentScheduleItem)\
+                .filter(InstallmentScheduleItem.plan_id == plan_id)\
+                .order_by(InstallmentScheduleItem.installment_number).all()
+            
+            return [{
+                'id': item.id,
+                'installment_number': item.installment_number,
+                'due_date': item.due_date.strftime('%Y-%m-%d'),
+                'principal_amount': item.principal_amount,
+                'interest_amount': item.interest_amount,
+                'total_installment_amount': item.total_installment_amount,
+                'status': item.status.value if hasattr(item.status, 'value') else item.status,
+                'paid_date': item.paid_date.strftime('%Y-%m-%d') if item.paid_date else None,
+                'payment_transaction_id': item.payment_transaction_id,
+                'notes': item.notes
+            } for item in schedule]
+            
+        except Exception as e:
+            logger.error(f"❌ Error fetching installment schedule: {e}")
+            raise
+    
+    def pay_installment(self, installment_id: int, payment_data: dict) -> bool:
+        """
+        Mark an installment as paid
+        
+        Args:
+            installment_id: ID of installment schedule item
+            payment_data: {
+                'payment_date': str (YYYY-MM-DD),
+                'transaction_id': int (optional),
+                'notes': str (optional)
+            }
+        """
+        try:
+            installment = self.db.query(InstallmentScheduleItem)\
+                .filter(InstallmentScheduleItem.id == installment_id).first()
+            
+            if not installment:
+                return False
+            
+            # Update installment status
+            installment.status = InstallmentStatus.PAID
+            installment.paid_date = datetime.strptime(payment_data['payment_date'], '%Y-%m-%d').date()
+            installment.payment_transaction_id = payment_data.get('transaction_id')
+            if 'notes' in payment_data:
+                installment.notes = payment_data['notes']
+            installment.updated_at = datetime.utcnow()
+            
+            # Legacy: update per-purchase budget item if exists
+            plan = self.db.query(InstallmentPlan).filter(InstallmentPlan.id == installment.plan_id).first()
+            if plan and plan.debt_id:
+                budget_item = self.db.query(BudgetItem).filter(BudgetItem.id == plan.debt_id).first()
+                if budget_item:
+                    budget_item.monto_pagado += installment.total_installment_amount
+                    if budget_item.monto_pagado >= budget_item.monto_total:
+                        budget_item.status = DebtStatus.PAGADA
+                    elif budget_item.monto_pagado > 0:
+                        budget_item.status = DebtStatus.PAGO_PARCIAL
+                    budget_item.updated_at = datetime.utcnow()
+            
+            # Note: period budget monto_pagado is driven by Gastos module transactions,
+            # not by individual installment pay/unpay actions.
+            
+            self.db.commit()
+            self.db.expire_all()
+            
+            logger.info(f"✅ Installment {installment_id} marked as paid")
+            return True
+            
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"❌ Error paying installment: {e}")
+            raise
+    
+    def unpay_installment(self, installment_id: int) -> bool:
+        """
+        Revert a paid installment back to pending
+        
+        Args:
+            installment_id: ID of installment schedule item to unpay
+        """
+        try:
+            installment = self.db.query(InstallmentScheduleItem)\
+                .filter(InstallmentScheduleItem.id == installment_id).first()
+            
+            if not installment:
+                logger.warning(f"⚠️ Installment {installment_id} not found")
+                return False
+            
+            if installment.status != InstallmentStatus.PAID:
+                logger.warning(f"⚠️ Installment {installment_id} is not paid, cannot unpay")
+                return False
+            
+            # Store the payment amount before reverting
+            payment_amount = installment.total_installment_amount
+            
+            # Revert installment to pending
+            installment.status = InstallmentStatus.PENDING
+            installment.paid_date = None
+            installment.payment_transaction_id = None
+            installment.updated_at = datetime.utcnow()
+            
+            # Legacy: update per-purchase budget item if exists (subtract the payment)
+            plan = self.db.query(InstallmentPlan).filter(InstallmentPlan.id == installment.plan_id).first()
+            if plan and plan.debt_id:
+                budget_item = self.db.query(BudgetItem).filter(BudgetItem.id == plan.debt_id).first()
+                if budget_item:
+                    budget_item.monto_pagado -= payment_amount
+                    if budget_item.monto_pagado <= 0:
+                        budget_item.status = DebtStatus.PENDIENTE
+                        budget_item.monto_pagado = 0
+                    elif budget_item.monto_pagado < budget_item.monto_total:
+                        budget_item.status = DebtStatus.PAGO_PARCIAL
+                    budget_item.updated_at = datetime.utcnow()
+            
+            # Note: period budget monto_pagado is driven by Gastos module transactions,
+            # not by individual installment pay/unpay actions.
+            
+            self.db.commit()
+            self.db.expire_all()
+            
+            logger.info(f"✅ Installment {installment_id} reverted to pending")
+            return True
+            
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"❌ Error unpaying installment: {e}")
+            raise
+    
+    def update_purchase(self, purchase_id: int, purchase_data: dict) -> bool:
+        """
+        Update an existing purchase with proper interest recalculation and currency handling
+        """
+        try:
+            purchase = self.db.query(CreditCardPurchase)\
+                .filter(CreditCardPurchase.id == purchase_id).first()
+            
+            if not purchase:
+                logger.warning(f"⚠️ Purchase {purchase_id} not found")
+                return False
+            
+            # Update basic fields
+            if 'description' in purchase_data:
+                purchase.description = purchase_data['description']
+            if 'category' in purchase_data:
+                purchase.category = purchase_data['category']
+            if 'notes' in purchase_data:
+                purchase.notes = purchase_data['notes']
+            if 'purchase_date' in purchase_data:
+                from datetime import date as date_type
+                pd = purchase_data['purchase_date']
+                purchase.purchase_date = date_type.fromisoformat(pd) if isinstance(pd, str) else pd
+            if 'amount' in purchase_data:
+                purchase.total_amount = float(purchase_data['amount'])
+            if 'installments' in purchase_data:
+                purchase.installments = int(purchase_data['installments'])
+            
+            # Handle currency (Bug 1 fix)
+            if 'currency' in purchase_data:
+                purchase.currency = purchase_data['currency']
+                if purchase.currency == 'USD':
+                    setting = self.db.query(AppSetting).filter(AppSetting.key == 'dollar_exchange_rate').first()
+                    purchase.exchange_rate = float(setting.value) if setting else 1.0
+                    purchase.amount_in_pesos = purchase.total_amount * purchase.exchange_rate
+                else:
+                    purchase.exchange_rate = None
+                    purchase.amount_in_pesos = None
+            
+            purchase.updated_at = datetime.utcnow()
+            
+            # Rebuild installment plan if amount or installments changed
+            plan = self.db.query(InstallmentPlan)\
+                .filter(InstallmentPlan.purchase_id == purchase_id).first()
+            
+            if plan and ('amount' in purchase_data or 'installments' in purchase_data or 'purchase_date' in purchase_data or 'interest_rate' in purchase_data):
+                new_amount = purchase.total_amount
+                new_installments = purchase.installments
+                
+                # Update interest rate if provided
+                if 'interest_rate' in purchase_data:
+                    plan.interest_rate = float(purchase_data['interest_rate'])
+                interest_rate = plan.interest_rate
+                
+                # Recalculate with interest (interest_rate is annual %)
+                if interest_rate > 0:
+                    monthly_rate = interest_rate / 12 / 100
+                    installment_amount = (new_amount * monthly_rate * (1 + monthly_rate)**new_installments) / ((1 + monthly_rate)**new_installments - 1)
+                    total_with_interest = installment_amount * new_installments
+                    total_interest = total_with_interest - new_amount
+                else:
+                    installment_amount = new_amount / new_installments if new_installments > 0 else new_amount
+                    total_with_interest = new_amount
+                    total_interest = 0
+                
+                plan.total_amount = total_with_interest
+                plan.number_of_installments = new_installments
+                plan.updated_at = datetime.utcnow()
+                
+                # Collect affected periods before deleting
+                old_items = self.db.query(InstallmentScheduleItem)\
+                    .filter(InstallmentScheduleItem.plan_id == plan.id).all()
+                affected_periods = set()
+                for item in old_items:
+                    affected_periods.add((item.due_date.year, item.due_date.month))
+                    self.db.delete(item)
+                self.db.flush()
+                
+                # Recreate schedule items
+                start_date = purchase.purchase_date + relativedelta(months=1)
+                for i in range(1, new_installments + 1):
+                    due_date = start_date + relativedelta(months=i-1)
+                    
+                    if i == new_installments:
+                        remaining = total_with_interest - (installment_amount * (new_installments - 1))
+                        current_installment = remaining
+                    else:
+                        current_installment = installment_amount
+                    
+                    principal = (new_amount / new_installments) if interest_rate == 0 else (current_installment - (total_interest / new_installments))
+                    interest = current_installment - principal if interest_rate > 0 else 0
+                    
+                    schedule_item = InstallmentScheduleItem(
+                        plan_id=plan.id,
+                        installment_number=i,
+                        due_date=due_date,
+                        principal_amount=round(principal, 2),
+                        interest_amount=round(interest, 2),
+                        total_installment_amount=round(current_installment, 2),
+                        status=InstallmentStatus.PENDING
+                    )
+                    self.db.add(schedule_item)
+                    affected_periods.add((due_date.year, due_date.month))
+                
+                # Legacy: update per-purchase budget item if exists
+                if plan.debt_id:
+                    budget_item = self.db.query(BudgetItem).filter(BudgetItem.id == plan.debt_id).first()
+                    if budget_item:
+                        budget_item.monto_total = total_with_interest
+                        budget_item.monto_pagado = 0
+                        budget_item.status = DebtStatus.PENDIENTE
+                        budget_item.detalle = f"{purchase.description} ({new_installments} cuotas)"
+                        budget_item.updated_at = datetime.utcnow()
+                
+                # Update affected period budget items
+                for (year, month) in affected_periods:
+                    self._update_period_budget(purchase.card_id, year, month)
+            elif plan and 'description' in purchase_data:
+                # Update budget detalle even if only description changed
+                if plan.debt_id:
+                    budget_item = self.db.query(BudgetItem).filter(BudgetItem.id == plan.debt_id).first()
+                    if budget_item:
+                        budget_item.detalle = f"{purchase.description} ({purchase.installments} cuotas)"
+                        budget_item.updated_at = datetime.utcnow()
+            
+            self.db.commit()
+            logger.info(f"✅ Purchase {purchase_id} updated successfully")
+            return True
+            
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"❌ Error updating purchase: {e}")
+            raise
+    
+    def delete_purchase(self, purchase_id: int) -> bool:
+        """
+        Delete a credit card purchase and its associated plan, schedule, and budget item.
+        """
+        try:
+            purchase = self.db.query(CreditCardPurchase)\
+                .filter(CreditCardPurchase.id == purchase_id).first()
+            
+            if not purchase:
+                logger.warning(f"⚠️ Purchase {purchase_id} not found")
+                return False
+            
+            card_id = purchase.card_id
+            
+            # Delete associated installment plan, schedule, and budget item
+            plan = self.db.query(InstallmentPlan)\
+                .filter(InstallmentPlan.purchase_id == purchase_id).first()
+            
+            affected_periods = set()
+            if plan:
+                # Collect affected periods before deleting
+                schedule_items = self.db.query(InstallmentScheduleItem)\
+                    .filter(InstallmentScheduleItem.plan_id == plan.id).all()
+                for item in schedule_items:
+                    affected_periods.add((item.due_date.year, item.due_date.month))
+                
+                # Delete schedule items
+                self.db.query(InstallmentScheduleItem)\
+                    .filter(InstallmentScheduleItem.plan_id == plan.id).delete()
+                
+                # Delete legacy budget item if linked
+                if plan.debt_id:
+                    self.db.query(BudgetItem)\
+                        .filter(BudgetItem.id == plan.debt_id).delete()
+                
+                # Delete plan
+                self.db.delete(plan)
+            
+            # Delete purchase
+            self.db.delete(purchase)
+            self.db.commit()
+            
+            # Update affected period budget items (after commit so deleted items are gone)
+            for (year, month) in affected_periods:
+                self._update_period_budget(card_id, year, month)
+            
+            logger.info(f"✅ Purchase {purchase_id} deleted successfully")
+            return True
+            
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"❌ Error deleting purchase: {e}")
+            raise
+    
+    # ========================================================================
+    # PERIOD BUDGET MANAGEMENT
+    # ========================================================================
+    
+    def _get_period_tag(self, card_id: int, year: int, month: int) -> str:
+        """Get the machine-readable tag for a card period budget item"""
+        return f"[tc:{card_id}:{year}-{month:02d}]"
+    
+    def _find_period_budget_item(self, card_id: int, year: int, month: int):
+        """Find the BudgetItem for a specific card period"""
+        tag = self._get_period_tag(card_id, year, month)
+        return self.db.query(BudgetItem).filter(
+            BudgetItem.detalle.like(f"%{tag}")
+        ).first()
+    
+    def _get_gastos_paid_for_period(self, year: int, month: int) -> float:
+        """Sum all expense transactions with category 'Tarjeta de Crédito' in a given month.
+        This reflects actual payments registered through the Gastos module."""
+        from sqlalchemy import func
+        total = self.db.query(func.coalesce(func.sum(Transaction.monto), 0)).filter(
+            Transaction.categoria == "Tarjeta de Crédito",
+            Transaction.tipo == TransactionType.GASTO,
+            Transaction.fecha.like(f"{year}-{month:02d}%")
+        ).scalar()
+        return float(total or 0)
+
+    def _get_standalone_purchases_for_period(self, card_id: int, year: int, month: int):
+        """Get 1-cuota purchases for a given period.
+        Standalone purchases appear in the month they were purchased (same month)."""
+        from sqlalchemy import extract
+        # All 1-cuota purchases in this month (regardless of InstallmentPlan existence)
+        return self.db.query(CreditCardPurchase).filter(
+            CreditCardPurchase.card_id == card_id,
+            CreditCardPurchase.installments == 1,
+            extract('year', CreditCardPurchase.purchase_date) == year,
+            extract('month', CreditCardPurchase.purchase_date) == month,
+        ).all()
+
+    def _get_purchase_amount_in_ars(self, purchase: CreditCardPurchase) -> float:
+        """Get the amount of a purchase in ARS."""
+        if purchase.currency == 'USD' and purchase.amount_in_pesos:
+            return float(purchase.amount_in_pesos)
+        return float(purchase.total_amount)
+    
+    def _calculate_period_total(self, card_id: int, year: int, month: int) -> float:
+        """Calculate total due for a card period: multi-cuota installments + standalone 1-cuota purchases."""
+        from sqlalchemy import extract
+        # 1. Only multi-cuota installments (>1 cuota)
+        installments = self.db.query(InstallmentScheduleItem)\
+            .join(InstallmentPlan)\
+            .join(CreditCardPurchase)\
+            .filter(
+                CreditCardPurchase.card_id == card_id,
+                InstallmentPlan.number_of_installments > 1,
+                extract('year', InstallmentScheduleItem.due_date) == year,
+                extract('month', InstallmentScheduleItem.due_date) == month
+            ).all()
+        total = sum(i.total_installment_amount for i in installments)
+        
+        # 2. Standalone 1-cuota purchases without plan
+        standalone = self._get_standalone_purchases_for_period(card_id, year, month)
+        total += sum(self._get_purchase_amount_in_ars(p) for p in standalone)
+        
+        return total
+
+    def _update_period_budget(self, card_id: int, year: int, month: int):
+        """Recalculate and update the period budget item if it exists.
+        monto_total comes from installments + standalone purchases; monto_pagado from Gastos module."""
+        budget_item = self._find_period_budget_item(card_id, year, month)
+        if not budget_item:
+            return
+        
+        total_due = self._calculate_period_total(card_id, year, month)
+        total_paid = self._get_gastos_paid_for_period(year, month)
+        
+        budget_item.monto_total = round(total_due, 2)
+        budget_item.monto_pagado = round(total_paid, 2)
+        
+        if total_due == 0 or total_paid >= total_due:
+            budget_item.status = DebtStatus.PAGADA
+        elif total_paid > 0:
+            budget_item.status = DebtStatus.PAGO_PARCIAL
+        else:
+            budget_item.status = DebtStatus.PENDIENTE
+        
+        budget_item.updated_at = datetime.utcnow()
+        self.db.commit()
+    
+    def get_card_period_installments(self, card_id: int, year: int, month: int) -> dict:
+        """Get all installments + standalone purchases for a card in a specific month with summary"""
+        try:
+            from sqlalchemy import extract
+            
+            card = self.db.query(CreditCard).filter(CreditCard.id == card_id).first()
+            if not card:
+                return None
+            
+            # 1. Only multi-cuota installments (>1 cuota)
+            installments = self.db.query(InstallmentScheduleItem)\
+                .join(InstallmentPlan)\
+                .join(CreditCardPurchase)\
+                .filter(
+                    CreditCardPurchase.card_id == card_id,
+                    InstallmentPlan.number_of_installments > 1,
+                    extract('year', InstallmentScheduleItem.due_date) == year,
+                    extract('month', InstallmentScheduleItem.due_date) == month
+                )\
+                .order_by(InstallmentScheduleItem.due_date).all()
+            
+            items = []
+            total_due = 0
+            for inst in installments:
+                plan = self.db.query(InstallmentPlan).filter(InstallmentPlan.id == inst.plan_id).first()
+                purchase = self.db.query(CreditCardPurchase).filter(CreditCardPurchase.id == plan.purchase_id).first() if plan else None
+                
+                items.append({
+                    'id': inst.id,
+                    'purchase_id': purchase.id if purchase else None,
+                    'installment_number': inst.installment_number,
+                    'total_installments': plan.number_of_installments if plan else 1,
+                    'due_date': inst.due_date.strftime('%Y-%m-%d'),
+                    'amount': inst.total_installment_amount,
+                    'status': inst.status.value if hasattr(inst.status, 'value') else inst.status,
+                    'purchase_description': purchase.description if purchase else '',
+                    'purchase_category': purchase.category if purchase else '',
+                    'purchase_currency': purchase.currency if purchase else 'ARS',
+                    'item_type': 'installment',
+                })
+                total_due += inst.total_installment_amount
+            
+            # 2. Standalone 1-cuota purchases (same month as purchase date)
+            standalone = self._get_standalone_purchases_for_period(card_id, year, month)
+            for p in standalone:
+                amount_ars = self._get_purchase_amount_in_ars(p)
+                items.append({
+                    'id': p.id,
+                    'purchase_id': p.id,
+                    'installment_number': 1,
+                    'total_installments': 1,
+                    'due_date': f"{year}-{month:02d}-01",
+                    'amount': amount_ars,
+                    'status': 'PENDING',
+                    'purchase_description': p.description or '',
+                    'purchase_category': p.category or '',
+                    'purchase_currency': p.currency or 'ARS',
+                    'item_type': 'single',
+                })
+                total_due += amount_ars
+            
+            # Paid amount from Gastos module
+            total_paid = self._get_gastos_paid_for_period(year, month)
+            
+            # Check if period is registered in budget
+            period_budget = self._find_period_budget_item(card_id, year, month)
+            
+            # Minimum payment (5% of total due, minimum $1000)
+            minimum_payment = max(round(total_due * 0.05, 2), min(total_due, 1000.0))
+            
+            return {
+                'card_id': card_id,
+                'card_name': card.card_name,
+                'bank_name': card.bank_name,
+                'year': year,
+                'month': month,
+                'total_due': round(total_due, 2),
+                'minimum_payment': minimum_payment,
+                'total_paid': round(total_paid, 2),
+                'installment_count': len(items),
+                'installments': items,
+                'budget_registered': period_budget is not None,
+                'budget_item_id': period_budget.id if period_budget else None,
+            }
+        except Exception as e:
+            logger.error(f"❌ Error fetching period installments: {e}")
+            raise
+    
+    def register_card_period_budget(self, card_id: int, year: int, month: int, payment_type: str = 'total', custom_minimum: float = 0) -> dict:
+        """Create or update a BudgetItem for all items due in a card period.
+        payment_type: 'total' for full statement, 'minimum' for minimum payment.
+        custom_minimum: user-specified minimum payment amount."""
+        try:
+            from sqlalchemy import extract
+            
+            card = self.db.query(CreditCard).filter(CreditCard.id == card_id).first()
+            if not card:
+                return None
+            
+            # Calculate total from installments + standalone purchases
+            total_due = self._calculate_period_total(card_id, year, month)
+            
+            if total_due == 0:
+                return {'error': 'No hay gastos en este período'}
+            
+            # Determine minimum payment amount
+            minimum_amount = custom_minimum if custom_minimum > 0 else max(round(total_due * 0.05, 2), min(total_due, 1000.0))
+            
+            # Budget amount depends on payment type
+            if payment_type == 'minimum':
+                budget_amount = minimum_amount
+            else:
+                budget_amount = total_due
+            
+            total_paid = self._get_gastos_paid_for_period(year, month)
+            
+            # Determine status
+            if total_paid >= budget_amount:
+                status = DebtStatus.PAGADA
+            elif total_paid > 0:
+                status = DebtStatus.PAGO_PARCIAL
+            else:
+                status = DebtStatus.PENDIENTE
+            
+            # Calculate due date using card's due_day
+            from calendar import monthrange
+            due_day = min(card.due_day or 1, monthrange(year, month)[1])
+            fecha_vencimiento = f"{year}-{month:02d}-{due_day:02d}"
+            
+            tag = self._get_period_tag(card_id, year, month)
+            
+            MONTH_NAMES = ['', 'ene', 'feb', 'mar', 'abr', 'may', 'jun',
+                           'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+            period_display = f"{MONTH_NAMES[month]} {year}"
+            # Format minimum payment for description
+            min_fmt = f"${minimum_amount:,.0f}"
+            if payment_type == 'minimum':
+                pago_tipo = f' - Pago Mínimo: {min_fmt}'
+            else:
+                pago_tipo = f' (Mín: {min_fmt})'
+            detalle = f"Pago Tarjeta {card.card_name} - {card.bank_name} ({period_display}){pago_tipo} {tag}"
+            
+            # Check if already exists
+            budget_item = self._find_period_budget_item(card_id, year, month)
+            
+            if budget_item:
+                budget_item.monto_total = round(budget_amount, 2)
+                budget_item.monto_pagado = round(total_paid, 2)
+                budget_item.status = status
+                budget_item.detalle = detalle
+                budget_item.fecha_vencimiento = fecha_vencimiento
+                budget_item.updated_at = datetime.utcnow()
+                action = 'updated'
+            else:
+                budget_item = BudgetItem(
+                    fecha=f"{year}-{month:02d}-01",
+                    tipo="Tarjeta de Crédito",
+                    categoria="Tarjeta de Crédito",
+                    monto_total=round(budget_amount, 2),
+                    monto_pagado=round(total_paid, 2),
+                    detalle=detalle,
+                    fecha_vencimiento=fecha_vencimiento,
+                    status=status,
+                    tipo_presupuesto=BudgetType.OBLIGATION,
+                    tipo_flujo=FlowType.GASTO,
+                    monto_ejecutado=0.0
+                )
+                self.db.add(budget_item)
+                action = 'created'
+            
+            self.db.commit()
+            self.db.refresh(budget_item)
+            
+            logger.info(f"✅ Period budget item {action} for card {card_id}, period {year}-{month:02d}")
+            return {
+                'action': action,
+                'budget_item_id': budget_item.id,
+                'monto_total': budget_item.monto_total,
+                'monto_pagado': budget_item.monto_pagado,
+                'status': budget_item.status.value if hasattr(budget_item.status, 'value') else budget_item.status,
+                'detalle': budget_item.detalle,
+            }
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"❌ Error registering period budget: {e}")
+            raise
+    
+    # ========================================================================
+    # SUMMARY & ANALYTICS
+    # ========================================================================
+    
+    def get_card_summary(self, card_id: int) -> dict:
+        """Get summary for a credit card"""
+        try:
+            card = self.db.query(CreditCard).filter(CreditCard.id == card_id).first()
+            if not card:
+                return None
+            
+            # Total purchases
+            purchases = self.db.query(CreditCardPurchase)\
+                .filter(CreditCardPurchase.card_id == card_id).all()
+            total_purchases = sum(p.total_amount for p in purchases)
+            
+            # Pending installments from multi-cuota plans only
+            from sqlalchemy import extract
+            from datetime import datetime
+            pending_installments = self.db.query(InstallmentScheduleItem)\
+                .join(InstallmentPlan)\
+                .join(CreditCardPurchase)\
+                .filter(
+                    CreditCardPurchase.card_id == card_id,
+                    InstallmentPlan.number_of_installments > 1,
+                    InstallmentScheduleItem.status == InstallmentStatus.PENDING
+                ).all()
+            
+            total_pending = sum(i.total_installment_amount for i in pending_installments)
+            
+            # Add only CURRENT MONTH standalone 1-cuota purchases (bug 9: don't propagate to other months)
+            now = datetime.now()
+            current_year = now.year
+            current_month = now.month
+            current_standalone = self._get_standalone_purchases_for_period(card_id, current_year, current_month)
+            standalone_total = sum(self._get_purchase_amount_in_ars(p) for p in current_standalone)
+            
+            total_pending += standalone_total
+            total_items = len(pending_installments) + len(current_standalone)
+            
+            # Next due amount = current month's period total (gastos del mes + cuotas)
+            next_due_amount = None
+            current_period_total = self._calculate_period_total(card_id, current_year, current_month)
+            if current_period_total > 0:
+                next_due_amount = round(current_period_total, 2)
+            else:
+                # Fallback: find the nearest period with data (past or future)
+                # Check pending installments first
+                if pending_installments:
+                    sorted_inst = sorted(pending_installments, key=lambda x: x.due_date)
+                    earliest = sorted_inst[0]
+                    next_due_amount = round(self._calculate_period_total(
+                        card_id, earliest.due_date.year, earliest.due_date.month
+                    ), 2)
+                else:
+                    # Check if there are standalone purchases in recent past months
+                    for months_back in range(1, 4):
+                        prev_date = now - relativedelta(months=months_back)
+                        past_total = self._calculate_period_total(card_id, prev_date.year, prev_date.month)
+                        if past_total > 0:
+                            next_due_amount = round(past_total, 2)
+                            break
+            
+            return {
+                'id': card.id,
+                'card_id': card.id,
+                'card_name': card.card_name,
+                'bank_name': card.bank_name,
+                'credit_limit': card.credit_limit,
+                'currency': card.currency,
+                'total_purchases': total_purchases,
+                'current_debt': total_pending,
+                'pending_installments': total_items,
+                'available_credit': (card.credit_limit - total_pending) if card.credit_limit else None,
+                'next_due_amount': next_due_amount
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Error generating card summary: {e}")
+            raise
+    
+    def get_purchases_summary(self, card_id: int) -> dict:
+        """Get aggregated summary of purchases by description for pie chart"""
+        try:
+            purchases = self.db.query(CreditCardPurchase)\
+                .filter(CreditCardPurchase.card_id == card_id).all()
+            
+            by_description = {}
+            total_amount = 0
+            total_with_interest = 0
+            
+            for p in purchases:
+                desc = p.description or 'Sin descripción'
+                plan = self.db.query(InstallmentPlan)\
+                    .filter(InstallmentPlan.purchase_id == p.id).first()
+                plan_total = plan.total_amount if plan else p.total_amount
+                
+                if desc not in by_description:
+                    by_description[desc] = {
+                        'description': desc,
+                        'count': 0,
+                        'total_original': 0,
+                        'total_with_interest': 0
+                    }
+                by_description[desc]['count'] += 1
+                by_description[desc]['total_original'] += p.total_amount
+                by_description[desc]['total_with_interest'] += plan_total
+                total_amount += p.total_amount
+                total_with_interest += plan_total
+            
+            return {
+                'total_original': total_amount,
+                'total_with_interest': total_with_interest,
+                'by_description': list(by_description.values()),
+                'purchase_count': len(purchases)
+            }
+        except Exception as e:
+            logger.error(f"❌ Error generating purchases summary: {e}")
+            raise

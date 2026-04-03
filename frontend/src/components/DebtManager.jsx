@@ -12,13 +12,23 @@ import NewDebtModal from './NewDebtModal';
 
 ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
+const MONTH_NAMES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+];
+
 export default function DebtManager({ canEdit, isAdmin = false }) {
+  const now = new Date();
   const chartColors = ['#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#22C55E', '#3B82F6', '#EF4444'];
   const [debts, setDebts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [summary, setSummary] = useState(null);
   const [newModalOpen, setNewModalOpen] = useState(false);
   const [showCSVImport, setShowCSVImport] = useState(false);
+  const [showCloneMonth, setShowCloneMonth] = useState(false);
+  const [cloneSourceMonth, setCloneSourceMonth] = useState(new Date().getMonth() + 1);
+  const [cloneSourceYear, setCloneSourceYear] = useState(new Date().getFullYear());
+  const [isCloning, setIsCloning] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [debtToEdit, setDebtToEdit] = useState(null);
   const [deleteDialog, setDeleteDialog] = useState({ isOpen: false, debtId: null, debtName: '' });
@@ -34,8 +44,12 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
   const [filterDetalle, setFilterDetalle] = useState('');
   const [filterMontoMin, setFilterMontoMin] = useState('');
   const [filterMontoMax, setFilterMontoMax] = useState('');
+  const [filterMonth, setFilterMonth] = useState(now.getMonth() + 1);
+  const [filterYear, setFilterYear] = useState(now.getFullYear());
   const [sortField, setSortField] = useState('fecha');
   const [sortDirection, setSortDirection] = useState('desc');
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
   const toast = useToast();
 
   // Cargar deudas y resumen
@@ -44,6 +58,11 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
     loadSummary();
     loadCategories();
   }, []);
+
+  // Recargar summary cuando cambia el mes/año
+  useEffect(() => {
+    loadSummary(filterMonth, filterYear);
+  }, [filterMonth, filterYear]);
 
   useEffect(() => {
     const existingIds = new Set(debts.map((debt) => debt.id));
@@ -60,9 +79,9 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
     }
   };
 
-  const loadSummary = async () => {
+  const loadSummary = async (month, year) => {
     try {
-      const response = await debtsAPI.getDebtSummary();
+      const response = await debtsAPI.getDebtSummary(month || filterMonth, year || filterYear);
       setSummary(response.data);
     } catch (error) {
       console.error('Error loading debt summary:', error);
@@ -154,15 +173,18 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
   };
 
   const toggleSelectAllDebts = () => {
-    const allIds = displayedDebts.map((debt) => debt.id);
-    const allSelected = allIds.length > 0 && allIds.every((id) => selectedDebtIds.includes(id));
+    const visibleIds = paginatedDebts.map((debt) => debt.id);
+    const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedDebtIds.includes(id));
 
     if (allSelected) {
-      setSelectedDebtIds([]);
+      setSelectedDebtIds((prev) => prev.filter((id) => !visibleIds.includes(id)));
       return;
     }
 
-    setSelectedDebtIds(allIds);
+    setSelectedDebtIds((prev) => {
+      const merged = new Set([...prev, ...visibleIds]);
+      return Array.from(merged);
+    });
   };
 
   const handleBulkDeleteConfirm = async () => {
@@ -268,8 +290,41 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
     }
   };
 
+  const handleCloneMonth = async () => {
+    // Target is always the next month from source
+    let targetMonth = cloneSourceMonth + 1;
+    let targetYear = cloneSourceYear;
+    if (targetMonth > 12) {
+      targetMonth = 1;
+      targetYear += 1;
+    }
+
+    setIsCloning(true);
+    try {
+      const response = await debtsAPI.cloneMonth(cloneSourceMonth, cloneSourceYear, targetMonth, targetYear);
+      const data = response.data;
+      toast.success(`${data.cloned_count} items clonados al mes ${targetMonth}/${targetYear}`);
+      setShowCloneMonth(false);
+      loadDebts();
+      loadSummary();
+    } catch (error) {
+      const detail = error?.response?.data?.detail || error.message;
+      toast.error(`Error al clonar: ${detail}`);
+    } finally {
+      setIsCloning(false);
+    }
+  };
+
   const displayedDebts = useMemo(() => {
     let filtered = [...debts];
+
+    // Filtrar por mes/año seleccionado
+    filtered = filtered.filter((debt) => {
+      const iso = toISODate(debt.fecha_vencimiento || debt.fecha);
+      if (!iso) return false;
+      const [year, month] = iso.split('-').map(Number);
+      return year === filterYear && month === filterMonth;
+    });
 
     if (filterFechaDesde) {
       filtered = filtered.filter((debt) => toISODate(debt.fecha) >= filterFechaDesde);
@@ -328,6 +383,8 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
     debts,
     selectedDebtIds,
     showSelectedOnly,
+    filterMonth,
+    filterYear,
     filterFechaDesde,
     filterFechaHasta,
     filterTipo,
@@ -348,8 +405,9 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
     return [...new Set(debts.map((d) => d.categoria).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   }, [debts]);
 
-  const budgetCategoryData = useMemo(() => {
-    const grouped = displayedDebts.reduce((acc, debt) => {
+  const budgetCategoryGastosData = useMemo(() => {
+    const gastos = displayedDebts.filter(debt => debt.tipo_flujo === 'Gasto');
+    const grouped = gastos.reduce((acc, debt) => {
       const category = debt.categoria || 'Sin categoría';
       acc[category] = (acc[category] || 0) + Number(debt.monto_total || 0);
       return acc;
@@ -359,7 +417,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
       labels: Object.keys(grouped),
       datasets: [
         {
-          label: 'Presupuesto por Categoría',
+          label: 'Gastos por Categoría',
           data: Object.values(grouped),
           backgroundColor: chartColors,
           borderWidth: 2,
@@ -369,25 +427,95 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
     };
   }, [displayedDebts]);
 
-  const budgetDateData = useMemo(() => {
-    const grouped = displayedDebts.reduce((acc, debt) => {
-      const dateKey = toISODate(debt.fecha_vencimiento || debt.fecha);
-      const amount = Number(debt.monto_total || 0);
-      acc[dateKey] = (acc[dateKey] || 0) + amount;
+  const budgetCategoryIngresosData = useMemo(() => {
+    const ingresos = displayedDebts.filter(debt => debt.tipo_flujo === 'Ingreso');
+    const grouped = ingresos.reduce((acc, debt) => {
+      const tipoIngreso = debt.tipo || 'Sin clasificar';
+      acc[tipoIngreso] = (acc[tipoIngreso] || 0) + Number(debt.monto_total || 0);
       return acc;
     }, {});
 
-    const sortedDates = Object.keys(grouped).sort();
+    return {
+      labels: Object.keys(grouped),
+      datasets: [
+        {
+          label: 'Ingresos por Tipo',
+          data: Object.values(grouped),
+          backgroundColor: ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5', '#ecfdf5'],
+          borderWidth: 2,
+          borderColor: '#fff'
+        }
+      ]
+    };
+  }, [displayedDebts]);
+
+  const asignacionPorFechaData = useMemo(() => {
+    const fechas = {};
+    
+    displayedDebts.forEach(debt => {
+      const dateKey = toISODate(debt.fecha_vencimiento || debt.fecha);
+      if (!fechas[dateKey]) {
+        fechas[dateKey] = { gastos: 0, ingresos: 0 };
+      }
+      const amount = Number(debt.monto_total || 0);
+      if (debt.tipo_flujo === 'Gasto') {
+        fechas[dateKey].gastos += amount;
+      } else if (debt.tipo_flujo === 'Ingreso') {
+        fechas[dateKey].ingresos += amount;
+      }
+    });
+
+    const sortedDates = Object.keys(fechas).sort();
 
     return {
       labels: sortedDates.map((date) => formatDate(date)),
       datasets: [
         {
-          label: 'Presupuesto por Fecha',
-          data: sortedDates.map((date) => grouped[date]),
-          backgroundColor: '#F59E0B'
+          label: 'Gastos',
+          data: sortedDates.map((date) => fechas[date].gastos),
+          backgroundColor: '#ef4444',
+          borderColor: '#dc2626',
+          borderWidth: 1
+        },
+        {
+          label: 'Ingresos',
+          data: sortedDates.map((date) => fechas[date].ingresos),
+          backgroundColor: '#10b981',
+          borderColor: '#059669',
+          borderWidth: 1
         }
       ]
+    };
+  }, [displayedDebts]);
+
+  const vencimientosData = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const vencidos = [];
+    const proximos = [];
+    
+    // Filtrar solo Gastos (los Ingresos no tienen estado "Vencida")
+    const gastosDebts = displayedDebts.filter(debt => debt.tipo_flujo === 'Gasto');
+    
+    gastosDebts.forEach(debt => {
+      if (debt.estado === 'PAGADA') return;
+      
+      const fechaVenc = new Date(debt.fecha_vencimiento || debt.fecha);
+      fechaVenc.setHours(0, 0, 0, 0);
+      
+      const diffDays = Math.floor((fechaVenc - today) / (1000 * 60 * 60 * 24));
+      
+      if (diffDays < 0) {
+        vencidos.push({ ...debt, diasVencido: Math.abs(diffDays) });
+      } else if (diffDays <= 7) {
+        proximos.push({ ...debt, diasRestantes: diffDays });
+      }
+    });
+    
+    return {
+      vencidos: vencidos.sort((a, b) => b.diasVencido - a.diasVencido),
+      proximos: proximos.sort((a, b) => a.diasRestantes - b.diasRestantes)
     };
   }, [displayedDebts]);
 
@@ -395,10 +523,86 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
     ? Number(summary.pending_amount || 0) + Number(summary.partial_amount || 0) + Number(summary.overdue_amount || 0)
     : 0;
 
-  const allDebtsSelected = displayedDebts.length > 0 && displayedDebts.every((debt) => selectedDebtIds.includes(debt.id));
+  const totalPages = Math.max(1, Math.ceil(displayedDebts.length / PAGE_SIZE));
+  const paginatedDebts = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return displayedDebts.slice(start, start + PAGE_SIZE);
+  }, [displayedDebts, currentPage]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterMonth, filterYear, filterFechaDesde, filterFechaHasta, filterTipo, filterCategoria, filterTipoPresupuesto, filterDetalle, filterMontoMin, filterMontoMax, showSelectedOnly, sortField, sortDirection]);
+
+  const allDebtsSelected = paginatedDebts.length > 0 && paginatedDebts.every((debt) => selectedDebtIds.includes(debt.id));
 
   return (
     <div className="space-y-6">
+      {/* Selector de Mes/Año */}
+      <div className="bg-white rounded-xl shadow-md p-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              if (filterMonth === 1) {
+                setFilterMonth(12);
+                setFilterYear(prev => prev - 1);
+              } else {
+                setFilterMonth(prev => prev - 1);
+              }
+            }}
+            className="p-2 rounded-lg hover:bg-gray-100 transition text-lg"
+          >
+            ◀
+          </button>
+          <div className="flex items-center gap-2">
+            <select
+              value={filterMonth}
+              onChange={(e) => setFilterMonth(parseInt(e.target.value))}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-finly-text font-semibold focus:ring-2 focus:ring-finly-primary focus:outline-none"
+            >
+              {MONTH_NAMES.map((name, idx) => (
+                <option key={idx + 1} value={idx + 1}>{name}</option>
+              ))}
+            </select>
+            <select
+              value={filterYear}
+              onChange={(e) => setFilterYear(parseInt(e.target.value))}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-finly-text font-semibold focus:ring-2 focus:ring-finly-primary focus:outline-none"
+            >
+              {Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i).map(y => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={() => {
+              if (filterMonth === 12) {
+                setFilterMonth(1);
+                setFilterYear(prev => prev + 1);
+              } else {
+                setFilterMonth(prev => prev + 1);
+              }
+            }}
+            className="p-2 rounded-lg hover:bg-gray-100 transition text-lg"
+          >
+            ▶
+          </button>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-lg font-bold text-finly-text">
+            📅 {MONTH_NAMES[filterMonth - 1]} {filterYear}
+          </span>
+          {(filterMonth !== now.getMonth() + 1 || filterYear !== now.getFullYear()) && (
+            <button
+              onClick={() => { setFilterMonth(now.getMonth() + 1); setFilterYear(now.getFullYear()); }}
+              className="text-xs px-3 py-1 bg-finly-primary text-white rounded-full hover:bg-finly-primaryHover transition"
+            >
+              Hoy
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Resumen de deudas */}
       {summary && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -424,54 +628,169 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
 
       {/* Gráficos reutilizados de Reportes para Presupuestos */}
       {displayedDebts.length > 0 && !showCSVImport && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Gráfica de Gastos por Categoría */}
+          <div className="bg-white rounded-xl shadow-md p-6">
+              <h3 className="text-lg font-bold text-finly-text mb-4">
+                💸 Gastos por Categoría
+              </h3>
+              <div className="h-80 flex items-center justify-center">
+                <Pie
+                  data={budgetCategoryGastosData}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: {
+                        position: 'bottom'
+                      },
+                      tooltip: {
+                        callbacks: {
+                          label: function(context) {
+                            const label = context.label || '';
+                            const value = context.parsed || 0;
+                            return label + ': $' + value.toLocaleString('es-AR');
+                          }
+                        }
+                      }
+                    }
+                  }}
+                />
+              </div>
+            </div>
+
+          {/* Gráfica de Ingresos por Tipo */}
+          <div className="bg-white rounded-xl shadow-md p-6">
+              <h3 className="text-lg font-bold text-finly-text mb-4">
+                💰 Ingresos por Tipo
+              </h3>
+              <div className="h-80 flex items-center justify-center">
+                <Pie
+                  data={budgetCategoryIngresosData}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: {
+                        position: 'bottom'
+                      },
+                      tooltip: {
+                        callbacks: {
+                          label: function(context) {
+                            const label = context.label || '';
+                            const value = context.parsed || 0;
+                            return label + ': $' + value.toLocaleString('es-AR');
+                          }
+                        }
+                      }
+                    }
+                  }}
+                />
+              </div>
+            </div>
+
+          {/* Gráfica de Asignación por Fecha - OCULTO */}
+          {false && (
           <div className="bg-white rounded-xl shadow-md p-6">
             <h3 className="text-lg font-bold text-finly-text mb-4">
-              Presupuesto por Categoría
+              📊 Asignación por Fecha de Vencimiento
             </h3>
-            <div className="h-80 flex items-center justify-center">
-              <Pie
-                data={budgetCategoryData}
+            <div className="h-80">
+              <Bar
+                data={asignacionPorFechaData}
                 options={{
                   responsive: true,
                   maintainAspectRatio: false,
                   plugins: {
                     legend: {
-                      position: 'bottom'
+                      position: 'top'
+                    },
+                    tooltip: {
+                      callbacks: {
+                        label: function(context) {
+                          return context.dataset.label + ': $' + context.parsed.y.toLocaleString('es-AR');
+                        }
+                      }
+                    }
+                  },
+                  scales: {
+                    y: {
+                      beginAtZero: true,
+                      stacked: false,
+                      ticks: {
+                        callback: function(value) {
+                          return '$' + value.toLocaleString('es-AR');
+                        }
+                      }
+                    },
+                    x: {
+                      stacked: false
                     }
                   }
                 }}
               />
             </div>
           </div>
+          )}
 
+          {/* Panel de Vencimientos */}
           <div className="bg-white rounded-xl shadow-md p-6">
             <h3 className="text-lg font-bold text-finly-text mb-4">
-              Presupuesto por Fecha
+              ⏰ Vencimientos
             </h3>
-            <div className="h-80">
-              <Bar
-                data={budgetDateData}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: {
-                      display: false
-                    }
-                  },
-                  scales: {
-                    y: {
-                      beginAtZero: true,
-                      ticks: {
-                        callback: function(value) {
-                          return '$' + value.toLocaleString('es-AR');
-                        }
-                      }
-                    }
-                  }
-                }}
-              />
+            <div className="h-80 overflow-y-auto space-y-4">
+              {/* Items Vencidos */}
+              {vencimientosData.vencidos.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold text-red-600 mb-2 flex items-center gap-2">
+                    🔴 Vencidos ({vencimientosData.vencidos.length})
+                  </h4>
+                  <div className="space-y-2">
+                    {vencimientosData.vencidos.slice(0, 5).map(debt => (
+                      <div 
+                        key={debt.id} 
+                        onClick={() => handleEdit(debt)}
+                        className="bg-red-50 p-2 rounded border-l-4 border-red-500 cursor-pointer hover:bg-red-100 transition-colors"
+                      >
+                        <div className="text-xs font-semibold text-gray-900">{debt.detalle || debt.tipo}</div>
+                        <div className="text-xs text-red-600">Hace {debt.diasVencido} días</div>
+                        <div className="text-xs font-bold text-gray-700">{formatCurrency(debt.monto_total)}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Items Por Vencer (próximos 7 días) */}
+              {vencimientosData.proximos.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold text-yellow-600 mb-2 flex items-center gap-2">
+                    🟡 Próximos 7 días ({vencimientosData.proximos.length})
+                  </h4>
+                  <div className="space-y-2">
+                    {vencimientosData.proximos.slice(0, 5).map(debt => (
+                      <div 
+                        key={debt.id} 
+                        onClick={() => handleEdit(debt)}
+                        className="bg-yellow-50 p-2 rounded border-l-4 border-yellow-500 cursor-pointer hover:bg-yellow-100 transition-colors"
+                      >
+                        <div className="text-xs font-semibold text-gray-900">{debt.detalle || debt.tipo}</div>
+                        <div className="text-xs text-yellow-600">
+                          {debt.diasRestantes === 0 ? 'Hoy' : `En ${debt.diasRestantes} días`}
+                        </div>
+                        <div className="text-xs font-bold text-gray-700">{formatCurrency(debt.monto_total)}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Mensaje si no hay vencimientos */}
+              {vencimientosData.vencidos.length === 0 && vencimientosData.proximos.length === 0 && (
+                <div className="text-center text-gray-500 py-8">
+                  <p className="text-sm">✅ No hay items vencidos ni por vencer</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -494,6 +813,13 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
               >
                 <span>📥</span>
                 <span>Importar CSV</span>
+              </button>
+              <button
+                onClick={() => setShowCloneMonth(true)}
+                className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors flex items-center space-x-2"
+              >
+                <span>📋</span>
+                <span>Clonar Mes</span>
               </button>
             </>
           )}
@@ -546,6 +872,76 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
               loadSummary();
             }}
           />
+        </div>
+      )}
+
+      {/* Modal Clonar Mes */}
+      {showCloneMonth && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-gray-900">📋 Clonar Presupuesto</h3>
+              <button
+                onClick={() => setShowCloneMonth(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Clona todos los items del mes seleccionado al mes siguiente, con montos ejecutados en 0.
+            </p>
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Mes origen</label>
+                <select
+                  value={cloneSourceMonth}
+                  onChange={(e) => setCloneSourceMonth(parseInt(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                >
+                  {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
+                    <option key={m} value={m}>
+                      {['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][m-1]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Año origen</label>
+                <input
+                  type="number"
+                  min="2020"
+                  max="2100"
+                  value={cloneSourceYear}
+                  onChange={(e) => setCloneSourceYear(parseInt(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                />
+              </div>
+            </div>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+              <p className="text-sm text-blue-800">
+                Se clonarán al mes: <strong>
+                  {['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][(cloneSourceMonth % 12)]}
+                  {' '}{cloneSourceMonth === 12 ? cloneSourceYear + 1 : cloneSourceYear}
+                </strong>
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCloneMonth(false)}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleCloneMonth}
+                disabled={isCloning}
+                className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition"
+              >
+                {isCloning ? 'Clonando...' : 'Clonar'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -707,19 +1103,21 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {displayedDebts.length === 0 ? (
+              {paginatedDebts.length === 0 ? (
                 <tr>
                   <td colSpan={isAdmin && canEdit ? "13" : canEdit ? "12" : "11"} className="px-4 py-8 text-center text-gray-500">
                     {debts.length === 0 ? 'No hay items de presupuesto registrados' : 'No hay resultados para los filtros aplicados'}
                   </td>
                 </tr>
               ) : (
-                displayedDebts.map((debt) => {
+                paginatedDebts.map((debt) => {
                   const montoEjecutado = debt.monto_ejecutado ?? debt.monto_pagado ?? 0;
-                  const percentage = debt.monto_total > 0 
-                    ? (montoEjecutado / debt.monto_total) * 100 
-                    : 0;
-                  const remaining = debt.monto_total - montoEjecutado;
+                  const percentage = debt.total_installments > 0
+                    ? ((debt.paid_installments || 0) / debt.total_installments) * 100
+                    : debt.monto_total > 0 
+                      ? (montoEjecutado / debt.monto_total) * 100 
+                      : 0;
+                  const remaining = debt.monto_total - (debt.monto_pagado || 0);
                   const tipoPresupuesto = debt.tipo_presupuesto || 'OBLIGATION';
                   const tipoFlujo = debt.tipo_flujo || 'Gasto';
 
@@ -782,6 +1180,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
                       <td className="px-4 py-3 text-center">
                         <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusBadge(debt.status)}`}>
                           {getStatusText(debt.status)}
+                          {debt.total_installments > 0 && ` ${debt.paid_installments || 0}/${debt.total_installments}`}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">
@@ -812,6 +1211,52 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
             </tbody>
           </table>
         </div>
+
+        {/* Paginación */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
+            <p className="text-sm text-gray-600">
+              Mostrando {(currentPage - 1) * PAGE_SIZE + 1}-{Math.min(currentPage * PAGE_SIZE, displayedDebts.length)} de {displayedDebts.length}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1 text-sm border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                ← Anterior
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(page => page === 1 || page === totalPages || Math.abs(page - currentPage) <= 2)
+                .reduce((acc, page, idx, arr) => {
+                  if (idx > 0 && page - arr[idx - 1] > 1) {
+                    acc.push(<span key={`dots-${page}`} className="text-gray-400 text-sm">...</span>);
+                  }
+                  acc.push(
+                    <button
+                      key={page}
+                      onClick={() => setCurrentPage(page)}
+                      className={`px-3 py-1 text-sm rounded-lg transition ${
+                        page === currentPage
+                          ? 'bg-blue-600 text-white'
+                          : 'border border-gray-300 hover:bg-gray-100'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  );
+                  return acc;
+                }, [])}
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1 text-sm border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                Siguiente →
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Confirm Dialog */}

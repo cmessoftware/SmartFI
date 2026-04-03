@@ -88,10 +88,19 @@ alembic upgrade head
 
 ## Estado Actual
 
-- ✅ Migración inicial aplicada (2b125aaa8fae)
+- ✅ Migración inicial aplicada (2b125aaa8fae) - Sync database status enum
+- ✅ Migración Credit Card Module (e10c0b8c5dbe) - Add credit card management module
 - ✅ Enum `debtstatus` con valores: PENDIENTE, PAGADA, VENCIDA, Pago parcial
+- ✅ Enum `budgettype` con valores: OBLIGATION, VARIABLE
+- ✅ Enum `flowtype` con valores: Gasto, Ingreso
+- ✅ Enum `assignmentstatus` con valores: ASIGNADA_MANUAL, ASIGNADA_AUTOMATICA, NO_PLANIFICADA, REASIGNADA_AUTOMATICA
+- ✅ Enum `installmentstatus` con valores: PENDING, PAID
+- ✅ Enum `statementstatus` con valores: PENDING, PARTIALLY_PAID, PAID, OVERDUE
+- ✅ Enum `installmentplantype` con valores: REGULAR, PROMOTIONAL, ZERO_INTEREST
 - ✅ Tablas: users, debts, transactions, categories
+- ✅ Tablas Credit Card Module: credit_cards, credit_card_purchases, installment_plans, installment_schedule, credit_card_statements, credit_card_payments
 - ✅ Foreign key: transactions.debt_id → debts.id
+- ✅ Foreign keys Credit Card: installment_plans.debt_id → debts.id, credit_card_purchases.transaction_id → transactions.id
 
 ## Notas
 

@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useToast } from './ToastContainer';
+import { adminAPI, transactionsAPI } from '../services/api';
 import ConfirmDialog from './ConfirmDialog';
 
 function AdminPanel() {
@@ -9,21 +10,64 @@ function AdminPanel() {
     { username: 'writer', full_name: 'Editor', role: 'writer' },
     { username: 'reader', full_name: 'Lector', role: 'reader' }
   ]);
-  const [categories, setCategories] = useState([
-    'Ahorro', 'Comida', 'Cuidado Personal', 'Tarjeta VISA',
-    'Educación', 'Alquiler', 'Hogar', 'Impuestos',
-    'Ingresos', 'Ocio', 'Préstamos', 'Ropa',
-    'Salud', 'Seguros', 'Servicios', 'Trámites', 'Transporte'
-  ]);
+  const [categories, setCategories] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [modalType, setModalType] = useState('user');
   const [editingItem, setEditingItem] = useState(null);
   const [formData, setFormData] = useState({ username: '', full_name: '', role: 'reader', password: '' });
   const [newCategory, setNewCategory] = useState('');
+  const [exchangeRate, setExchangeRate] = useState('');
+  const [exchangeRateLoading, setExchangeRateLoading] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, onConfirm: null, title: '', message: '' });
   const toast = useToast();
 
   const roles = ['admin', 'writer', 'reader'];
+
+  useEffect(() => {
+    if (activeTab === 'settings') {
+      loadExchangeRate();
+    }
+    if (activeTab === 'categories') {
+      loadCategories();
+    }
+  }, [activeTab]);
+
+  const loadCategories = async () => {
+    try {
+      const response = await transactionsAPI.getCategories();
+      setCategories(response.data || []);
+    } catch (error) {
+      console.error('Error loading categories:', error);
+    }
+  };
+
+  const loadExchangeRate = async () => {
+    try {
+      const response = await adminAPI.getSetting('dollar_exchange_rate');
+      setExchangeRate(response.data.value || '');
+    } catch (error) {
+      console.error('Error loading exchange rate:', error);
+    }
+  };
+
+  const handleSaveExchangeRate = async (e) => {
+    e.preventDefault();
+    const rate = parseFloat(exchangeRate);
+    if (!rate || rate <= 0) {
+      toast.warning('Ingrese una cotización válida');
+      return;
+    }
+    setExchangeRateLoading(true);
+    try {
+      await adminAPI.updateSetting('dollar_exchange_rate', rate);
+      toast.success('Cotización del dólar actualizada');
+    } catch (error) {
+      toast.error('Error al actualizar la cotización');
+      console.error('Error saving exchange rate:', error);
+    } finally {
+      setExchangeRateLoading(false);
+    }
+  };
 
   const handleAddUser = () => {
     setModalType('user');
@@ -73,15 +117,17 @@ function AdminPanel() {
 
   const handleAddCategory = (e) => {
     e.preventDefault();
-    if (newCategory && !categories.includes(newCategory)) {
-      setCategories([...categories, newCategory].sort());
+    const catName = newCategory.trim();
+    if (catName && !categories.some(c => (c.name || c) === catName)) {
+      setCategories([...categories, { id: Date.now(), name: catName }].sort((a, b) => (a.name || a).localeCompare(b.name || b)));
       setNewCategory('');
     }
   };
 
   const handleDeleteCategory = (category) => {
-    if (confirm(`¿Estás seguro de eliminar la categoría "${category}"?`)) {
-      setCategories(categories.filter(c => c !== category));
+    const catName = category.name || category;
+    if (confirm(`¿Estás seguro de eliminar la categoría "${catName}"?`)) {
+      setCategories(categories.filter(c => (c.name || c) !== catName));
     }
   };
 
@@ -110,6 +156,16 @@ function AdminPanel() {
               }`}
             >
               📊 Categorías
+            </button>
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`py-4 px-2 border-b-2 font-semibold transition ${
+                activeTab === 'settings'
+                  ? 'border-finly-primary text-finly-primary'
+                  : 'border-transparent text-finly-textSecondary hover:text-finly-text'
+              }`}
+            >
+              💲 Cotización
             </button>
           </div>
         </div>
@@ -205,10 +261,10 @@ function AdminPanel() {
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {categories.map(category => (
                   <div
-                    key={category}
+                    key={category.id || category}
                     className="flex items-center justify-between bg-gray-50 rounded-lg p-3 border border-gray-200"
                   >
-                    <span className="text-sm font-medium text-finly-text">{category}</span>
+                    <span className="text-sm font-medium text-finly-text">{category.name || category}</span>
                     <button
                       onClick={() => handleDeleteCategory(category)}
                       className="text-red-600 hover:text-red-800"
@@ -218,6 +274,45 @@ function AdminPanel() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {activeTab === 'settings' && (
+            <div>
+              <h2 className="text-2xl font-bold text-finly-text mb-6">
+                Cotización del Dólar
+              </h2>
+              <form onSubmit={handleSaveExchangeRate} className="max-w-md">
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-finly-text mb-2">
+                    Cotización USD → ARS
+                  </label>
+                  <div className="flex items-center space-x-3">
+                    <span className="text-lg font-semibold text-gray-500">1 USD =</span>
+                    <input
+                      type="number"
+                      value={exchangeRate}
+                      onChange={(e) => setExchangeRate(e.target.value)}
+                      step="0.01"
+                      min="0.01"
+                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary text-lg"
+                      placeholder="1200.00"
+                      required
+                    />
+                    <span className="text-lg font-semibold text-gray-500">ARS</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Esta cotización se usa para convertir compras en dólares a pesos argentinos.
+                  </p>
+                </div>
+                <button
+                  type="submit"
+                  disabled={exchangeRateLoading}
+                  className="bg-finly-primary text-white px-6 py-2 rounded-lg font-semibold hover:bg-indigo-700 transition disabled:opacity-50"
+                >
+                  {exchangeRateLoading ? 'Guardando...' : 'Guardar Cotización'}
+                </button>
+              </form>
             </div>
           )}
         </div>

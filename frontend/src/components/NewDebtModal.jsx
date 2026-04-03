@@ -4,9 +4,36 @@ import { useToast } from './ToastContainer';
 
 export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
   const toast = useToast();
+  
+  // Opciones de Tipo según Tipo de Flujo
+  const tiposGasto = [
+    'Servicios',
+    'Alimentación',
+    'Transporte',
+    'Vivienda',
+    'Educación',
+    'Salud',
+    'Entretenimiento',
+    'Seguros',
+    'Impuestos',
+    'Préstamo',
+    'Tarjeta',
+    'Otro'
+  ];
+  
+  const tiposIngreso = [
+    'Sueldos',
+    'Honorarios',
+    'Alquileres',
+    'Inversiones',
+    'Freelance',
+    'Ventas',
+    'Otro'
+  ];
+  
   const [formData, setFormData] = useState({
     fecha: new Date().toISOString().split('T')[0],
-    tipo: 'Préstamo',
+    tipo: 'Servicios',
     categoria: 'Personal',
     monto_total: '',
     monto_pagado: '0',
@@ -39,10 +66,20 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    
+    // Si cambia el tipo_flujo, resetear el campo tipo
+    if (name === 'tipo_flujo') {
+      setFormData(prev => ({
+        ...prev,
+        tipo_flujo: value,
+        tipo: value === 'Ingreso' ? tiposIngreso[0] : tiposGasto[0]
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -61,7 +98,7 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
       // Reset form
       setFormData({
         fecha: new Date().toISOString().split('T')[0],
-        tipo: 'Préstamo',
+        tipo: 'Servicios',
         categoria: 'Personal',
         monto_total: '',
         monto_pagado: '0',
@@ -86,7 +123,7 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
     if (loading) return;
     setFormData({
       fecha: new Date().toISOString().split('T')[0],
-      tipo: 'Préstamo',
+      tipo: 'Servicios',
       categoria: 'Personal',
       monto_total: '',
       monto_pagado: '0',
@@ -135,7 +172,7 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
 
             <div>
               <label className="block text-sm font-medium text-finly-text mb-2">
-                Tipo *
+                Tipo de {formData.tipo_flujo} *
               </label>
               <select
                 name="tipo"
@@ -144,10 +181,14 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
                 required
               >
-                <option value="Préstamo">Préstamo</option>
-                <option value="Tarjeta">Tarjeta</option>
-                <option value="Servicio">Servicio</option>
-                <option value="Otro">Otro</option>
+                {formData.tipo_flujo === 'Ingreso' 
+                  ? tiposIngreso.map(tipo => (
+                      <option key={tipo} value={tipo}>{tipo}</option>
+                    ))
+                  : tiposGasto.map(tipo => (
+                      <option key={tipo} value={tipo}>{tipo}</option>
+                    ))
+                }
               </select>
             </div>
 

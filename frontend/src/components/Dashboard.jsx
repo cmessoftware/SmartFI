@@ -5,6 +5,7 @@ import CSVImport from './CSVImport';
 import AdminPanel from './AdminPanel';
 import DashboardOverview from './DashboardOverview';
 import DebtManager from './DebtManager';
+import CreditCardManager from './CreditCardManager';
 import EditTransactionModal from './EditTransactionModal';
 import { useToast } from './ToastContainer';
 import { transactionsAPI, debtsAPI } from '../services/api';
@@ -144,6 +145,10 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
 
       {currentView === 'debts' && (
         <DebtManager key={`${currentView}-${debtRefreshKey}`} canEdit={canEdit} isAdmin={isAdmin} />
+      )}
+
+      {currentView === 'credit-cards' && (
+        <CreditCardManager canEdit={canEdit} isAdmin={isAdmin} setCurrentView={setCurrentView} />
       )}
 
       {editingTransaction && (

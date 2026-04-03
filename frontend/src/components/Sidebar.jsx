@@ -5,6 +5,7 @@ function Sidebar({ user, currentView, setCurrentView, onLogout }) {
     { id: 'import', label: 'Importar CSV', icon: '📁', roles: ['admin', 'writer'] },
     { id: 'reports', label: 'Reportes', icon: '📈', roles: ['admin', 'writer', 'reader'] },
     { id: 'debts', label: 'Presupuesto', icon: '📊', roles: ['admin', 'writer', 'reader'] },
+    { id: 'credit-cards', label: 'Tarjetas de Crédito', icon: '💳', roles: ['admin', 'writer', 'reader'] },
     { id: 'admin', label: 'Administración', icon: '⚙️', roles: ['admin'] },
   ];
 

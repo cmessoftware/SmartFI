@@ -3,24 +3,24 @@ import { toISODate } from '../utils/dateUtils';
 
 function EditTransactionModal({ transaction, onSave, onClose, categories, necessityTypes, debts = [] }) {
   const [formData, setFormData] = useState({
-    fecha: '',
-    tipo: 'Gasto',
-    categoria: '',
-    monto: '',
-    necesidad: '',
-    detalle: '',
+    date: '',
+    type: 'Gasto',
+    category: '',
+    amount: '',
+    necessity: '',
+    detail: '',
     debt_id: ''
   });
 
   useEffect(() => {
     if (transaction) {
       setFormData({
-        fecha: toISODate(transaction.fecha) || '',
-        tipo: transaction.tipo || 'Gasto',
-        categoria: transaction.categoria || '',
-        monto: transaction.monto || '',
-        necesidad: transaction.necesidad || '',
-        detalle: transaction.detalle || '',
+        date: toISODate(transaction.date) || '',
+        type: transaction.type || 'Gasto',
+        category: transaction.category || '',
+        amount: transaction.amount || '',
+        necessity: transaction.necessity || '',
+        detail: transaction.detail || '',
         debt_id: transaction.debt_id ?? ''
       });
     }
@@ -40,22 +40,28 @@ function EditTransactionModal({ transaction, onSave, onClose, categories, necess
     onSave({
       ...transaction,
       ...formData,
-      monto: parseFloat(formData.monto),
+      amount: parseFloat(formData.amount),
       debt_id: formData.debt_id ? parseInt(formData.debt_id, 10) : null
     });
   };
 
+  // Filtrar debts por el mes de la transacción (Mejora 4)
+  const txMonth = formData.date ? formData.date.substring(0, 7) : ''; // YYYY-MM
+  const debtsForMonth = txMonth
+    ? debts.filter(d => d.fecha && d.fecha.substring(0, 7) === txMonth)
+    : debts;
+
   // Filtrar debts por tipo de flujo coincidente
-  const suggestedDebts = debts
-    .filter((debt) => debt.tipo_flujo === formData.tipo)
+  const suggestedDebts = debtsForMonth
+    .filter((debt) => debt.tipo_flujo === formData.type)
     .sort((a, b) => {
       const labelA = (a.detalle || `Presupuesto ${a.tipo || ''}`).trim().toLowerCase();
       const labelB = (b.detalle || `Presupuesto ${b.tipo || ''}`).trim().toLowerCase();
       return labelA.localeCompare(labelB, 'es');
     });
 
-  const otherDebts = debts
-    .filter((debt) => debt.tipo_flujo !== formData.tipo)
+  const otherDebts = debtsForMonth
+    .filter((debt) => debt.tipo_flujo !== formData.type)
     .sort((a, b) => {
       const labelA = (a.detalle || `Presupuesto ${a.tipo || ''}`).trim().toLowerCase();
       const labelB = (b.detalle || `Presupuesto ${b.tipo || ''}`).trim().toLowerCase();
@@ -88,8 +94,8 @@ function EditTransactionModal({ transaction, onSave, onClose, categories, necess
               </label>
               <input
                 type="date"
-                name="fecha"
-                value={formData.fecha}
+                name="date"
+                value={formData.date}
                 onChange={handleChange}
                 required
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
@@ -102,8 +108,8 @@ function EditTransactionModal({ transaction, onSave, onClose, categories, necess
                 Tipo *
               </label>
               <select
-                name="tipo"
-                value={formData.tipo}
+                name="type"
+                value={formData.type}
                 onChange={handleChange}
                 required
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
@@ -119,15 +125,15 @@ function EditTransactionModal({ transaction, onSave, onClose, categories, necess
                 Categoría *
               </label>
               <select
-                name="categoria"
-                value={formData.categoria}
+                name="category"
+                value={formData.category}
                 onChange={handleChange}
                 required
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
               >
                 <option value="">Selecciona una categoría</option>
                 {categories.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
+                  <option key={cat.id || cat} value={cat.name || cat}>{cat.name || cat}</option>
                 ))}
               </select>
             </div>
@@ -139,8 +145,8 @@ function EditTransactionModal({ transaction, onSave, onClose, categories, necess
               </label>
               <input
                 type="number"
-                name="monto"
-                value={formData.monto}
+                name="amount"
+                value={formData.amount}
                 onChange={handleChange}
                 step="0.01"
                 required
@@ -154,8 +160,8 @@ function EditTransactionModal({ transaction, onSave, onClose, categories, necess
                 Necesidad *
               </label>
               <select
-                name="necesidad"
-                value={formData.necesidad}
+                name="necessity"
+                value={formData.necessity}
                 onChange={handleChange}
                 required
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
@@ -172,9 +178,9 @@ function EditTransactionModal({ transaction, onSave, onClose, categories, necess
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-finly-text mb-2">
                   Asociar a Item de Presupuesto (Opcional)
-                  {formData.categoria && (
+                  {formData.category && (
                     <span className="ml-2 text-xs font-normal text-blue-600">
-                      💡 Sugerencia: {formData.tipo === 'Gasto' ? 'gastos' : 'ingresos'} en categoría "{formData.categoria}"
+                      💡 Sugerencia: {formData.type === 'Gasto' ? 'gastos' : 'ingresos'} en categoría "{formData.category}"
                     </span>
                   )}
                 </label>
@@ -195,7 +201,7 @@ function EditTransactionModal({ transaction, onSave, onClose, categories, necess
                         const flujoIcon = debt.tipo_flujo === 'Gasto' ? '💸' : '💰';
                         return (
                           <option key={debt.id} value={debt.id}>
-                            {tipoBadge} {flujoIcon} {debt.detalle || `${debt.tipo} - ${debt.categoria}`} - Resta: ${remaining.toFixed(2)}
+                            {tipoBadge} {flujoIcon} {debt.detalle || `${debt.tipo} - ${debt.categoria}`} - Resta: {new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(remaining)}
                           </option>
                         );
                       })}
@@ -211,7 +217,7 @@ function EditTransactionModal({ transaction, onSave, onClose, categories, necess
                         const flujoIcon = debt.tipo_flujo === 'Gasto' ? '💸' : '💰';
                         return (
                           <option key={debt.id} value={debt.id}>
-                            {tipoBadge} {flujoIcon} {debt.detalle || `${debt.tipo} - ${debt.categoria}`} - Resta: ${remaining.toFixed(2)}
+                            {tipoBadge} {flujoIcon} {debt.detalle || `${debt.tipo} - ${debt.categoria}`} - Resta: {new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(remaining)}
                           </option>
                         );
                       })}
@@ -231,8 +237,8 @@ function EditTransactionModal({ transaction, onSave, onClose, categories, necess
               Detalle
             </label>
             <textarea
-              name="detalle"
-              value={formData.detalle}
+              name="detail"
+              value={formData.detail}
               onChange={handleChange}
               rows={3}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all resize-none"

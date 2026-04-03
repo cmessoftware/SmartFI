@@ -6,12 +6,12 @@ import { decodeCsvFile } from '../utils/csvEncoding';
 function CSVImport({ addMultipleTransactions }) {
   const [csvHeaders, setCsvHeaders] = useState([]);
   const [rawRows, setRawRows] = useState([]);
-  const [mapping, setMapping] = useState({ fecha: '', concepto: '', monto: '', tipo: '', categoria: '', forma_pago: '' });
+  const [mapping, setMapping] = useState({ date: '', detail: '', amount: '', type: '', category: '', payment_method: '' });
   const [previewData, setPreviewData] = useState([]);
   const [message, setMessage] = useState(null);
 
-  const requiredFields = ['fecha', 'monto'];
-  const optionalFields = ['concepto', 'tipo', 'categoria', 'forma_pago'];
+  const requiredFields = ['date', 'amount', 'category'];
+  const optionalFields = ['detail', 'type', 'payment_method'];
 
   const normalizeTipo = (value) => {
     if (!value) return 'Gasto';
@@ -84,15 +84,15 @@ function CSVImport({ addMultipleTransactions }) {
     setMessage(null);
 
     // Validate required mappings
-    if (!mapping.fecha || !mapping.monto) {
-      setMessage({ type: 'error', text: 'Debes seleccionar al menos las columnas de Fecha y Monto' });
+    if (!mapping.date || !mapping.amount || !mapping.category) {
+      setMessage({ type: 'error', text: 'Debes seleccionar al menos las columnas de Fecha, Monto y Categoría' });
       return;
     }
 
     try {
       const formatted = rawRows.map((row, index) => {
         // Parse amount - handle Argentine format (12.981,50) and US format (12,981.50)
-        const montoStr = row[mapping.monto]?.toString().trim() || '0';
+        const montoStr = row[mapping.amount]?.toString().trim() || '0';
         let monto;
         
         // Detect format by checking if comma is the last separator (Argentine format)
@@ -118,17 +118,22 @@ function CSVImport({ addMultipleTransactions }) {
         }
 
         return {
-          id: Date.now() + index,
-          marca_temporal: new Date().toISOString(),
-          fecha: row[mapping.fecha]?.toString().trim(),
-          tipo: normalizeTipo(mapping.tipo ? row[mapping.tipo] : 'Gasto'),
-          categoria: mapping.categoria ? row[mapping.categoria]?.toString().trim() : 'Comida',
-          monto: monto,
-          necesidad: 'Necesario',
-          forma_pago: normalizeFormaPago(mapping.forma_pago ? row[mapping.forma_pago] : 'Débito'),
-          detalle: mapping.concepto ? row[mapping.concepto]?.toString().trim() : ''
+          timestamp: new Date().toISOString(),
+          date: row[mapping.date]?.toString().trim(),
+          type: normalizeTipo(mapping.type ? row[mapping.type] : 'Gasto'),
+          category: row[mapping.category]?.toString().trim() || '',
+          amount: monto,
+          necessity: 'Necesario',
+          payment_method: normalizeFormaPago(mapping.payment_method ? row[mapping.payment_method] : 'Débito'),
+          detail: mapping.detail ? row[mapping.detail]?.toString().trim() : ''
         };
       });
+
+      // Validate all rows have category
+      const emptyCategories = formatted.filter((t, i) => !t.category);
+      if (emptyCategories.length > 0) {
+        throw new Error(`${emptyCategories.length} fila(s) no tienen categoría. La categoría es obligatoria para todas las transacciones.`);
+      }
 
       const preview = formatted.slice(0, 5);
       setPreviewData(preview);
@@ -156,7 +161,7 @@ function CSVImport({ addMultipleTransactions }) {
         // Reset
         setCsvHeaders([]);
         setRawRows([]);
-        setMapping({ fecha: '', concepto: '', monto: '', tipo: '', categoria: '', forma_pago: '' });
+        setMapping({ date: '', detail: '', amount: '', type: '', category: '', payment_method: '' });
         setPreviewData([]);
         window.formattedTransactions = null;
       } catch (error) {
@@ -173,7 +178,7 @@ function CSVImport({ addMultipleTransactions }) {
   const resetImport = () => {
     setCsvHeaders([]);
     setRawRows([]);
-    setMapping({ fecha: '', concepto: '', monto: '', tipo: '', categoria: '', forma_pago: '' });
+    setMapping({ date: '', detail: '', amount: '', type: '', category: '', payment_method: '' });
     setPreviewData([]);
     setMessage(null);
     window.formattedTransactions = null;
@@ -261,7 +266,7 @@ function CSVImport({ addMultipleTransactions }) {
             <div className="flex space-x-4">
               <button
                 onClick={processImport}
-                disabled={!mapping.fecha || !mapping.monto}
+                disabled={!mapping.date || !mapping.amount}
                 className="flex-1 bg-finly-primary text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Vista Previa ({rawRows.length} filas)
@@ -298,20 +303,20 @@ function CSVImport({ addMultipleTransactions }) {
               <tbody>
                 {previewData.map((t, idx) => (
                   <tr key={idx} className="border-b border-gray-100">
-                    <td className="py-3 px-4 text-sm text-finly-text">{formatDate(t.fecha)}</td>
+                    <td className="py-3 px-4 text-sm text-finly-text">{formatDate(t.date)}</td>
                     <td className="py-3 px-4">
                       <span className={`inline-block px-2 py-1 rounded text-xs font-semibold ${
-                        t.tipo === 'Ingreso' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                        t.type === 'Ingreso' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                       }`}>
-                        {t.tipo}
+                        {t.type}
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-sm text-finly-text">{t.categoria}</td>
+                    <td className="py-3 px-4 text-sm text-finly-text">{t.category}</td>
                     <td className="py-3 px-4 text-sm text-right font-semibold text-finly-text">
-                      ${t.monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      ${t.amount.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                     </td>
-                    <td className="py-3 px-4 text-sm text-finly-text">{t.forma_pago || 'Débito'}</td>
-                    <td className="py-3 px-4 text-sm text-finly-textSecondary">{t.detalle || '-'}</td>
+                    <td className="py-3 px-4 text-sm text-finly-text">{t.payment_method || 'Débito'}</td>
+                    <td className="py-3 px-4 text-sm text-finly-textSecondary">{t.detail || '-'}</td>
                   </tr>
                 ))}
               </tbody>

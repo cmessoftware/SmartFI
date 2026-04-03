@@ -26,6 +26,7 @@
 | **[SISTEMA_ACTUAL.md](docs/SISTEMA_ACTUAL.md)** | 📄 Documentación completa del sistema implementado |
 | **[QUICK_START.md](docs/QUICK_START.md)** | ⚡ Inicio rápido para desarrollo |
 | **[INSTALLATION.md](docs/INSTALLATION.md)** | 💻 Guía de instalación detallada |
+| **[CREDIT_CARD_API.md](docs/CREDIT_CARD_API.md)** | 💳 API de gestión de tarjetas de crédito y cuotas |
 
 ### 🚀 Deployment
 
@@ -51,6 +52,7 @@
 - ✅ **Balance Pendiente** - Proyección financiera si se pagan todos los presupuestos
 - ✅ **Registro de transacciones** - Ingresa gastos/ingresos fácilmente
 - ✅ **Gestión de presupuesto** - Rastrea compromisos (préstamos, tarjetas, servicios)
+- ✅ **Gestión de tarjetas de crédito** - Administra tarjetas, compras a cuotas e intereses
 - ✅ **Categorías y formas de pago** - Organiza tus transacciones
 - ✅ **Reportes visuales** - Gráficos de torta y barras
 - ✅ **Filtros avanzados** - Por fecha, categoría, tipo
@@ -68,8 +70,10 @@
 - ✅ **Autenticación JWT** - Segura y escalable
 - ✅ **Dockerizado** - Deploy consistente en cualquier plataforma
 - ✅ **PostgreSQL** - Base de datos principal robusta
+- ✅ **Alembic Migrations** - Control de versiones de esquema de base de datos
 - ✅ **Google Sheets** - Respaldo y sincronización opcional
 - ✅ **Responsive design** - Funciona en móvil, tablet y desktop
+- ✅ **Gestión de tarjetas de crédito** - Módulo completo con cálculo de intereses y cuotas
 
 ---
 
@@ -490,30 +494,58 @@ Ver guía completa: **[QUICK_DEPLOY.md](docs/deployment/QUICK_DEPLOY.md)**
 
 ### Frontend
 
-- React
-- Vite
-- Tailwind CSS
-- Chart.js
-- PapaParse
+- **React** - Biblioteca UI
+- **Vite** - Build tool ultrarrápido
+- **Tailwind CSS** - Framework CSS utility-first
+- **Chart.js** - Gráficos interactivos
+- **PapaParse** - Parser CSV
+- **Axios** - Cliente HTTP
 
 ### Backend
 
-- FastAPI
-- Python 3.9+
-- JWT (python-jose)
-- bcrypt
-- Google Sheets API (gspread)
+- **FastAPI** - Framework web moderno y rápido
+- **Python 3.9+** - Lenguaje de programación
+- **JWT (python-jose)** - Autenticación segura
+- **bcrypt** - Hashing de contraseñas
+- **SQLAlchemy** - ORM para Python
+- **Alembic** - Gestión de migraciones de DB
+- **Google Sheets API (gspread)** - Sincronización y backup
 
 ### Base de Datos
 
-- **Google Sheets API** (Sprint 1 & 2) ✅ Actual
-- **PostgreSQL** (Sprint 3) 🔄 Planificado
+- **PostgreSQL 15** - Base de datos principal ✅ Implementado
+- **Alembic** - Control de versiones de schema  
+- **Google Sheets API** - Backup y sincronización opcional ✅ Implementado
 
 ### DevOps
 
-- Docker
-- Docker Compose
-- Conda (Python environment)
+- **Docker** - Containerización
+- **Docker Compose** - Orquestación multi-container
+- **Conda** - Gestión de entornos Python
+- **Render** - Platform de deployment cloud
+
+---
+
+## 🗃️ Gestión de Base de Datos
+
+Finly utiliza **Alembic** para gestionar todas las migraciones de base de datos de forma segura y versionada.
+
+```bash
+# Generar migración automática
+cd backend
+alembic revision --autogenerate -m "descripcion"
+
+# Aplicar migraciones
+alembic upgrade head
+
+# Ver estado
+alembic current
+```
+
+📚 **Documentación completa:** [ALEMBIC_GUIDE.md](backend/ALEMBIC_GUIDE.md)  
+📋 **Reglas de desarrollo:** [DEVELOPMENT_GUIDELINES.md](DEVELOPMENT_GUIDELINES.md)
+
+---
 
 ## 📄 Licencia
 

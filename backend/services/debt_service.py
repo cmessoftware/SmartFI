@@ -1,4 +1,4 @@
-from database.database import SessionLocal, Debt, DebtStatus, Transaction, BudgetType, FlowType
+from database.database import SessionLocal, BudgetItem, Debt, DebtStatus, Transaction, BudgetType, FlowType, InstallmentPlan, InstallmentScheduleItem, InstallmentStatus
 from datetime import datetime
 from sqlalchemy import func
 
@@ -53,8 +53,8 @@ class DebtService:
             else:
                 status = DebtStatus.PENDIENTE
             
-            # Create debt object
-            debt = Debt(
+            # Create budget item object
+            budget_item = BudgetItem(
                 fecha=debt_data.get('fecha'),
                 tipo=debt_data.get('tipo'),
                 categoria=debt_data.get('categoria'),
@@ -68,66 +68,76 @@ class DebtService:
                 monto_ejecutado=monto_ejecutado
             )
             
-            db.add(debt)
+            db.add(budget_item)
             db.commit()
-            db.refresh(debt)
+            db.refresh(budget_item)
             
-            return debt.id
+            return budget_item.id
         except Exception as e:
             db.rollback()
             print(f"Error adding debt: {e}")
             return None
 
     def get_all_debts(self):
-        """Get all debts from database"""
+        """Get all budget items from database"""
         try:
             db = self._get_db()
-            debts = db.query(Debt).order_by(Debt.fecha_vencimiento.desc()).all()
+            budget_items = db.query(BudgetItem).order_by(BudgetItem.fecha_vencimiento.desc()).all()
             
             result = []
-            for debt in debts:
+            for budget_item in budget_items:
                 # Calculate remaining amount
-                monto_restante = debt.monto_total - debt.monto_pagado
+                monto_restante = budget_item.monto_total - budget_item.monto_pagado
                 
                 # Retornar el status actual de la DB (ya actualizado por otras operaciones)
                 result.append({
-                    'id': debt.id,
-                    'fecha': debt.fecha,
-                    'tipo': debt.tipo,
-                    'categoria': debt.categoria,
-                    'monto_total': debt.monto_total,
-                    'monto_pagado': debt.monto_pagado,
+                    'id': budget_item.id,
+                    'fecha': budget_item.fecha,
+                    'tipo': budget_item.tipo,
+                    'categoria': budget_item.categoria,
+                    'monto_total': budget_item.monto_total,
+                    'monto_pagado': budget_item.monto_pagado,
                     'monto_restante': monto_restante,
-                    'detalle': debt.detalle,
-                    'fecha_vencimiento': debt.fecha_vencimiento,
-                    'status': debt.status.value if hasattr(debt.status, 'value') else debt.status,
-                    # Nuevos campos refactor
-                    'tipo_presupuesto': debt.tipo_presupuesto.value if hasattr(debt.tipo_presupuesto, 'value') else debt.tipo_presupuesto,
-                    'tipo_flujo': debt.tipo_flujo.value if hasattr(debt.tipo_flujo, 'value') else debt.tipo_flujo,
-                    'monto_ejecutado': debt.monto_ejecutado,
-                    'created_at': debt.created_at.isoformat() if debt.created_at else None,
-                    'updated_at': debt.updated_at.isoformat() if debt.updated_at else None
+                    'detalle': budget_item.detalle,
+                    'fecha_vencimiento': budget_item.fecha_vencimiento,
+                    'status': budget_item.status.value if hasattr(budget_item.status, 'value') else budget_item.status,
+                    # Budget Model fields
+                    'tipo_presupuesto': budget_item.tipo_presupuesto.value if hasattr(budget_item.tipo_presupuesto, 'value') else budget_item.tipo_presupuesto,
+                    'tipo_flujo': budget_item.tipo_flujo.value if hasattr(budget_item.tipo_flujo, 'value') else budget_item.tipo_flujo,
+                    'monto_ejecutado': budget_item.monto_ejecutado,
+                    'created_at': budget_item.created_at.isoformat() if budget_item.created_at else None,
+                    'updated_at': budget_item.updated_at.isoformat() if budget_item.updated_at else None
                 })
-            
+
+                # Check for linked installment plan
+                plan = db.query(InstallmentPlan).filter(InstallmentPlan.debt_id == budget_item.id).first()
+                if plan:
+                    paid_count = db.query(InstallmentScheduleItem).filter(
+                        InstallmentScheduleItem.plan_id == plan.id,
+                        InstallmentScheduleItem.status == InstallmentStatus.PAID
+                    ).count()
+                    result[-1]['paid_installments'] = paid_count
+                    result[-1]['total_installments'] = plan.number_of_installments
+
             return result
         except Exception as e:
-            print(f"Error getting debts: {e}")
+            print(f"Error getting budget items: {e}")
             return []
 
     def get_debt_by_id(self, debt_id):
-        """Get a specific debt by ID"""
+        """Get a specific budget item by ID"""
         try:
             db = self._get_db()
-            debt = db.query(Debt).filter(Debt.id == debt_id).first()
+            budget_item = db.query(BudgetItem).filter(BudgetItem.id == debt_id).first()
             
-            if not debt:
+            if not budget_item:
                 return None
             
-            monto_restante = debt.monto_total - debt.monto_pagado
+            monto_restante = budget_item.monto_total - budget_item.monto_pagado
             
             return {
-                'id': debt.id,
-                'fecha': debt.fecha,
+                'id': budget_item.id,
+                'fecha': budget_item.fecha,
                 'tipo': debt.tipo,
                 'categoria': debt.categoria,
                 'monto_total': debt.monto_total,
@@ -151,7 +161,7 @@ class DebtService:
         """Update an existing debt"""
         try:
             db = self._get_db()
-            debt = db.query(Debt).filter(Debt.id == debt_id).first()
+            debt = db.query(BudgetItem).filter(BudgetItem.id == debt_id).first()
             
             if not debt:
                 return False
@@ -210,7 +220,7 @@ class DebtService:
         """Delete a debt"""
         try:
             db = self._get_db()
-            debt = db.query(Debt).filter(Debt.id == debt_id).first()
+            debt = db.query(BudgetItem).filter(BudgetItem.id == debt_id).first()
             
             if not debt:
                 return False
@@ -233,7 +243,7 @@ class DebtService:
         """Add a payment to a debt (called when a transaction is linked to it)"""
         try:
             db = self._get_db()
-            debt = db.query(Debt).filter(Debt.id == debt_id).first()
+            debt = db.query(BudgetItem).filter(BudgetItem.id == debt_id).first()
             
             if not debt:
                 return False
@@ -265,7 +275,7 @@ class DebtService:
         """Remove a payment from a debt (called when a linked transaction is deleted)"""
         try:
             db = self._get_db()
-            debt = db.query(Debt).filter(Debt.id == debt_id).first()
+            debt = db.query(BudgetItem).filter(BudgetItem.id == debt_id).first()
             
             if not debt:
                 return False
@@ -295,50 +305,77 @@ class DebtService:
             print(f"Error removing payment from debt: {e}")
             return False
 
-    def get_debt_summary(self):
-        """Get summary statistics of debts"""
+    def get_debt_summary(self, month=None, year=None):
+        """Get summary statistics of debts, optionally filtered by month/year"""
         try:
             db = self._get_db()
             
-            total_debts = db.query(func.count(Debt.id)).scalar()
-            total_amount = db.query(func.sum(Debt.monto_total)).scalar() or 0
-            total_paid = db.query(func.sum(Debt.monto_pagado)).scalar() or 0
+            # Base query filter for month/year
+            month_filter = []
+            if month and year:
+                prefix = f"{year}-{month:02d}"
+                month_filter = [Debt.fecha_vencimiento.like(f"{prefix}%")]
+            
+            total_debts = db.query(func.count(Debt.id)).filter(*month_filter).scalar()
+            total_amount = db.query(func.sum(Debt.monto_total)).filter(*month_filter).scalar() or 0
+            total_paid = db.query(func.sum(Debt.monto_pagado)).filter(*month_filter).scalar() or 0
             total_remaining = total_amount - total_paid
             
             # Conteos por estado
             pending_count = db.query(func.count(Debt.id)).filter(
-                Debt.status == DebtStatus.PENDIENTE
+                Debt.status == DebtStatus.PENDIENTE, *month_filter
             ).scalar()
             
             partial_count = db.query(func.count(Debt.id)).filter(
-                Debt.status == DebtStatus.PAGO_PARCIAL
+                Debt.status == DebtStatus.PAGO_PARCIAL, *month_filter
             ).scalar()
             
             overdue_count = db.query(func.count(Debt.id)).filter(
-                Debt.status == DebtStatus.VENCIDA
+                Debt.status == DebtStatus.VENCIDA, *month_filter
             ).scalar()
             
             paid_count = db.query(func.count(Debt.id)).filter(
-                Debt.status == DebtStatus.PAGADA
+                Debt.status == DebtStatus.PAGADA, *month_filter
             ).scalar()
             
             # Montos por estado (resta de lo pendiente por pagar)
             pending_amount = db.query(
                 func.sum(Debt.monto_total - Debt.monto_pagado)
             ).filter(
-                Debt.status == DebtStatus.PENDIENTE
+                Debt.status == DebtStatus.PENDIENTE, *month_filter
             ).scalar() or 0
             
             partial_amount = db.query(
                 func.sum(Debt.monto_total - Debt.monto_pagado)
             ).filter(
-                Debt.status == DebtStatus.PAGO_PARCIAL
+                Debt.status == DebtStatus.PAGO_PARCIAL, *month_filter
             ).scalar() or 0
             
             overdue_amount = db.query(
                 func.sum(Debt.monto_total - Debt.monto_pagado)
             ).filter(
-                Debt.status == DebtStatus.VENCIDA
+                Debt.status == DebtStatus.VENCIDA, *month_filter
+            ).scalar() or 0
+            
+            # Balance Pendiente por tipo de presupuesto (solo PENDIENTE y PAGO_PARCIAL)
+            # Balance Pendiente Obligatorio = items OBLIGATION que están PENDIENTE o PAGO_PARCIAL
+            obligation_pending = db.query(
+                func.sum(Debt.monto_total - Debt.monto_ejecutado)
+            ).filter(
+                Debt.tipo_presupuesto == BudgetType.OBLIGATION,
+                Debt.tipo_flujo == FlowType.GASTO,
+                Debt.status.in_([DebtStatus.PENDIENTE, DebtStatus.PAGO_PARCIAL, DebtStatus.VENCIDA]),
+                *month_filter
+            ).scalar() or 0
+            
+            # Balance Pendiente Variable = items VARIABLE que están PENDIENTE o PAGO_PARCIAL
+            variable_pending = db.query(
+                func.sum(Debt.monto_total - Debt.monto_ejecutado)
+            ).filter(
+                Debt.tipo_presupuesto == BudgetType.VARIABLE,
+                Debt.tipo_flujo == FlowType.GASTO,
+                Debt.status.in_([DebtStatus.PENDIENTE, DebtStatus.PAGO_PARCIAL, DebtStatus.VENCIDA]),
+                *month_filter
             ).scalar() or 0
             
             return {
@@ -352,7 +389,9 @@ class DebtService:
                 'partial_amount': float(partial_amount),
                 'overdue_count': overdue_count,
                 'overdue_amount': float(overdue_amount),
-                'paid_count': paid_count
+                'paid_count': paid_count,
+                'obligation_pending': float(obligation_pending),
+                'variable_pending': float(variable_pending)
             }
         except Exception as e:
             print(f"Error getting debt summary: {e}")

@@ -2,9 +2,17 @@ import { useMemo, useState, useEffect } from 'react';
 import { useToast } from './ToastContainer';
 import ConfirmDialog from './ConfirmDialog';
 import { transactionsAPI, debtsAPI } from '../services/api';
-import { formatDate } from '../utils/dateUtils';
+import { formatDate, toISODate } from '../utils/dateUtils';
+
+const MONTH_NAMES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+];
 
 function DashboardOverview({ transactions, user, refreshTransactions, loading, setCurrentView }) {
+  const now = new Date();
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [syncStats, setSyncStats] = useState(null);
   const [loadingStats, setLoadingStats] = useState(false);
@@ -12,18 +20,28 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
   const [debtSummary, setDebtSummary] = useState(null);
   const toast = useToast();
 
-  // Cargar resumen de presupuesto
+  // Filtrar transacciones por mes/año seleccionado
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(t => {
+      const iso = toISODate(t.date);
+      if (!iso) return false;
+      const [year, month] = iso.split('-').map(Number);
+      return year === selectedYear && month === selectedMonth;
+    });
+  }, [transactions, selectedMonth, selectedYear]);
+
+  // Cargar resumen de presupuesto filtrado por mes
   useEffect(() => {
     const loadDebtSummary = async () => {
       try {
-        const response = await debtsAPI.getDebtSummary();
+        const response = await debtsAPI.getDebtSummary(selectedMonth, selectedYear);
         setDebtSummary(response.data);
       } catch (error) {
         console.error('Error al cargar resumen de presupuesto:', error);
       }
     };
     loadDebtSummary();
-  }, [transactions]); // Recargar cuando cambien las transacciones
+  }, [transactions, selectedMonth, selectedYear]);
 
   const handleOpenSyncModal = async () => {
     setShowSyncModal(true);
@@ -62,30 +80,38 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
   };
 
   const stats = useMemo(() => {
-    const ingresos = transactions
-      .filter(t => t.tipo === 'Ingreso')
-      .reduce((sum, t) => sum + (parseFloat(t.monto) || 0), 0);
-    const gastos = transactions
-      .filter(t => t.tipo === 'Gasto')
-      .reduce((sum, t) => sum + (parseFloat(t.monto) || 0), 0);
+    const ingresos = filteredTransactions
+      .filter(t => t.type === 'Ingreso')
+      .reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+    const gastos = filteredTransactions
+      .filter(t => t.type === 'Gasto')
+      .reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
     const balance = ingresos - gastos;
-    const totalTransacciones = transactions.length;
+    const totalTransacciones = filteredTransactions.length;
 
-    // Calcular presupuesto total pendiente (lo que falta pagar)
-    const presupuestoPendiente = debtSummary ? 
-      (debtSummary.pending_amount || 0) + 
-      (debtSummary.partial_amount || 0) + 
-      (debtSummary.overdue_amount || 0) : 0;
+    // Balance Pendiente Obligatorio = Ingresos - (Gastos + Presupuesto Obligatorio Pendiente)
+    const obligationPending = debtSummary?.obligation_pending || 0;
+    const balancePendienteObligatorio = ingresos - (gastos + obligationPending);
 
-    // Balance Pendiente = Ingresos - (Gastos + Presupuesto Pendiente)
-    const balancePendiente = ingresos - (gastos + presupuestoPendiente);
+    // Balance Pendiente Variable = Ingresos - (Gastos + Presupuesto Variable Pendiente)
+    const variablePending = debtSummary?.variable_pending || 0;
+    const balancePendienteVariable = ingresos - (gastos + variablePending);
 
-    return { ingresos, gastos, balance, totalTransacciones, presupuestoPendiente, balancePendiente };
-  }, [transactions, debtSummary]);
+    return { 
+      ingresos, 
+      gastos, 
+      balance, 
+      totalTransacciones, 
+      obligationPending,
+      variablePending,
+      balancePendienteObligatorio, 
+      balancePendienteVariable 
+    };
+  }, [filteredTransactions, debtSummary]);
 
   const recentTransactions = useMemo(() => {
-    return transactions.slice(-5).reverse();
-  }, [transactions]);
+    return filteredTransactions.slice(-5).reverse();
+  }, [filteredTransactions]);
 
   return (
     <div className="space-y-6">
@@ -113,22 +139,76 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
               {loading ? 'Sincronizando...' : 'Sincronizar desde Sheets'}
             </button>
           )}
-          <div className="text-right">
-            <p className="text-sm text-finly-textSecondary">Fecha actual</p>
-            <p className="text-lg font-semibold text-finly-text">
-              {new Date().toLocaleDateString('es-AR', { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
-              })}
-            </p>
+        </div>
+      </div>
+
+      {/* Month/Year Selector */}
+      <div className="bg-white rounded-xl shadow-md p-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              if (selectedMonth === 1) {
+                setSelectedMonth(12);
+                setSelectedYear(prev => prev - 1);
+              } else {
+                setSelectedMonth(prev => prev - 1);
+              }
+            }}
+            className="p-2 rounded-lg hover:bg-gray-100 transition text-lg"
+          >
+            ◀
+          </button>
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-finly-text font-semibold focus:ring-2 focus:ring-finly-primary focus:outline-none"
+            >
+              {MONTH_NAMES.map((name, idx) => (
+                <option key={idx + 1} value={idx + 1}>{name}</option>
+              ))}
+            </select>
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-finly-text font-semibold focus:ring-2 focus:ring-finly-primary focus:outline-none"
+            >
+              {Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i).map(y => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
           </div>
+          <button
+            onClick={() => {
+              if (selectedMonth === 12) {
+                setSelectedMonth(1);
+                setSelectedYear(prev => prev + 1);
+              } else {
+                setSelectedMonth(prev => prev + 1);
+              }
+            }}
+            className="p-2 rounded-lg hover:bg-gray-100 transition text-lg"
+          >
+            ▶
+          </button>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-lg font-bold text-finly-text">
+            📅 {MONTH_NAMES[selectedMonth - 1]} {selectedYear}
+          </span>
+          {(selectedMonth !== now.getMonth() + 1 || selectedYear !== now.getFullYear()) && (
+            <button
+              onClick={() => { setSelectedMonth(now.getMonth() + 1); setSelectedYear(now.getFullYear()); }}
+              className="text-xs px-3 py-1 bg-finly-primary text-white rounded-full hover:bg-finly-primaryHover transition"
+            >
+              Hoy
+            </button>
+          )}
         </div>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <div className="bg-white rounded-xl shadow-md p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -178,20 +258,37 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
         <div className="bg-white rounded-xl shadow-md p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-finly-textSecondary">Balance Pendiente</p>
-              <p className={`text-2xl font-bold mt-2 ${
-                stats.balancePendiente >= 0 ? 'text-finly-income' : 'text-finly-expense'
+              <p className="text-xs text-finly-textSecondary">Balance Pendiente</p>
+              <p className="text-xs font-semibold text-finly-text">Obligatorio</p>
+              <p className={`text-xl font-bold mt-1 ${
+                stats.balancePendienteObligatorio >= 0 ? 'text-finly-income' : 'text-finly-expense'
               }`}>
-                ${stats.balancePendiente.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-              </p>
-              <p className="text-xs text-finly-textSecondary mt-1">
-                Si se paga todo el presupuesto
+                ${stats.balancePendienteObligatorio.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
               </p>
             </div>
-            <div className={`w-12 h-12 rounded-full flex items-center justify-center text-2xl ${
-              stats.balancePendiente >= 0 ? 'bg-purple-100' : 'bg-yellow-100'
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl ${
+              stats.balancePendienteObligatorio >= 0 ? 'bg-purple-100' : 'bg-red-100'
             }`}>
               🎯
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-md p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-finly-textSecondary">Balance Pendiente</p>
+              <p className="text-xs font-semibold text-finly-text">Variable</p>
+              <p className={`text-xl font-bold mt-1 ${
+                stats.balancePendienteVariable >= 0 ? 'text-finly-income' : 'text-finly-expense'
+              }`}>
+                ${stats.balancePendienteVariable.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+              </p>
+            </div>
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl ${
+              stats.balancePendienteVariable >= 0 ? 'bg-teal-100' : 'bg-yellow-100'
+            }`}>
+              📊
             </div>
           </div>
         </div>
@@ -204,8 +301,8 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
                 {stats.totalTransacciones}
               </p>
             </div>
-            <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center text-2xl">
-              📊
+            <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center text-2xl">
+              📋
             </div>
           </div>
         </div>
@@ -260,27 +357,27 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
               >
                 <div className="flex items-center space-x-4">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                    t.tipo === 'Ingreso' ? 'bg-green-100' : 'bg-red-100'
+                    t.type === 'Ingreso' ? 'bg-green-100' : 'bg-red-100'
                   }`}>
-                    {t.tipo === 'Ingreso' ? '📈' : '📉'}
+                    {t.type === 'Ingreso' ? '📈' : '📉'}
                   </div>
                   <div>
-                    <p className="font-semibold text-finly-text">{t.categoria}</p>
+                    <p className="font-semibold text-finly-text">{t.category}</p>
                     <p className="text-sm text-finly-textSecondary">
-                      {t.detalle || 'Sin detalle'} • {formatDate(t.fecha)}
+                      {t.detail || 'Sin detalle'} • {formatDate(t.date)}
                     </p>
                   </div>
                 </div>
                 <div className="text-right">
                   <p className={`text-lg font-bold ${
-                    t.tipo === 'Ingreso' ? 'text-finly-income' : 'text-finly-expense'
+                    t.type === 'Ingreso' ? 'text-finly-income' : 'text-finly-expense'
                   }`}>
-                    {t.tipo === 'Ingreso' ? '+' : '-'}${(parseFloat(t.monto) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    {t.type === 'Ingreso' ? '+' : '-'}${(parseFloat(t.amount) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                   </p>
                   <span className={`inline-block px-2 py-1 rounded text-xs font-semibold ${
-                    t.tipo === 'Ingreso' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                    t.type === 'Ingreso' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                   }`}>
-                    {t.tipo}
+                    {t.type}
                   </span>
                 </div>
               </div>

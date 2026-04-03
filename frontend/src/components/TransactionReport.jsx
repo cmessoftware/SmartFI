@@ -16,12 +16,16 @@ const parseComparableDate = (value) => {
 
 function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEdit = false, isAdmin = false }) {
   const chartColors = ['#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#22C55E', '#3B82F6', '#EF4444'];
+  const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  const now = new Date();
   
   // Filtros y ordenamiento
   const [filterType, setFilterType] = useState('all');
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterBudget, setFilterBudget] = useState('all'); // all, vinculado, no_vinculado, o debt_id específico
-  const [sortBy, setSortBy] = useState('fecha');
+  const [filterMonth, setFilterMonth] = useState(new Date().getMonth() + 1); // 1-12, default mes actual
+  const [filterYear, setFilterYear] = useState(new Date().getFullYear());
+  const [sortBy, setSortBy] = useState('date');
   const [sortOrder, setSortOrder] = useState('desc');
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, onConfirm: null, transaction: null });
   const [bulkConfirmDialogOpen, setBulkConfirmDialogOpen] = useState(false);
@@ -29,6 +33,8 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [showSelectedOnly, setShowSelectedOnly] = useState(false);
   const [debts, setDebts] = useState([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   const handleSort = (field) => {
     if (sortBy === field) {
@@ -54,7 +60,7 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
 
   // Obtener categorías únicas
   const categories = useMemo(() => {
-    const uniqueCategories = [...new Set(transactions.map(t => t.categoria))];
+    const uniqueCategories = [...new Set(transactions.map(t => t.category))];
     return uniqueCategories.sort();
   }, [transactions]);
 
@@ -64,11 +70,19 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
 
     // Aplicar filtros
     if (filterType !== 'all') {
-      filtered = filtered.filter(t => t.tipo === filterType);
+      filtered = filtered.filter(t => t.type === filterType);
     }
     if (filterCategory !== 'all') {
-      filtered = filtered.filter(t => t.categoria === filterCategory);
+      filtered = filtered.filter(t => t.category === filterCategory);
     }
+    // Filtro por mes
+    filtered = filtered.filter(t => {
+      const iso = toISODate(t.date);
+      if (!iso) return false;
+      const [year, month] = iso.split('-').map(Number);
+      return year === filterYear && month === filterMonth;
+    });
+
     if (filterBudget === 'vinculado') {
       filtered = filtered.filter(t => t.debt_id !== null && t.debt_id !== undefined);
     } else if (filterBudget === 'no_vinculado') {
@@ -84,17 +98,17 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
       let compareValue = 0;
       
       switch (sortBy) {
-        case 'fecha':
-          compareValue = parseComparableDate(a.fecha) - parseComparableDate(b.fecha);
+        case 'date':
+          compareValue = parseComparableDate(a.date) - parseComparableDate(b.date);
           break;
-        case 'tipo':
-          compareValue = a.tipo.localeCompare(b.tipo);
+        case 'type':
+          compareValue = a.type.localeCompare(b.type);
           break;
-        case 'categoria':
-          compareValue = a.categoria.localeCompare(b.categoria);
+        case 'category':
+          compareValue = a.category.localeCompare(b.category);
           break;
-        case 'monto':
-          compareValue = (parseFloat(a.monto) || 0) - (parseFloat(b.monto) || 0);
+        case 'amount':
+          compareValue = (parseFloat(a.amount) || 0) - (parseFloat(b.amount) || 0);
           break;
         default:
           compareValue = 0;
@@ -104,7 +118,22 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
     });
 
     return filtered;
-  }, [transactions, filterType, filterCategory, filterBudget, sortBy, sortOrder]);
+  }, [transactions, filterType, filterCategory, filterBudget, filterMonth, filterYear, sortBy, sortOrder]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterType, filterCategory, filterBudget, filterMonth, filterYear, sortBy, sortOrder, showSelectedOnly]);
+
+  // Años disponibles para el filtro
+  const availableYears = useMemo(() => {
+    const years = new Set(transactions.map(t => {
+      const iso = toISODate(t.date);
+      return iso ? parseInt(iso.split('-')[0]) : null;
+    }).filter(Boolean));
+    years.add(new Date().getFullYear());
+    return [...years].sort((a, b) => b - a);
+  }, [transactions]);
 
   useEffect(() => {
     // Keep selection in sync with currently visible rows
@@ -171,9 +200,9 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
   };
 
   const categoryData = useMemo(() => {
-    const gastos = filteredAndSortedTransactions.filter(t => t.tipo === 'Gasto');
+    const gastos = filteredAndSortedTransactions.filter(t => t.type === 'Gasto');
     const grouped = gastos.reduce((acc, t) => {
-      acc[t.categoria] = (acc[t.categoria] || 0) + (parseFloat(t.monto) || 0);
+      acc[t.category] = (acc[t.category] || 0) + (parseFloat(t.amount) || 0);
       return acc;
     }, {});
 
@@ -189,35 +218,55 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
     };
   }, [filteredAndSortedTransactions]);
 
-  const dateData = useMemo(() => {
-    const grouped = filteredAndSortedTransactions.reduce((acc, t) => {
-      const monto = parseFloat(t.monto) || 0;
-      const dateKey = toISODate(t.fecha);
-      acc[dateKey] = (acc[dateKey] || 0) + (t.tipo === 'Gasto' ? -monto : monto);
+  const presupuestoVsAsignadoData = useMemo(() => {
+    // Agrupar presupuestos por categoría
+    const categoriaGroups = debts.reduce((acc, debt) => {
+      const cat = debt.categoria || 'Sin categoría';
+      if (!acc[cat]) {
+        acc[cat] = {
+          presupuestado: 0,
+          asignado: 0
+        };
+      }
+      acc[cat].presupuestado += Number(debt.monto_total || 0);
+      acc[cat].asignado += Number(debt.monto_ejecutado || 0);
       return acc;
     }, {});
 
-    const sortedDates = Object.keys(grouped).sort((a, b) => parseComparableDate(a) - parseComparableDate(b));
+    const categorias = Object.keys(categoriaGroups).sort();
+    const coloresAleatorios = ['#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#3B82F6', '#EF4444', '#8B5CF6'];
 
     return {
-      labels: sortedDates.map((date) => formatDate(date)),
-      datasets: [{
-        label: 'Balance por Fecha',
-        data: sortedDates.map(date => grouped[date]),
-        backgroundColor: sortedDates.map(date => 
-          grouped[date] >= 0 ? '#22C55E' : '#EF4444'
-        ),
-      }]
+      labels: categorias,
+      datasets: [
+        {
+          label: 'Presupuestado',
+          data: categorias.map(cat => categoriaGroups[cat].presupuestado),
+          backgroundColor: categorias.map((_, idx) => coloresAleatorios[idx % coloresAleatorios.length]),
+          borderWidth: 1,
+          borderColor: '#fff'
+        },
+        {
+          label: 'Asignado',
+          data: categorias.map(cat => categoriaGroups[cat].asignado),
+          backgroundColor: categorias.map(cat => {
+            const { presupuestado, asignado } = categoriaGroups[cat];
+            return asignado <= presupuestado ? '#10B981' : '#EF4444'; // Verde si dentro, rojo si se pasó
+          }),
+          borderWidth: 1,
+          borderColor: '#fff'
+        }
+      ]
     };
-  }, [filteredAndSortedTransactions]);
+  }, [debts]);
 
   const stats = useMemo(() => {
     const ingresos = filteredAndSortedTransactions
-      .filter(t => t.tipo === 'Ingreso')
-      .reduce((sum, t) => sum + (parseFloat(t.monto) || 0), 0);
+      .filter(t => t.type === 'Ingreso')
+      .reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
     const gastos = filteredAndSortedTransactions
-      .filter(t => t.tipo === 'Gasto')
-      .reduce((sum, t) => sum + (parseFloat(t.monto) || 0), 0);
+      .filter(t => t.type === 'Gasto')
+      .reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
     const balance = ingresos - gastos;
 
     return { ingresos, gastos, balance };
@@ -228,13 +277,13 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
     const rows = filteredAndSortedTransactions.map((t) => {
       const linkedDebt = t.debt_id ? debtMap.get(t.debt_id) : null;
       return {
-        fecha: formatDate(t.fecha),
-        tipo: t.tipo,
-        categoria: t.categoria,
-        monto: parseFloat(t.monto) || 0,
-        necesidad: t.necesidad || '',
-        forma_pago: t.forma_pago || '',
-        detalle: t.detalle || '',
+        date: formatDate(t.date),
+        type: t.type,
+        category: t.category,
+        amount: parseFloat(t.amount) || 0,
+        necessity: t.necessity || '',
+        payment_method: t.payment_method || '',
+        detail: t.detail || '',
         debt_id: t.debt_id ?? '',
         presupuesto: linkedDebt?.detalle || ''
       };
@@ -242,7 +291,7 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
 
     const exported = exportToCsv({
       filename: `reporte_transacciones_${new Date().toISOString().split('T')[0]}.csv`,
-      headers: ['fecha', 'tipo', 'categoria', 'monto', 'necesidad', 'forma_pago', 'detalle', 'debt_id', 'presupuesto'],
+      headers: ['date', 'type', 'category', 'amount', 'necessity', 'payment_method', 'detail', 'debt_id', 'presupuesto'],
       rows
     });
 
@@ -251,10 +300,16 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
     }
   };
 
-  const displayedTransactions = useMemo(() => {
+  const allDisplayedTransactions = useMemo(() => {
     if (!showSelectedOnly) return filteredAndSortedTransactions;
     return filteredAndSortedTransactions.filter((t) => selectedTransactionIds.includes(t.id));
   }, [filteredAndSortedTransactions, selectedTransactionIds, showSelectedOnly]);
+
+  const totalPages = Math.max(1, Math.ceil(allDisplayedTransactions.length / PAGE_SIZE));
+  const displayedTransactions = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return allDisplayedTransactions.slice(start, start + PAGE_SIZE);
+  }, [allDisplayedTransactions, currentPage]);
 
   const visibleIds = displayedTransactions.map((t) => t.id);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedTransactionIds.includes(id));
@@ -262,6 +317,71 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-finly-text">Reportes</h2>
+
+      {/* Selector de Mes con navegación */}
+      <div className="bg-white rounded-xl shadow-md p-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              if (filterMonth === 1) {
+                setFilterMonth(12);
+                setFilterYear(prev => prev - 1);
+              } else {
+                setFilterMonth(prev => prev - 1);
+              }
+            }}
+            className="p-2 rounded-lg hover:bg-gray-100 transition text-lg"
+          >
+            ◀
+          </button>
+          <div className="flex items-center gap-2">
+            <select
+              value={filterMonth}
+              onChange={(e) => setFilterMonth(parseInt(e.target.value))}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-finly-text font-semibold focus:ring-2 focus:ring-finly-primary focus:outline-none"
+            >
+              {MONTH_NAMES.map((name, idx) => (
+                <option key={idx + 1} value={idx + 1}>{name}</option>
+              ))}
+            </select>
+            <select
+              value={filterYear}
+              onChange={(e) => setFilterYear(parseInt(e.target.value))}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-finly-text font-semibold focus:ring-2 focus:ring-finly-primary focus:outline-none"
+            >
+              {availableYears.map(y => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={() => {
+              if (filterMonth === 12) {
+                setFilterMonth(1);
+                setFilterYear(prev => prev + 1);
+              } else {
+                setFilterMonth(prev => prev + 1);
+              }
+            }}
+            className="p-2 rounded-lg hover:bg-gray-100 transition text-lg"
+          >
+            ▶
+          </button>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-lg font-bold text-finly-text">
+            📅 {MONTH_NAMES[filterMonth - 1]} {filterYear}
+          </span>
+          {(filterMonth !== now.getMonth() + 1 || filterYear !== now.getFullYear()) && (
+            <button
+              onClick={() => { setFilterMonth(now.getMonth() + 1); setFilterYear(now.getFullYear()); }}
+              className="text-xs px-3 py-1 bg-finly-primary text-white rounded-full hover:bg-finly-primaryHover transition"
+            >
+              Hoy
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -337,17 +457,27 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
 
           <div className="bg-white rounded-xl shadow-md p-6">
             <h3 className="text-lg font-bold text-finly-text mb-4">
-              Balance por Fecha
+              📊 Presupuestado vs Asignado por Categoría
             </h3>
             <div className="h-80">
               <Bar 
-                data={dateData}
+                data={presupuestoVsAsignadoData}
                 options={{
                   responsive: true,
                   maintainAspectRatio: false,
                   plugins: {
                     legend: {
-                      display: false,
+                      display: true,
+                      position: 'top'
+                    },
+                    tooltip: {
+                      callbacks: {
+                        label: function(context) {
+                          const label = context.dataset.label || '';
+                          const value = context.parsed.y || 0;
+                          return label + ': $' + value.toLocaleString('es-AR');
+                        }
+                      }
                     }
                   },
                   scales: {
@@ -378,7 +508,7 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
         <div className="bg-white rounded-xl shadow-md p-6">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-lg font-bold text-finly-text">
-              Transacciones ({displayedTransactions.length})
+              Transacciones ({allDisplayedTransactions.length})
             </h3>
             <div className="flex items-center gap-3">
               {isAdmin && canEdit && (
@@ -412,8 +542,11 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
                   setFilterType('all');
                   setFilterCategory('all');
                   setFilterBudget('all');
-                  setSortBy('fecha');
+                  setFilterMonth(new Date().getMonth() + 1);
+                  setFilterYear(new Date().getFullYear());
+                  setSortBy('date');
                   setSortOrder('desc');
+                  setCurrentPage(1);
                 }}
                 className="text-sm text-finly-primary hover:text-finly-secondary font-semibold transition"
               >
@@ -423,7 +556,7 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
           </div>
 
           {/* Filtros y Ordenamiento */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6 p-4 bg-gray-50 rounded-lg">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 p-4 bg-gray-50 rounded-lg">
             {/* Filtro por Tipo */}
             <div>
               <label className="block text-sm font-medium text-finly-text mb-2">
@@ -492,10 +625,10 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
                 onChange={(e) => setSortBy(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary text-sm"
               >
-                <option value="fecha">Fecha</option>
-                <option value="tipo">Tipo</option>
-                <option value="categoria">Categoría</option>
-                <option value="monto">Monto</option>
+                <option value="date">Fecha</option>
+                <option value="type">Tipo</option>
+                <option value="category">Categoría</option>
+                <option value="amount">Monto</option>
               </select>
             </div>
 
@@ -510,13 +643,13 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary text-sm"
               >
                 <option value="desc">
-                  {sortBy === 'fecha' ? 'Más reciente primero' : 
-                   sortBy === 'monto' ? 'Mayor a menor' : 
+                  {sortBy === 'date' ? 'Más reciente primero' : 
+                   sortBy === 'amount' ? 'Mayor a menor' : 
                    'Z a A'}
                 </option>
                 <option value="asc">
-                  {sortBy === 'fecha' ? 'Más antiguo primero' : 
-                   sortBy === 'monto' ? 'Menor a mayor' : 
+                  {sortBy === 'date' ? 'Más antiguo primero' : 
+                   sortBy === 'amount' ? 'Menor a mayor' : 
                    'A a Z'}
                 </option>
               </select>
@@ -539,12 +672,12 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
                   )}
                   <th 
                     className="text-left py-3 px-4 text-sm font-semibold text-finly-text cursor-pointer hover:bg-gray-100 select-none"
-                    onClick={() => handleSort('fecha')}
+                    onClick={() => handleSort('date')}
                     title="Ordenar por fecha"
                   >
                     <div className="flex items-center gap-1">
                       <span>Fecha</span>
-                      {sortBy === 'fecha' && (
+                      {sortBy === 'date' && (
                         <span className="text-blue-600">
                           {sortOrder === 'asc' ? '↑' : '↓'}
                         </span>
@@ -572,23 +705,23 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
                         />
                       </td>
                     )}
-                    <td className="py-3 px-4 text-sm text-finly-text">{formatDate(t.fecha)}</td>
+                    <td className="py-3 px-4 text-sm text-finly-text">{formatDate(t.date)}</td>
                     <td className="py-3 px-4">
                       <span className={`inline-block px-2 py-1 rounded text-xs font-semibold ${
-                        t.tipo === 'Ingreso' 
+                        t.type === 'Ingreso' 
                           ? 'bg-green-100 text-green-700' 
                           : 'bg-red-100 text-red-700'
                       }`}>
-                        {t.tipo}
+                        {t.type}
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-sm text-finly-text">{t.categoria}</td>
+                    <td className="py-3 px-4 text-sm text-finly-text">{t.category}</td>
                     <td className={`py-3 px-4 text-sm text-right font-semibold ${
-                      t.tipo === 'Ingreso' ? 'text-finly-income' : 'text-finly-expense'
+                      t.type === 'Ingreso' ? 'text-finly-income' : 'text-finly-expense'
                     }`}>
-                      ${(parseFloat(t.monto) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      ${(parseFloat(t.amount) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                     </td>
-                    <td className="py-3 px-4 text-sm text-finly-textSecondary">{t.detalle || '-'}</td>
+                    <td className="py-3 px-4 text-sm text-finly-textSecondary">{t.detail || '-'}</td>
                     <td className="py-3 px-4 text-center">
                       {t.debt_id ? (
                         <span className="inline-block px-2 py-1 rounded text-xs font-semibold bg-purple-100 text-purple-700" title={`Vinculado a presupuesto ID: ${t.debt_id}`}>
@@ -627,6 +760,52 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
               </tbody>
             </table>
           </div>
+
+          {/* Paginación */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
+              <p className="text-sm text-finly-textSecondary">
+                Mostrando {(currentPage - 1) * PAGE_SIZE + 1}-{Math.min(currentPage * PAGE_SIZE, allDisplayedTransactions.length)} de {allDisplayedTransactions.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                  ← Anterior
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(page => page === 1 || page === totalPages || Math.abs(page - currentPage) <= 2)
+                  .reduce((acc, page, idx, arr) => {
+                    if (idx > 0 && page - arr[idx - 1] > 1) {
+                      acc.push(<span key={`dots-${page}`} className="text-gray-400 text-sm">...</span>);
+                    }
+                    acc.push(
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page)}
+                        className={`px-3 py-1 text-sm rounded-lg transition ${
+                          page === currentPage
+                            ? 'bg-finly-primary text-white'
+                            : 'border border-gray-300 hover:bg-gray-100'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    );
+                    return acc;
+                  }, [])}
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                  Siguiente →
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -636,7 +815,7 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
         onConfirm={confirmDialog.onConfirm}
         title="Eliminar Transacción"
         message={confirmDialog.transaction ? 
-          `¿Estás seguro de eliminar esta transacción?\n\nFecha: ${formatDate(confirmDialog.transaction.fecha)}\nMonto: $${confirmDialog.transaction.monto}\nDetalle: ${confirmDialog.transaction.detalle || 'Sin detalle'}` 
+          `¿Estás seguro de eliminar esta transacción?\n\nFecha: ${formatDate(confirmDialog.transaction.date)}\nMonto: $${confirmDialog.transaction.amount}\nDetalle: ${confirmDialog.transaction.detail || 'Sin detalle'}` 
           : ''
         }
         type="danger"
