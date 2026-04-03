@@ -7,7 +7,36 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-04-02
+
 ### Agregado
+
+- **Módulo Tarjeta de Crédito (nuevo)**
+  - CRUD completo de tarjetas con fechas de cierre/vencimiento
+  - Registro de compras con cuotas, intereses y moneda (ARS/USD)
+  - Cronograma de cuotas con estados (pendiente/pagado/vencido)
+  - Importación CSV de compras de tarjeta
+  - Tabla `app_settings` con cotización dólar configurable
+  - 7 nuevos componentes React
+  - Migraciones Alembic: `e10c0b8c5dbe`, `a3f7c9d1e2b4`
+
+- **Normalización de categorías (Mejora 6)**
+  - Tabla `categories` poblada con 17 categorías desde datos existentes
+  - Campo `category_id` (FK) en transactions reemplaza campo texto
+  - API `/api/categories` retorna `[{id, name}]`
+
+- **Renombrado de campos a inglés (Mejora 7)**
+  - marca_temporal→timestamp, fecha→date, tipo→type, categoria→category_id
+  - monto→amount, necesidad→necessity, forma_pago→payment_method
+  - detalle→detail, estado_asignacion→assignment_status
+  - Migración Alembic: `b5e8f2a1c3d7`
+
+- **Infraestructura**
+  - `.github/copilot-instructions.md` con reglas del proyecto
+  - Scripts backup/restore en Python
+  - `DEVELOPMENT_GUIDELINES.md`
+
+### Agregado (previo)
 - **Widget Balance Pendiente en Dashboard**
   - Nuevo widget de proyección financiera en DashboardOverview
   - Muestra balance proyectado si se pagan todos los items de presupuesto pendientes
