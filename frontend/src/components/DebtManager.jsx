@@ -520,7 +520,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
   }, [displayedDebts]);
 
   const totalPorPagar = summary
-    ? Number(summary.pending_amount || 0) + Number(summary.partial_amount || 0) + Number(summary.overdue_amount || 0)
+    ? Number(summary.total_estimated_payment || 0)
     : 0;
 
   const totalPages = Math.max(1, Math.ceil(displayedDebts.length / PAGE_SIZE));
@@ -605,13 +605,17 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
 
       {/* Resumen de deudas */}
       {summary && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div className="bg-white p-4 rounded-lg shadow-sm border">
             <p className="text-sm text-gray-600">Items Presupuesto</p>
             <p className="text-2xl font-bold text-gray-900">{summary.total_debts}</p>
           </div>
           <div className="bg-white p-4 rounded-lg shadow-sm border">
-            <p className="text-sm text-gray-600">Total por Pagar</p>
+            <p className="text-sm text-gray-600">Ingresos Presupuestados</p>
+            <p className="text-2xl font-bold text-green-600">{formatCurrency(summary.total_ingresos || 0)}</p>
+          </div>
+          <div className="bg-white p-4 rounded-lg shadow-sm border">
+            <p className="text-sm text-gray-600">Total Estimado a Pagar</p>
             <p className="text-2xl font-bold text-blue-600">{formatCurrency(totalPorPagar)}</p>
           </div>
           <div className="bg-white p-4 rounded-lg shadow-sm border">
@@ -1095,6 +1099,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Categoría</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Detalle</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Monto Total</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Monto a Pagar</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Ejecutado</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Progreso</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Estado</th>
@@ -1105,7 +1110,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
             <tbody className="divide-y divide-gray-200">
               {paginatedDebts.length === 0 ? (
                 <tr>
-                  <td colSpan={isAdmin && canEdit ? "13" : canEdit ? "12" : "11"} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={isAdmin && canEdit ? "14" : canEdit ? "13" : "12"} className="px-4 py-8 text-center text-gray-500">
                     {debts.length === 0 ? 'No hay items de presupuesto registrados' : 'No hay resultados para los filtros aplicados'}
                   </td>
                 </tr>
@@ -1157,6 +1162,9 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
                       <td className="px-4 py-3 text-sm text-gray-600">{debt.detalle || '-'}</td>
                       <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
                         {formatCurrency(debt.monto_total)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right text-purple-600">
+                        {formatCurrency(debt.estimated_payment != null ? debt.estimated_payment : debt.monto_total)}
                       </td>
                       <td className="px-4 py-3 text-sm text-right text-blue-600">
                         {formatCurrency(montoEjecutado)}

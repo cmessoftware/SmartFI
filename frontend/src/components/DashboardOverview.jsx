@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useToast } from './ToastContainer';
 import ConfirmDialog from './ConfirmDialog';
-import { transactionsAPI, debtsAPI } from '../services/api';
+import { transactionsAPI, debtsAPI, creditCardAPI, monthClosingAPI } from '../services/api';
 import { formatDate, toISODate } from '../utils/dateUtils';
 
 const MONTH_NAMES = [
@@ -18,6 +18,9 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
   const [loadingStats, setLoadingStats] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, onConfirm: null, title: '', message: '' });
   const [debtSummary, setDebtSummary] = useState(null);
+  const [ccPurchasesTotal, setCcPurchasesTotal] = useState(0);
+  const [monthClosingStatus, setMonthClosingStatus] = useState(null);
+  const [closingLoading, setClosingLoading] = useState(false);
   const toast = useToast();
 
   // Filtrar transacciones por mes/año seleccionado
@@ -42,6 +45,67 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
     };
     loadDebtSummary();
   }, [transactions, selectedMonth, selectedYear]);
+
+  // Cargar total de compras de tarjeta de crédito del mes
+  useEffect(() => {
+    const loadCcPurchasesTotal = async () => {
+      try {
+        const response = await creditCardAPI.getMonthlyPurchasesTotal(selectedMonth, selectedYear);
+        setCcPurchasesTotal(response.data.total || 0);
+      } catch (error) {
+        console.error('Error al cargar total de compras TC:', error);
+        setCcPurchasesTotal(0);
+      }
+    };
+    loadCcPurchasesTotal();
+  }, [selectedMonth, selectedYear]);
+
+  // Load month closing status
+  useEffect(() => {
+    const loadClosingStatus = async () => {
+      try {
+        const response = await monthClosingAPI.getStatus(selectedYear, selectedMonth);
+        setMonthClosingStatus(response.data);
+      } catch (error) {
+        console.error('Error al cargar estado de cierre:', error);
+        setMonthClosingStatus(null);
+      }
+    };
+    loadClosingStatus();
+  }, [selectedMonth, selectedYear]);
+
+  const handleCloseMonth = async () => {
+    setClosingLoading(true);
+    try {
+      const response = await monthClosingAPI.closeMonth(selectedYear, selectedMonth);
+      setMonthClosingStatus({ closed: true, ...response.data });
+      toast.success(
+        `Mes cerrado. Balance: $${response.data.balance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}. ` +
+        (response.data.balance !== 0 ? 'Se creó transacción de arrastre en el mes siguiente.' : '')
+      , 7000);
+      await refreshTransactions(false);
+    } catch (error) {
+      const detail = error.response?.data?.detail || 'Error al cerrar el mes';
+      toast.error(detail);
+    } finally {
+      setClosingLoading(false);
+    }
+  };
+
+  const handleReopenMonth = async () => {
+    setClosingLoading(true);
+    try {
+      await monthClosingAPI.reopenMonth(selectedYear, selectedMonth);
+      setMonthClosingStatus({ closed: false });
+      toast.success('Mes reabierto. La transacción de arrastre fue eliminada.');
+      await refreshTransactions(false);
+    } catch (error) {
+      const detail = error.response?.data?.detail || 'Error al reabrir el mes';
+      toast.error(detail);
+    } finally {
+      setClosingLoading(false);
+    }
+  };
 
   const handleOpenSyncModal = async () => {
     setShowSyncModal(true);
@@ -86,20 +150,25 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
     const gastos = filteredTransactions
       .filter(t => t.type === 'Gasto')
       .reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-    const balance = ingresos - gastos;
+    
+    // Gastos reales = gastos en transacciones + compras de tarjeta no vinculadas
+    const gastosReales = gastos + ccPurchasesTotal;
+    const balance = ingresos - gastosReales;
     const totalTransacciones = filteredTransactions.length;
 
-    // Balance Pendiente Obligatorio = Ingresos - (Gastos + Presupuesto Obligatorio Pendiente)
+    // Balance Pendiente Obligatorio = Ingresos - (Gastos Reales + Presupuesto Obligatorio Pendiente)
     const obligationPending = debtSummary?.obligation_pending || 0;
-    const balancePendienteObligatorio = ingresos - (gastos + obligationPending);
+    const balancePendienteObligatorio = ingresos - (gastosReales + obligationPending);
 
-    // Balance Pendiente Variable = Ingresos - (Gastos + Presupuesto Variable Pendiente)
+    // Balance Pendiente Variable = Ingresos - (Gastos Reales + Presupuesto Variable Pendiente)
     const variablePending = debtSummary?.variable_pending || 0;
-    const balancePendienteVariable = ingresos - (gastos + variablePending);
+    const balancePendienteVariable = ingresos - (gastosReales + variablePending);
 
     return { 
       ingresos, 
-      gastos, 
+      gastos: gastosReales,
+      gastosTxn: gastos,
+      gastosTarjeta: ccPurchasesTotal,
       balance, 
       totalTransacciones, 
       obligationPending,
@@ -107,7 +176,7 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
       balancePendienteObligatorio, 
       balancePendienteVariable 
     };
-  }, [filteredTransactions, debtSummary]);
+  }, [filteredTransactions, debtSummary, ccPurchasesTotal]);
 
   const recentTransactions = useMemo(() => {
     return filteredTransactions.slice(-5).reverse();
@@ -196,6 +265,16 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
           <span className="text-lg font-bold text-finly-text">
             📅 {MONTH_NAMES[selectedMonth - 1]} {selectedYear}
           </span>
+          {monthClosingStatus?.closed && !monthClosingStatus?.is_stale && (
+            <span className="text-xs px-3 py-1 bg-green-100 text-green-700 rounded-full font-semibold">
+              ✅ Mes Cerrado
+            </span>
+          )}
+          {monthClosingStatus?.closed && monthClosingStatus?.is_stale && (
+            <span className="text-xs px-3 py-1 bg-amber-100 text-amber-700 rounded-full font-semibold">
+              ⚠️ Cierre desactualizado
+            </span>
+          )}
           {(selectedMonth !== now.getMonth() + 1 || selectedYear !== now.getFullYear()) && (
             <button
               onClick={() => { setSelectedMonth(now.getMonth() + 1); setSelectedYear(now.getFullYear()); }}
@@ -203,6 +282,51 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
             >
               Hoy
             </button>
+          )}
+          {user.role === 'admin' && (
+            monthClosingStatus?.closed ? (
+              <>
+                {monthClosingStatus?.is_stale && (
+                  <button
+                    onClick={() => setConfirmDialog({
+                      isOpen: true,
+                      title: 'Re-cerrar Mes',
+                      message: `Hubo cambios desde el último cierre. ¿Re-cerrar ${MONTH_NAMES[selectedMonth - 1]} ${selectedYear}? Se recalculará el balance y actualizará la transacción de arrastre.`,
+                      onConfirm: handleCloseMonth
+                    })}
+                    disabled={closingLoading}
+                    className="text-xs px-3 py-1 bg-amber-600 text-white rounded-full hover:bg-amber-700 transition disabled:opacity-50"
+                  >
+                    {closingLoading ? '...' : '🔄 Re-cerrar Mes'}
+                  </button>
+                )}
+                <button
+                  onClick={() => setConfirmDialog({
+                    isOpen: true,
+                    title: 'Reabrir Mes',
+                    message: `¿Reabrir ${MONTH_NAMES[selectedMonth - 1]} ${selectedYear}? Se eliminará la transacción de arrastre al mes siguiente.`,
+                    onConfirm: handleReopenMonth
+                  })}
+                  disabled={closingLoading}
+                  className="text-xs px-3 py-1 bg-yellow-500 text-white rounded-full hover:bg-yellow-600 transition disabled:opacity-50"
+                >
+                  {closingLoading ? '...' : '🔓 Reabrir Mes'}
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setConfirmDialog({
+                  isOpen: true,
+                  title: 'Cerrar Mes',
+                  message: `¿Cerrar ${MONTH_NAMES[selectedMonth - 1]} ${selectedYear}? El balance se trasladará como "Saldo mes anterior" al mes siguiente.`,
+                  onConfirm: handleCloseMonth
+                })}
+                disabled={closingLoading}
+                className="text-xs px-3 py-1 bg-emerald-600 text-white rounded-full hover:bg-emerald-700 transition disabled:opacity-50"
+              >
+                {closingLoading ? '...' : '🔒 Cerrar Mes'}
+              </button>
+            )
           )}
         </div>
       </div>
@@ -230,6 +354,13 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
               <p className="text-2xl font-bold text-finly-expense mt-2">
                 ${stats.gastos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
               </p>
+              {stats.gastosTarjeta > 0 && (
+                <div className="mt-1 text-xs text-finly-textSecondary">
+                  <span>💳 TC: ${stats.gastosTarjeta.toLocaleString('es-AR', { minimumFractionDigits: 0 })}</span>
+                  <span className="mx-1">|</span>
+                  <span>💵 Otros: ${stats.gastosTxn.toLocaleString('es-AR', { minimumFractionDigits: 0 })}</span>
+                </div>
+              )}
             </div>
             <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center text-2xl">
               📉

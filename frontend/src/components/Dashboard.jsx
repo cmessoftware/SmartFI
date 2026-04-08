@@ -22,6 +22,15 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
     loadFormData();
   }, []);
 
+  // Reload debts when edit modal opens to ensure fresh data
+  useEffect(() => {
+    if (editingTransaction) {
+      debtsAPI.getDebts()
+        .then(res => setDebts(res.data || []))
+        .catch(err => console.error('Error reloading debts:', err));
+    }
+  }, [editingTransaction]);
+
   const loadFormData = async () => {
     try {
       const [categoriesRes, necessityTypesRes, debtsRes] = await Promise.all([
@@ -148,7 +157,7 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
       )}
 
       {currentView === 'credit-cards' && (
-        <CreditCardManager canEdit={canEdit} isAdmin={isAdmin} setCurrentView={setCurrentView} />
+        <CreditCardManager canEdit={canEdit} isAdmin={isAdmin} setCurrentView={setCurrentView} refreshTransactions={refreshTransactions} />
       )}
 
       {editingTransaction && (

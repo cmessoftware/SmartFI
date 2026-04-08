@@ -1,6 +1,6 @@
 from database.database import SessionLocal, BudgetItem, Debt, DebtStatus, Transaction, BudgetType, FlowType, InstallmentPlan, InstallmentScheduleItem, InstallmentStatus
 from datetime import datetime
-from sqlalchemy import func
+from sqlalchemy import func, case
 
 
 class DebtService:
@@ -53,6 +53,13 @@ class DebtService:
             else:
                 status = DebtStatus.PENDIENTE
             
+            # estimated_payment: defaults to monto_total (100%)
+            estimated_payment_val = debt_data.get('estimated_payment')
+            if estimated_payment_val is not None:
+                estimated_payment_val = float(estimated_payment_val)
+            else:
+                estimated_payment_val = monto_total
+            
             # Create budget item object
             budget_item = BudgetItem(
                 fecha=debt_data.get('fecha'),
@@ -65,7 +72,8 @@ class DebtService:
                 status=status,
                 tipo_presupuesto=tipo_presupuesto,
                 tipo_flujo=tipo_flujo,
-                monto_ejecutado=monto_ejecutado
+                monto_ejecutado=monto_ejecutado,
+                estimated_payment=estimated_payment_val
             )
             
             db.add(budget_item)
@@ -105,6 +113,7 @@ class DebtService:
                     'tipo_presupuesto': budget_item.tipo_presupuesto.value if hasattr(budget_item.tipo_presupuesto, 'value') else budget_item.tipo_presupuesto,
                     'tipo_flujo': budget_item.tipo_flujo.value if hasattr(budget_item.tipo_flujo, 'value') else budget_item.tipo_flujo,
                     'monto_ejecutado': budget_item.monto_ejecutado,
+                    'estimated_payment': budget_item.estimated_payment if budget_item.estimated_payment is not None else budget_item.monto_total,
                     'created_at': budget_item.created_at.isoformat() if budget_item.created_at else None,
                     'updated_at': budget_item.updated_at.isoformat() if budget_item.updated_at else None
                 })
@@ -138,20 +147,21 @@ class DebtService:
             return {
                 'id': budget_item.id,
                 'fecha': budget_item.fecha,
-                'tipo': debt.tipo,
-                'categoria': debt.categoria,
-                'monto_total': debt.monto_total,
-                'monto_pagado': debt.monto_pagado,
+                'tipo': budget_item.tipo,
+                'categoria': budget_item.categoria,
+                'monto_total': budget_item.monto_total,
+                'monto_pagado': budget_item.monto_pagado,
                 'monto_restante': monto_restante,
-                'detalle': debt.detalle,
-                'fecha_vencimiento': debt.fecha_vencimiento,
-                'status': debt.status.value,
+                'detalle': budget_item.detalle,
+                'fecha_vencimiento': budget_item.fecha_vencimiento,
+                'status': budget_item.status.value,
                 # Nuevos campos refactor
-                'tipo_presupuesto': debt.tipo_presupuesto.value if hasattr(debt.tipo_presupuesto, 'value') else debt.tipo_presupuesto,
-                'tipo_flujo': debt.tipo_flujo.value if hasattr(debt.tipo_flujo, 'value') else debt.tipo_flujo,
-                'monto_ejecutado': debt.monto_ejecutado,
-                'created_at': debt.created_at.isoformat() if debt.created_at else None,
-                'updated_at': debt.updated_at.isoformat() if debt.updated_at else None
+                'tipo_presupuesto': budget_item.tipo_presupuesto.value if hasattr(budget_item.tipo_presupuesto, 'value') else budget_item.tipo_presupuesto,
+                'tipo_flujo': budget_item.tipo_flujo.value if hasattr(budget_item.tipo_flujo, 'value') else budget_item.tipo_flujo,
+                'monto_ejecutado': budget_item.monto_ejecutado,
+                'estimated_payment': budget_item.estimated_payment if budget_item.estimated_payment is not None else budget_item.monto_total,
+                'created_at': budget_item.created_at.isoformat() if budget_item.created_at else None,
+                'updated_at': budget_item.updated_at.isoformat() if budget_item.updated_at else None
             }
         except Exception as e:
             print(f"Error getting debt: {e}")
@@ -196,6 +206,8 @@ class DebtService:
                 debt.tipo_flujo = FlowType.GASTO if tipo_flujo_str == 'Gasto' else FlowType.INGRESO
             if 'monto_ejecutado' in debt_data:
                 debt.monto_ejecutado = float(debt_data['monto_ejecutado'])
+            if 'estimated_payment' in debt_data:
+                debt.estimated_payment = float(debt_data['estimated_payment']) if debt_data['estimated_payment'] is not None else None
             
             # Recalcular estado basado en monto ejecutado
             if debt.monto_ejecutado >= debt.monto_total:
@@ -316,45 +328,53 @@ class DebtService:
                 prefix = f"{year}-{month:02d}"
                 month_filter = [Debt.fecha_vencimiento.like(f"{prefix}%")]
             
+            # Filtro para excluir Ingresos de los montos a pagar
+            gasto_filter = [Debt.tipo_flujo == FlowType.GASTO]
+            
             total_debts = db.query(func.count(Debt.id)).filter(*month_filter).scalar()
-            total_amount = db.query(func.sum(Debt.monto_total)).filter(*month_filter).scalar() or 0
-            total_paid = db.query(func.sum(Debt.monto_pagado)).filter(*month_filter).scalar() or 0
+            total_amount = db.query(func.sum(Debt.monto_total)).filter(*gasto_filter, *month_filter).scalar() or 0
+            total_paid = db.query(func.sum(Debt.monto_pagado)).filter(*gasto_filter, *month_filter).scalar() or 0
             total_remaining = total_amount - total_paid
             
-            # Conteos por estado
+            # Total ingresos presupuestados
+            total_ingresos = db.query(func.sum(Debt.monto_total)).filter(
+                Debt.tipo_flujo == FlowType.INGRESO, *month_filter
+            ).scalar() or 0
+            
+            # Conteos por estado (solo gastos)
             pending_count = db.query(func.count(Debt.id)).filter(
-                Debt.status == DebtStatus.PENDIENTE, *month_filter
+                Debt.status == DebtStatus.PENDIENTE, *gasto_filter, *month_filter
             ).scalar()
             
             partial_count = db.query(func.count(Debt.id)).filter(
-                Debt.status == DebtStatus.PAGO_PARCIAL, *month_filter
+                Debt.status == DebtStatus.PAGO_PARCIAL, *gasto_filter, *month_filter
             ).scalar()
             
             overdue_count = db.query(func.count(Debt.id)).filter(
-                Debt.status == DebtStatus.VENCIDA, *month_filter
+                Debt.status == DebtStatus.VENCIDA, *gasto_filter, *month_filter
             ).scalar()
             
             paid_count = db.query(func.count(Debt.id)).filter(
-                Debt.status == DebtStatus.PAGADA, *month_filter
+                Debt.status == DebtStatus.PAGADA, *gasto_filter, *month_filter
             ).scalar()
             
-            # Montos por estado (resta de lo pendiente por pagar)
+            # Montos por estado (resta de lo pendiente por pagar, solo gastos)
             pending_amount = db.query(
                 func.sum(Debt.monto_total - Debt.monto_pagado)
             ).filter(
-                Debt.status == DebtStatus.PENDIENTE, *month_filter
+                Debt.status == DebtStatus.PENDIENTE, *gasto_filter, *month_filter
             ).scalar() or 0
             
             partial_amount = db.query(
                 func.sum(Debt.monto_total - Debt.monto_pagado)
             ).filter(
-                Debt.status == DebtStatus.PAGO_PARCIAL, *month_filter
+                Debt.status == DebtStatus.PAGO_PARCIAL, *gasto_filter, *month_filter
             ).scalar() or 0
             
             overdue_amount = db.query(
                 func.sum(Debt.monto_total - Debt.monto_pagado)
             ).filter(
-                Debt.status == DebtStatus.VENCIDA, *month_filter
+                Debt.status == DebtStatus.VENCIDA, *gasto_filter, *month_filter
             ).scalar() or 0
             
             # Balance Pendiente por tipo de presupuesto (solo PENDIENTE y PAGO_PARCIAL)
@@ -378,11 +398,23 @@ class DebtService:
                 *month_filter
             ).scalar() or 0
             
+            # Total estimated payment (monto_a_pagar) for gastos only
+            # Use estimated_payment if set, otherwise monto_total
+            estimated_payment_expr = case(
+                (Debt.estimated_payment.isnot(None), Debt.estimated_payment),
+                else_=Debt.monto_total
+            )
+            total_estimated_payment = db.query(func.sum(estimated_payment_expr)).filter(
+                *gasto_filter, *month_filter
+            ).scalar() or 0
+            
             return {
                 'total_debts': total_debts,
                 'total_amount': float(total_amount),
                 'total_paid': float(total_paid),
                 'total_remaining': float(total_remaining),
+                'total_ingresos': float(total_ingresos),
+                'total_estimated_payment': float(total_estimated_payment),
                 'pending_count': pending_count,
                 'pending_amount': float(pending_amount),
                 'partial_count': partial_count,

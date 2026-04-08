@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Enum as SQLEnum, ForeignKey, Date, Boolean, Text
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Enum as SQLEnum, ForeignKey, Date, Boolean, Text, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -87,6 +87,7 @@ class BudgetItem(Base):
     tipo_presupuesto = Column(SQLEnum(BudgetType, values_callable=lambda x: [e.value for e in x]), default=BudgetType.OBLIGATION, nullable=False)
     tipo_flujo = Column(SQLEnum(FlowType, values_callable=lambda x: [e.value for e in x]), default=FlowType.GASTO, nullable=False)
     monto_ejecutado = Column(Float, default=0.0, nullable=False)
+    estimated_payment = Column(Float, nullable=True)  # monto_a_pagar: defaults to monto_total (100%)
     
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -105,7 +106,7 @@ class Transaction(Base):
     amount = Column(Float, nullable=False)
     necessity = Column(SQLEnum(NecessityType), nullable=False)
     payment_method = Column(String, default="Débito", nullable=False)
-    detail = Column(String(50), nullable=True)
+    detail = Column(Text, nullable=True)
     debt_id = Column(Integer, ForeignKey('budget_items.id'), nullable=True)
     assignment_status = Column(SQLEnum(AssignmentStatus, values_callable=lambda x: [e.value for e in x]), default=AssignmentStatus.ASIGNADA_MANUAL, nullable=False)
     
@@ -243,6 +244,26 @@ class CreditCardPayment(Base):
 # APP SETTINGS
 # ============================================================================
 
+class CreditCardPeriodConfig(Base):
+    """Per-period override for closing_day and due_day.
+    Falls back to CreditCard defaults when no row exists."""
+    __tablename__ = "credit_card_period_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    card_id = Column(Integer, ForeignKey('credit_cards.id', ondelete='CASCADE'), nullable=False)
+    year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=False)  # 1-12
+    closing_day = Column(Integer, nullable=False)  # 1-31
+    due_day = Column(Integer, nullable=False)  # 1-31
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint('card_id', 'year', 'month', name='uq_card_period_config'),
+    )
+
+# ============================================================================
+
 class AppSetting(Base):
     __tablename__ = "app_settings"
     
@@ -251,6 +272,27 @@ class AppSetting(Base):
     value = Column(String(500), nullable=False)
     description = Column(String(255), nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+# ============================================================================
+# MONTHLY CLOSING
+# ============================================================================
+
+class MonthClosing(Base):
+    __tablename__ = "month_closings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=False)  # 1-12
+    total_ingresos = Column(Float, nullable=False, default=0.0)
+    total_gastos = Column(Float, nullable=False, default=0.0)
+    balance = Column(Float, nullable=False, default=0.0)
+    carry_over_transaction_id = Column(Integer, ForeignKey('transactions.id', ondelete='SET NULL'), nullable=True)
+    closed_by = Column(String(100), nullable=True)
+    closed_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint('year', 'month', name='uq_month_closings_year_month'),
+    )
 
 def init_db():
     """Initialize database tables"""

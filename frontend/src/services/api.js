@@ -46,6 +46,8 @@ export const authAPI = {
 
 export const transactionsAPI = {
   getCategories: () => api.get('/api/categories'),
+  createCategory: (name) => api.post('/api/categories', { name }),
+  deleteCategory: (id) => api.delete(`/api/categories/${id}`),
   getTransactionTypes: () => api.get('/api/transaction-types'),
   getNecessityTypes: () => api.get('/api/necessity-types'),
   saveTransaction: (transaction) => api.post('/api/transactions', transaction),
@@ -66,6 +68,13 @@ export const adminAPI = {
   deleteUser: (username) => api.delete(`/api/admin/users/${username}`),
   getSetting: (key) => api.get(`/api/settings/${key}`),
   updateSetting: (key, value) => api.put(`/api/settings/${key}`, { value }),
+};
+
+export const monthClosingAPI = {
+  getAll: () => api.get('/api/month-closings'),
+  getStatus: (year, month) => api.get(`/api/month-closings/${year}/${month}`),
+  closeMonth: (year, month) => api.post(`/api/month-closings/${year}/${month}`),
+  reopenMonth: (year, month) => api.delete(`/api/month-closings/${year}/${month}`),
 };
 
 export const debtsAPI = {
@@ -97,6 +106,7 @@ export const creditCardAPI = {
   updateCreditCard: (id, card) => api.put(`/api/credit-cards/${id}`, card),
   deleteCreditCard: (id) => api.delete(`/api/credit-cards/${id}`),
   getCardSummary: (id) => api.get(`/api/credit-cards/${id}/summary`),
+  getMonthlyPurchasesTotal: (month, year) => api.get(`/api/credit-cards/monthly-purchases-total?month=${month}&year=${year}`),
   createPurchase: (purchase) => api.post('/api/credit-cards/purchases', purchase),
   updatePurchase: (id, purchase) => api.put(`/api/credit-cards/purchases/${id}`, purchase),
   deletePurchase: (id) => api.delete(`/api/credit-cards/purchases/${id}`),
@@ -108,6 +118,8 @@ export const creditCardAPI = {
   bulkImportPurchases: (cardId, purchases) => api.post(`/api/credit-cards/${cardId}/import-csv`, purchases),
   getCardPeriodInstallments: (cardId, year, month) => api.get(`/api/credit-cards/${cardId}/period-installments?year=${year}&month=${month}`),
   registerCardPeriodBudget: (cardId, year, month, paymentType = 'total', minimumPayment = 0) => api.post(`/api/credit-cards/${cardId}/register-period-budget`, { year, month, payment_type: paymentType, minimum_payment: minimumPayment }),
+  updatePeriodConfig: (cardId, year, month, closingDay, dueDay) => api.put(`/api/credit-cards/${cardId}/period-config`, { year, month, closing_day: closingDay, due_day: dueDay }),
+  getPeriodForDate: (cardId, purchaseDate) => api.get(`/api/credit-cards/${cardId}/period-for-date?purchase_date=${purchaseDate}`),
 };
 
 export default api;

@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import text
-from database.database import Transaction as DBTransaction, Category, User as DBUser, Debt as DBDebt
+from sqlalchemy import text, extract, func
+from database.database import Transaction as DBTransaction, Category, User as DBUser, Debt as DBDebt, MonthClosing
 from database.database import get_db, init_db, engine
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -258,10 +258,10 @@ class DatabaseService:
             db.commit()
             logger.info(f"✅ Transaction {transaction_id} updated in database")
             return True
-        except SQLAlchemyError as e:
+        except (SQLAlchemyError, ValueError) as e:
             db.rollback()
             logger.error(f"❌ Error updating transaction {transaction_id}: {e}")
-            return False
+            raise
         finally:
             db.close()
 
@@ -312,6 +312,267 @@ class DatabaseService:
             return []
         finally:
             db.close()
+
+    def add_category(self, name: str) -> Dict:
+        """Add a new category to the database"""
+        db = next(get_db())
+        try:
+            existing = db.query(Category).filter(Category.name == name).first()
+            if existing:
+                raise ValueError(f"La categoría '{name}' ya existe")
+            new_cat = Category(name=name)
+            db.add(new_cat)
+            db.commit()
+            db.refresh(new_cat)
+            return {'id': new_cat.id, 'name': new_cat.name}
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.error(f"❌ Error adding category: {e}")
+            raise
+        finally:
+            db.close()
+
+    def delete_category(self, category_id: int) -> bool:
+        """Delete a category from the database"""
+        db = next(get_db())
+        try:
+            cat = db.query(Category).filter(Category.id == category_id).first()
+            if not cat:
+                raise ValueError(f"Categoría con id {category_id} no encontrada")
+            db.delete(cat)
+            db.commit()
+            return True
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.error(f"❌ Error deleting category: {e}")
+            raise
+        finally:
+            db.close()
+
+    # ======================================================================
+    # MONTH CLOSING
+    # ======================================================================
+
+    def get_month_closing(self, year: int, month: int) -> Optional[Dict]:
+        """Get the closing record for a specific month, if it exists"""
+        db = next(get_db())
+        try:
+            closing = db.query(MonthClosing).filter(
+                MonthClosing.year == year,
+                MonthClosing.month == month
+            ).first()
+            if not closing:
+                return None
+            return {
+                'id': closing.id,
+                'year': closing.year,
+                'month': closing.month,
+                'total_ingresos': closing.total_ingresos,
+                'total_gastos': closing.total_gastos,
+                'balance': closing.balance,
+                'carry_over_transaction_id': closing.carry_over_transaction_id,
+                'closed_by': closing.closed_by,
+                'closed_at': closing.closed_at.isoformat() if closing.closed_at else None,
+            }
+        finally:
+            db.close()
+
+    def get_all_closings(self) -> List[Dict]:
+        """Get all month closings ordered by date desc"""
+        db = next(get_db())
+        try:
+            closings = db.query(MonthClosing).order_by(
+                MonthClosing.year.desc(), MonthClosing.month.desc()
+            ).all()
+            return [{
+                'id': c.id,
+                'year': c.year,
+                'month': c.month,
+                'total_ingresos': c.total_ingresos,
+                'total_gastos': c.total_gastos,
+                'balance': c.balance,
+                'carry_over_transaction_id': c.carry_over_transaction_id,
+                'closed_by': c.closed_by,
+                'closed_at': c.closed_at.isoformat() if c.closed_at else None,
+            } for c in closings]
+        finally:
+            db.close()
+
+    def calculate_month_balance(self, year: int, month: int, cc_purchases_total: float = 0.0) -> Dict:
+        """Calculate ingresos, gastos, and balance for a month without closing it"""
+        db = next(get_db())
+        try:
+            month_prefix = f"{year}-{month:02d}"
+            ingresos = float(db.query(
+                func.coalesce(func.sum(DBTransaction.amount), 0)
+            ).filter(
+                DBTransaction.date.like(f"{month_prefix}%"),
+                DBTransaction.type == 'Ingreso'
+            ).scalar())
+            gastos_txn = float(db.query(
+                func.coalesce(func.sum(DBTransaction.amount), 0)
+            ).filter(
+                DBTransaction.date.like(f"{month_prefix}%"),
+                DBTransaction.type == 'Gasto'
+            ).scalar())
+            total_gastos = gastos_txn + cc_purchases_total
+            balance = round(ingresos - total_gastos, 2)
+            return {'total_ingresos': ingresos, 'total_gastos': total_gastos, 'balance': balance}
+        finally:
+            db.close()
+
+    def close_month(self, year: int, month: int, closed_by: str, cc_purchases_total: float = 0.0) -> Dict:
+        """
+        Close a month: calculate balance and create carry-over transaction in next month.
+        If the month is already closed, it will be reopened and re-closed.
+        """
+        db = next(get_db())
+        try:
+            # If already closed, reopen first (delete old closing + carry-over)
+            existing = db.query(MonthClosing).filter(
+                MonthClosing.year == year,
+                MonthClosing.month == month
+            ).first()
+            if existing:
+                if existing.carry_over_transaction_id:
+                    old_txn = db.query(DBTransaction).filter(
+                        DBTransaction.id == existing.carry_over_transaction_id
+                    ).first()
+                    if old_txn:
+                        db.delete(old_txn)
+                db.delete(existing)
+                db.flush()
+                logger.info(f"🔄 Re-cerrando mes {month}/{year} (cierre anterior eliminado)")
+
+            month_prefix = f"{year}-{month:02d}"
+            
+            ingresos = db.query(
+                func.coalesce(func.sum(DBTransaction.amount), 0)
+            ).filter(
+                DBTransaction.date.like(f"{month_prefix}%"),
+                DBTransaction.type == 'Ingreso'
+            ).scalar()
+            ingresos = float(ingresos)
+
+            gastos_txn = db.query(
+                func.coalesce(func.sum(DBTransaction.amount), 0)
+            ).filter(
+                DBTransaction.date.like(f"{month_prefix}%"),
+                DBTransaction.type == 'Gasto'
+            ).scalar()
+            gastos_txn = float(gastos_txn)
+
+            total_gastos = gastos_txn + cc_purchases_total
+            balance = round(ingresos - total_gastos, 2)
+
+            # Determine next month
+            if month == 12:
+                next_month, next_year = 1, year + 1
+            else:
+                next_month, next_year = month + 1, year
+
+            carry_over_txn_id = None
+            if balance != 0:
+                # Find or create "Saldo mes anterior" category
+                cat = db.query(Category).filter(Category.name == "Saldo mes anterior").first()
+                if not cat:
+                    cat = Category(name="Saldo mes anterior")
+                    db.add(cat)
+                    db.flush()
+
+                # Transaction type: Ingreso if positive balance, Gasto if negative
+                txn_type = 'Ingreso' if balance > 0 else 'Gasto'
+                txn_amount = abs(balance)
+                next_date = f"{next_year}-{next_month:02d}-01"
+
+                carry_over_txn = DBTransaction(
+                    timestamp=datetime.utcnow(),
+                    date=next_date,
+                    type=txn_type,
+                    category_id=cat.id,
+                    amount=txn_amount,
+                    necessity='Necesario',
+                    payment_method='Cierre de mes',
+                    detail=f"Saldo {MONTH_NAMES[month - 1]} {year}",
+                    assignment_status='ASIGNADA_AUTOMATICA'
+                )
+                db.add(carry_over_txn)
+                db.flush()
+                carry_over_txn_id = carry_over_txn.id
+
+            # Record the closing
+            closing = MonthClosing(
+                year=year,
+                month=month,
+                total_ingresos=ingresos,
+                total_gastos=total_gastos,
+                balance=balance,
+                carry_over_transaction_id=carry_over_txn_id,
+                closed_by=closed_by
+            )
+            db.add(closing)
+            db.commit()
+
+            logger.info(f"✅ Mes {month}/{year} cerrado. Balance: {balance}. Carry-over txn: {carry_over_txn_id}")
+            
+            return {
+                'id': closing.id,
+                'year': year,
+                'month': month,
+                'total_ingresos': ingresos,
+                'total_gastos': total_gastos,
+                'balance': balance,
+                'carry_over_transaction_id': carry_over_txn_id,
+                'closed_by': closed_by,
+                'closed_at': closing.closed_at.isoformat() if closing.closed_at else None,
+            }
+        except ValueError:
+            db.rollback()
+            raise
+        except Exception as e:
+            db.rollback()
+            logger.error(f"❌ Error closing month {month}/{year}: {e}")
+            raise
+        finally:
+            db.close()
+
+    def reopen_month(self, year: int, month: int) -> bool:
+        """Reopen a closed month: delete the closing record and the carry-over transaction"""
+        db = next(get_db())
+        try:
+            closing = db.query(MonthClosing).filter(
+                MonthClosing.year == year,
+                MonthClosing.month == month
+            ).first()
+            if not closing:
+                raise ValueError(f"El mes {month}/{year} no está cerrado")
+
+            # Delete carry-over transaction if it exists
+            if closing.carry_over_transaction_id:
+                txn = db.query(DBTransaction).filter(
+                    DBTransaction.id == closing.carry_over_transaction_id
+                ).first()
+                if txn:
+                    db.delete(txn)
+
+            db.delete(closing)
+            db.commit()
+            logger.info(f"✅ Mes {month}/{year} reabierto")
+            return True
+        except ValueError:
+            db.rollback()
+            raise
+        except Exception as e:
+            db.rollback()
+            logger.error(f"❌ Error reopening month {month}/{year}: {e}")
+            raise
+        finally:
+            db.close()
+
+MONTH_NAMES = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+]
 
 # Create singleton instance
 database_service = DatabaseService()

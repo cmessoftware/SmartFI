@@ -3,11 +3,11 @@ from database.database import (
     CreditCard, CreditCardPurchase, InstallmentPlan, InstallmentScheduleItem,
     CreditCardStatement, CreditCardPayment,
     BudgetItem, DebtStatus, BudgetType, FlowType,
-    Transaction, TransactionType,
+    Transaction, TransactionType, Category,
     InstallmentStatus, StatementStatus, InstallmentPlanType,
-    AppSetting
+    AppSetting, CreditCardPeriodConfig
 )
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from dateutil.relativedelta import relativedelta
 import logging
 
@@ -719,27 +719,139 @@ class CreditCardService:
             BudgetItem.detalle.like(f"%{tag}")
         ).first()
     
-    def _get_gastos_paid_for_period(self, year: int, month: int) -> float:
-        """Sum all expense transactions with category 'Tarjeta de Crédito' in a given month.
-        This reflects actual payments registered through the Gastos module."""
+    def _get_gastos_paid_for_period(self, card_id: int, year: int, month: int) -> float:
+        """Sum expense transactions linked to this card's period BudgetItem.
+        Only counts transactions whose debt_id matches the period budget item for this specific card."""
         from sqlalchemy import func
-        total = self.db.query(func.coalesce(func.sum(Transaction.monto), 0)).filter(
-            Transaction.categoria == "Tarjeta de Crédito",
-            Transaction.tipo == TransactionType.GASTO,
-            Transaction.fecha.like(f"{year}-{month:02d}%")
+        period_budget = self._find_period_budget_item(card_id, year, month)
+        if not period_budget:
+            return 0.0
+        total = self.db.query(func.coalesce(func.sum(Transaction.amount), 0)).filter(
+            Transaction.debt_id == period_budget.id,
+            Transaction.type == TransactionType.GASTO,
         ).scalar()
         return float(total or 0)
 
+    def _get_payment_transactions_for_period(self, card_id: int, year: int, month: int) -> list:
+        """Return individual payment transactions linked to this card's period BudgetItem."""
+        period_budget = self._find_period_budget_item(card_id, year, month)
+        if not period_budget:
+            return []
+        transactions = self.db.query(Transaction).filter(
+            Transaction.debt_id == period_budget.id,
+            Transaction.type == TransactionType.GASTO,
+        ).order_by(Transaction.date.desc()).all()
+        return [
+            {
+                'id': t.id,
+                'date': t.date,
+                'amount': t.amount,
+                'payment_method': t.payment_method,
+                'detail': t.detail,
+            }
+            for t in transactions
+        ]
+
+    def _get_period_config(self, card_id: int, year: int, month: int):
+        """Get period-specific closing_day/due_day, falling back to card defaults."""
+        override = self.db.query(CreditCardPeriodConfig).filter(
+            CreditCardPeriodConfig.card_id == card_id,
+            CreditCardPeriodConfig.year == year,
+            CreditCardPeriodConfig.month == month,
+        ).first()
+        if override:
+            return override.closing_day, override.due_day
+        card = self.db.query(CreditCard).filter(CreditCard.id == card_id).first()
+        return card.closing_day, card.due_day
+
+    def save_period_config(self, card_id: int, year: int, month: int, closing_day: int, due_day: int):
+        """Create or update period-specific closing/due day config."""
+        config = self.db.query(CreditCardPeriodConfig).filter(
+            CreditCardPeriodConfig.card_id == card_id,
+            CreditCardPeriodConfig.year == year,
+            CreditCardPeriodConfig.month == month,
+        ).first()
+        if config:
+            config.closing_day = closing_day
+            config.due_day = due_day
+            config.updated_at = datetime.utcnow()
+        else:
+            config = CreditCardPeriodConfig(
+                card_id=card_id, year=year, month=month,
+                closing_day=closing_day, due_day=due_day,
+            )
+            self.db.add(config)
+        self.db.commit()
+        self.db.refresh(config)
+        return {'closing_day': config.closing_day, 'due_day': config.due_day}
+
+    def get_period_for_date(self, card_id: int, purchase_date_str: str) -> dict:
+        """Given a purchase date, determine which billing period it belongs to.
+        Algorithm: if day >= closing_day → period is next month, else current month."""
+        card = self.db.query(CreditCard).filter(CreditCard.id == card_id).first()
+        if not card:
+            return None
+        purchase_date = date.fromisoformat(purchase_date_str)
+        closing_day = card.closing_day
+        
+        if purchase_date.day >= closing_day:
+            # Belongs to next month's period
+            next_m = purchase_date + relativedelta(months=1)
+            period_year, period_month = next_m.year, next_m.month
+        else:
+            period_year, period_month = purchase_date.year, purchase_date.month
+        
+        # Get period-specific config (may have override)
+        p_closing, p_due = self._get_period_config(card_id, period_year, period_month)
+        period_start, period_end = self._get_period_date_range(p_closing, period_year, period_month)
+        
+        MONTH_NAMES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                       'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+        start_month_name = MONTH_NAMES[period_start.month]
+        end_month_name = MONTH_NAMES[period_end.month]
+        period_label = f"{start_month_name} \u2013 {end_month_name} {period_end.year}"
+        
+        return {
+            'year': period_year,
+            'month': period_month,
+            'period_start': period_start.isoformat(),
+            'period_end': period_end.isoformat(),
+            'period_label': period_label,
+        }
+
+    def _get_period_date_range(self, closing_day: int, year: int, month: int):
+        """Calculate the date range for a billing period based on closing_day.
+        Period M = day after closing of previous month to closing day of month M.
+        Example: closing_day=20, April 2026 → March 21 to April 20.
+        Example: closing_day=29, February 2026 → Jan 30 to Feb 28."""
+        from calendar import monthrange
+        from datetime import date
+
+        # End of period: closing_day of the target month (clamped to last day)
+        last_day = monthrange(year, month)[1]
+        end_day = min(closing_day, last_day)
+        end_date = date(year, month, end_day)
+
+        # Start of period: day after closing_day of previous month
+        prev = date(year, month, 1) - timedelta(days=1)  # last day of prev month
+        prev_last_day = monthrange(prev.year, prev.month)[1]
+        prev_closing_day = min(closing_day, prev_last_day)
+        start_date = date(prev.year, prev.month, prev_closing_day) + timedelta(days=1)
+
+        return start_date, end_date
+
     def _get_standalone_purchases_for_period(self, card_id: int, year: int, month: int):
-        """Get 1-cuota purchases for a given period.
-        Standalone purchases appear in the month they were purchased (same month)."""
-        from sqlalchemy import extract
-        # All 1-cuota purchases in this month (regardless of InstallmentPlan existence)
+        """Get 1-cuota purchases for a given billing period.
+        Uses period-specific closing_day (with card default fallback) for the date range."""
+        closing_day, _ = self._get_period_config(card_id, year, month)
+
+        start_date, end_date = self._get_period_date_range(closing_day, year, month)
+
         return self.db.query(CreditCardPurchase).filter(
             CreditCardPurchase.card_id == card_id,
             CreditCardPurchase.installments == 1,
-            extract('year', CreditCardPurchase.purchase_date) == year,
-            extract('month', CreditCardPurchase.purchase_date) == month,
+            CreditCardPurchase.purchase_date >= start_date,
+            CreditCardPurchase.purchase_date <= end_date,
         ).all()
 
     def _get_purchase_amount_in_ars(self, purchase: CreditCardPurchase) -> float:
@@ -777,7 +889,7 @@ class CreditCardService:
             return
         
         total_due = self._calculate_period_total(card_id, year, month)
-        total_paid = self._get_gastos_paid_for_period(year, month)
+        total_paid = self._get_gastos_paid_for_period(card_id, year, month)
         
         budget_item.monto_total = round(total_due, 2)
         budget_item.monto_pagado = round(total_paid, 2)
@@ -854,13 +966,45 @@ class CreditCardService:
                 total_due += amount_ars
             
             # Paid amount from Gastos module
-            total_paid = self._get_gastos_paid_for_period(year, month)
+            total_paid = self._get_gastos_paid_for_period(card_id, year, month)
+            
+            # Individual payment transactions
+            payment_transactions = self._get_payment_transactions_for_period(card_id, year, month)
             
             # Check if period is registered in budget
             period_budget = self._find_period_budget_item(card_id, year, month)
             
-            # Minimum payment (5% of total due, minimum $1000)
-            minimum_payment = max(round(total_due * 0.05, 2), min(total_due, 1000.0))
+            # Minimum payment: use stored custom value from budget item if available, else 5% default
+            default_minimum = max(round(total_due * 0.05, 2), min(total_due, 1000.0))
+            minimum_payment = default_minimum
+            if period_budget and period_budget.detalle:
+                import re
+                # Match "Pago Mínimo: $150,000" or "(Mín: $150,000)" formats
+                min_match = re.search(r'Pago Mínimo:\s*\$([0-9,.]+)', period_budget.detalle) or \
+                            re.search(r'Mín:\s*\$([0-9,.]+)', period_budget.detalle)
+                if min_match:
+                    try:
+                        minimum_payment = float(min_match.group(1).replace(',', ''))
+                    except ValueError:
+                        pass
+            
+            # Period-specific config (override or card defaults)
+            period_closing_day, period_due_day = self._get_period_config(card_id, year, month)
+            
+            # Calculate full period dates for display
+            period_start, period_end = self._get_period_date_range(period_closing_day, year, month)
+            from calendar import monthrange as mr
+            closing_last = mr(year, month)[1]
+            closing_d = min(period_closing_day, closing_last)
+            closing_date = date(year, month, closing_d)
+            # Due date: due_day of month+1
+            if month == 12:
+                due_y, due_m = year + 1, 1
+            else:
+                due_y, due_m = year, month + 1
+            due_last = mr(due_y, due_m)[1]
+            due_d = min(period_due_day, due_last)
+            due_date_val = date(due_y, due_m, due_d)
             
             return {
                 'card_id': card_id,
@@ -868,11 +1012,18 @@ class CreditCardService:
                 'bank_name': card.bank_name,
                 'year': year,
                 'month': month,
+                'closing_day': period_closing_day,
+                'due_day': period_due_day,
+                'period_start': period_start.isoformat(),
+                'period_end': period_end.isoformat(),
+                'closing_date': closing_date.isoformat(),
+                'due_date': due_date_val.isoformat(),
                 'total_due': round(total_due, 2),
                 'minimum_payment': minimum_payment,
                 'total_paid': round(total_paid, 2),
                 'installment_count': len(items),
                 'installments': items,
+                'payment_transactions': payment_transactions,
                 'budget_registered': period_budget is not None,
                 'budget_item_id': period_budget.id if period_budget else None,
             }
@@ -906,7 +1057,7 @@ class CreditCardService:
             else:
                 budget_amount = total_due
             
-            total_paid = self._get_gastos_paid_for_period(year, month)
+            total_paid = self._get_gastos_paid_for_period(card_id, year, month)
             
             # Determine status
             if total_paid >= budget_amount:
@@ -1019,28 +1170,17 @@ class CreditCardService:
             total_pending += standalone_total
             total_items = len(pending_installments) + len(current_standalone)
             
-            # Next due amount = current month's period total (gastos del mes + cuotas)
-            next_due_amount = None
+            # Next due amount = Total(prev month) - Paid(prev month) + Total(current month)
+            # Formula: unpaid balance from previous period + current period charges
+            prev_date = now - relativedelta(months=1)
+            prev_total = self._calculate_period_total(card_id, prev_date.year, prev_date.month)
+            prev_paid = self._get_gastos_paid_for_period(card_id, prev_date.year, prev_date.month)
             current_period_total = self._calculate_period_total(card_id, current_year, current_month)
-            if current_period_total > 0:
-                next_due_amount = round(current_period_total, 2)
-            else:
-                # Fallback: find the nearest period with data (past or future)
-                # Check pending installments first
-                if pending_installments:
-                    sorted_inst = sorted(pending_installments, key=lambda x: x.due_date)
-                    earliest = sorted_inst[0]
-                    next_due_amount = round(self._calculate_period_total(
-                        card_id, earliest.due_date.year, earliest.due_date.month
-                    ), 2)
-                else:
-                    # Check if there are standalone purchases in recent past months
-                    for months_back in range(1, 4):
-                        prev_date = now - relativedelta(months=months_back)
-                        past_total = self._calculate_period_total(card_id, prev_date.year, prev_date.month)
-                        if past_total > 0:
-                            next_due_amount = round(past_total, 2)
-                            break
+            
+            unpaid_prev = max(0, prev_total - prev_paid)
+            next_due_amount = round(unpaid_prev + current_period_total, 2)
+            if next_due_amount <= 0:
+                next_due_amount = None
             
             return {
                 'id': card.id,
@@ -1060,6 +1200,60 @@ class CreditCardService:
             logger.error(f"❌ Error generating card summary: {e}")
             raise
     
+    def get_monthly_purchases_total(self, year: int, month: int) -> dict:
+        """Get total credit card purchases for a specific month across all cards.
+        Only counts purchases NOT already linked to a transaction (to avoid double-counting)."""
+        try:
+            from sqlalchemy import extract, func
+
+            query = self.db.query(
+                func.coalesce(func.sum(CreditCardPurchase.total_amount), 0)
+            ).filter(
+                extract('year', CreditCardPurchase.purchase_date) == year,
+                extract('month', CreditCardPurchase.purchase_date) == month,
+                CreditCardPurchase.transaction_id.is_(None)
+            )
+
+            # Only ARS purchases (ignore USD for now, they have separate exchange_rate logic)
+            total_ars = self.db.query(
+                func.coalesce(func.sum(CreditCardPurchase.total_amount), 0)
+            ).filter(
+                extract('year', CreditCardPurchase.purchase_date) == year,
+                extract('month', CreditCardPurchase.purchase_date) == month,
+                CreditCardPurchase.transaction_id.is_(None),
+                CreditCardPurchase.currency == 'ARS'
+            ).scalar()
+
+            # USD purchases converted to ARS via amount_in_pesos
+            total_usd_in_pesos = self.db.query(
+                func.coalesce(func.sum(CreditCardPurchase.amount_in_pesos), 0)
+            ).filter(
+                extract('year', CreditCardPurchase.purchase_date) == year,
+                extract('month', CreditCardPurchase.purchase_date) == month,
+                CreditCardPurchase.transaction_id.is_(None),
+                CreditCardPurchase.currency != 'ARS'
+            ).scalar()
+
+            purchase_count = self.db.query(func.count(CreditCardPurchase.id)).filter(
+                extract('year', CreditCardPurchase.purchase_date) == year,
+                extract('month', CreditCardPurchase.purchase_date) == month,
+                CreditCardPurchase.transaction_id.is_(None)
+            ).scalar()
+
+            total = float(total_ars) + float(total_usd_in_pesos)
+
+            return {
+                'year': year,
+                'month': month,
+                'total_ars': float(total_ars),
+                'total_usd_in_pesos': float(total_usd_in_pesos),
+                'total': round(total, 2),
+                'purchase_count': purchase_count
+            }
+        except Exception as e:
+            logger.error(f"❌ Error fetching monthly purchases total: {e}")
+            raise
+
     def get_purchases_summary(self, card_id: int) -> dict:
         """Get aggregated summary of purchases by description for pie chart"""
         try:

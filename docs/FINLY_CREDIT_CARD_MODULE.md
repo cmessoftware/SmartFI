@@ -5,6 +5,30 @@ Funcionalidades:
 2. Registro del monto total como item de presupuesto para mes siguiente al cierre del resumen.
 3. Calculo de cuotas a futuro para compras en cuotas.
 4. Calculo de montos en ARS para comprar en dolares.
+5. ✅ RESUELTO - Implementar funcionalidad del punto 3 de FINLY_BUDGET_MODULE.md en página Presupuesto.
+6. ✅ RESUELTO — Agregar en Resumen de Tarjeta opción para registrar el pago, indicando monto e item de presupuesto donde será asignado ese pago (simil cuando se carga un gasto desde el módulo de gastos).
+   → Fix: Nuevo botón "💳 Registrar Pago" en la sección Resumen del Período. Abre modal `CreditCardPaymentModal` con: fecha, monto (con shortcuts de pendiente/total), forma de pago, selector de item de presupuesto (pre-selecciona el item del período si existe), y detalle. Crea una transacción tipo Gasto/categoría "Tarjeta de Crédito" asociada al item de presupuesto seleccionado.
+7. Crear opción para registrar gasto de nuevo periodo.
+    Revisión fix 20: No aparece, tampoco el de Registro de Pago minimo, que desapareció..  
+    ![alt text](image-22.png) 
+
+8. ✅ RESUELTO — Agregar opción para editar pago registrado.
+   → Fix: Sección "Pagos Registrados" en Resumen del Período muestra cada pago con botones ✏️ editar y 🗑️ eliminar. El modal `CreditCardPaymentModal` ahora soporta modo edición (pre-llena fecha, monto, forma de pago, detalle). Al guardar actualiza la transacción existente vía `PUT /api/transactions/{id}`. Backend retorna `payment_transactions` en la respuesta de `get_card_period_installments`.
+
+9. Paginar la vista de Compras del periodo s 5 lineas por página.
+
+10. ✅ RESUELTO — Los periodos no son meses calendario, agregar opción de definir rango de fechas del periodo.
+   → Fix: Se implementó `_get_period_date_range()` que calcula el ciclo de facturación real usando `closing_day`. También se creó tabla `credit_card_period_configs` para permitir closing_day y due_day distintos por período. Campos editables "Día Cierre" y "Día Vencimiento" en el Resumen del Período.
+
+11. ✅ RESUELTO — Visualización y manejo de períodos de tarjeta
+   → Fix: Implementación completa (11.1-11.8):
+   - Backend: `get_card_period_installments()` ahora retorna `period_start`, `period_end`, `closing_date`, `due_date`
+   - Backend: Nuevo endpoint `GET /api/credit-cards/{card_id}/period-for-date?purchase_date=YYYY-MM-DD` para determinar el período de una compra
+   - Backend: Nuevo método `get_period_for_date()` en CreditCardService
+   - Frontend: Navegación por períodos muestra "Marzo – Abril 2026" en lugar de solo el mes
+   - Frontend: Bloque de info del período con fechas de inicio/fin, cierre, vencimiento + edición de días
+   - Frontend: PurchaseModal muestra período asignado automáticamente al seleccionar fecha de compra
+   - Se eliminaron los inputs duplicados de Día Cierre/Vencimiento del área de métricas (ahora están en el bloque de período)
 
 
 Bugs Módulo Tarjeta de Crédito
@@ -80,13 +104,13 @@ installHook.js:1 Error deleting debt: AxiosError: Request failed with status cod
 overrideMethod @ installHook.js:1
 </details>
 
-7. ✅ RESUELTO — Prioridad: Alta - El Resumen del pedido debe ser la suma de todas los gastos del periodo.
+1. ✅ RESUELTO — Prioridad: Alta - El Resumen del pedido debe ser la suma de todas los gastos del periodo.
    → Fix: Compras standalone (1 cuota) ahora aparecen en el mes de compra (no desplazadas al mes siguiente).
    El periodo del mes actual suma todos los gastos + cuotas. Abril y subsiguientes solo muestran cuotas de planes.
    El período default al seleccionar tarjeta es el mes actual (no el siguiente).
 ![alt text](image-6.png)
 
-8. ✅ RESUELTO — Prioridad: Alta ![alt text](image-7.png)
+1. ✅ RESUELTO — Prioridad: Alta ![alt text](image-7.png)
    → Fix: `pool_pre_ping=True` en engine para manejar conexiones stale. IntegrityError (nombre duplicado) retorna 409 en vez de 500.
 <details>
    <summary>Bug al crear nueva tarjeta de crédito</summary> 
@@ -154,5 +178,23 @@ overrideMethod @ installHook.js:1
 
     → Fix 3: Botones "Registrar Total" y "Registrar Pago Mínimo" ahora siempre visibles. Se deshabilitan (disabled + gris) cuando `total_due === 0` en el período actual.
 
-17. Implementar funcionalidad del punto 3 de FINLY_BUDGET_MODULE en página Presupuesto.
+17. ✅ RESUELTO — Prioridad Alta - Registré un pago en la Tarjeta Ciudad y figura en ambas
+   → Fix: `_get_gastos_paid_for_period()` ahora filtra por `debt_id` del BudgetItem específico de cada tarjeta/período en lugar de sumar todas las transacciones "Tarjeta de Crédito" del mes. Los pagos ya no se cruzan entre tarjetas.
+![alt text](image-23.png)
 
+18. ✅ RESUELTO — Prioridad Alta - Al presionar "Registrar Pago Minimo" registra el 5% del monto sin tener en cuenta el valor cargado en campo "Pago mínimo".
+   → Fix: `get_card_period_installments` ahora retorna el monto mínimo almacenado en el BudgetItem (extraído del detalle) en vez de recalcular siempre el 5%. Así el campo "Pago mínimo" conserva el valor personalizado tras registrar. Toast ahora muestra el monto registrado para feedback claro.
+    
+19. ✅ RESUELTO — Prioridad Alta - Tarjeta ICBC no registra suma de montos en toast y al cambiar de mes mantiene los mismos gastos en marzo y abril.
+   → Fix: La lista "Compras del Período" hacía fallback a TODAS las compras cuando el período no tenía items (`periodPurchaseIds.size === 0`). Ahora filtra siempre por los `purchase_id` del período, mostrando vacío si el mes no tiene compras. Toast con montos ya corregido en bug 18.
+   Revisión bug 19: Ahora no muestra los gastos registrados para marzo.
+
+20. ✅ RESUELTO — Prioridad Alta - Próximo Pago debe ser Total Resumen (mes anterior) - Pago Registrado (en Registrar Pago) + Suma de gasto del periodo.
+   → Fix: Fórmula en `get_card_summary()` cambiada a: `next_due_amount = max(0, Total(mes anterior) - Pagado(mes anterior)) + Total(mes actual)`. Ahora refleja el saldo impago del período anterior más los cargos del período actual.
+
+21. ✅ RESUELTO — Prioridad Alta - Luego de hacer un registro de pago no aparece el item del nuevo item de presupuesto y tampoco se ve el registro en Gastos.
+   → Fix: Tres cambios: (1) Al registrar pago con "💳 Registrar Pago", si no existe budget item para el período, se auto-crea vía `registerCardPeriodBudget` antes de guardar la transacción. (2) La transacción siempre se crea con `debt_id` apuntando al budget item del período, asegurando que aparezca en Presupuesto. (3) Se pasa `refreshTransactions` a `CreditCardManager` para refrescar la lista principal de gastos tras registrar un pago.
+
+22. ✅ RESUELTO — Verificar seteo de periodo, no veo donde registrar fecha de cierre (inicio) y de vencimiento (fin).
+   → Fix: Los campos "Día Cierre" y "Día Vencimiento" ahora aparecen editables en el Resumen del Período de cada tarjeta. Cada período puede tener valores distintos (tabla `credit_card_period_configs`). Si no se configura un período específico, se usan los valores por defecto de la tarjeta. El ciclo de facturación usa el `closing_day` para determinar el rango real de compras del período (ej: cierre día 20 → período Mar 21 a Abr 20). Endpoint: `PUT /api/credit-cards/{id}/period-config`.
+    

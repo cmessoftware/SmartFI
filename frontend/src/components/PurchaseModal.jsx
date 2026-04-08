@@ -19,6 +19,7 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
   const [formData, setFormData] = useState(getDefaultFormData());
   const [loading, setLoading] = useState(false);
   const [exchangeRate, setExchangeRate] = useState(null);
+  const [assignedPeriod, setAssignedPeriod] = useState(null);
 
   useEffect(() => {
     if (purchase) {
@@ -43,6 +44,16 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
         .catch(() => setExchangeRate(null));
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen && card?.id && formData.purchase_date) {
+      creditCardAPI.getPeriodForDate(card.id, formData.purchase_date)
+        .then(res => setAssignedPeriod(res.data))
+        .catch(() => setAssignedPeriod(null));
+    } else {
+      setAssignedPeriod(null);
+    }
+  }, [isOpen, card?.id, formData.purchase_date]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -120,6 +131,7 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
   const handleClose = () => {
     if (loading) return;
     setFormData(getDefaultFormData());
+    setAssignedPeriod(null);
     onClose();
   };
 
@@ -243,6 +255,11 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent"
                 required
               />
+              {assignedPeriod && (
+                <p className="text-xs text-indigo-600 mt-1">
+                  📅 Período asignado: {assignedPeriod.period_label}
+                </p>
+              )}
             </div>
 
             {/* Número de Cuotas */}

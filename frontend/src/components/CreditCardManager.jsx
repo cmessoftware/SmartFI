@@ -7,8 +7,10 @@ import EditCreditCardModal from './EditCreditCardModal';
 import PurchaseModal from './PurchaseModal';
 import InstallmentScheduleModal from './InstallmentScheduleModal';
 import CreditCardCSVImport from './CreditCardCSVImport';
+import CreditCardPaymentModal from './CreditCardPaymentModal';
+import { transactionsAPI } from '../services/api';
 
-export default function CreditCardManager({ canEdit, isAdmin = false, setCurrentView }) {
+export default function CreditCardManager({ canEdit, isAdmin = false, setCurrentView, refreshTransactions }) {
   const [cards, setCards] = useState([]);
   const [selectedCard, setSelectedCard] = useState(null);
   const [cardSummary, setCardSummary] = useState(null);
@@ -29,6 +31,9 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
   const [deletePurchaseDialog, setDeletePurchaseDialog] = useState({ isOpen: false, purchaseId: null, purchaseName: '' });
   const [csvImportOpen, setCsvImportOpen] = useState(false);
   const [summaryView, setSummaryView] = useState(false);
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [editingPayment, setEditingPayment] = useState(null);
+  const [deletePaymentDialog, setDeletePaymentDialog] = useState({ isOpen: false, paymentId: null });
   const [purchasesSummary, setPurchasesSummary] = useState(null);
   const [periodData, setPeriodData] = useState(null);
   const [periodYear, setPeriodYear] = useState(null);
@@ -321,8 +326,12 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
     try {
       const minPaymentValue = parseFloat(minimumPayment) || 0;
       const result = await creditCardAPI.registerCardPeriodBudget(selectedCard.id, periodYear, periodMonth, paymentType, minPaymentValue);
-      const msg = paymentType === 'minimum' ? 'Pago mínimo registrado' : 'Período registrado en presupuesto';
-      toast.success(result.data.action === 'created' ? msg : 'Presupuesto del período actualizado');
+      const monto = result.data.monto_total;
+      const montoFmt = monto ? ` (${formatCurrency(monto)})` : '';
+      const msg = paymentType === 'minimum'
+        ? `Pago mínimo registrado${montoFmt}`
+        : `Período registrado en presupuesto${montoFmt}`;
+      toast.success(result.data.action === 'created' ? msg : `Presupuesto del período actualizado${montoFmt}`);
       await loadPeriodData(selectedCard.id, periodYear, periodMonth);
     } catch (error) {
       const detail = error.response?.data?.detail || 'Error al registrar presupuesto del período';
@@ -379,7 +388,7 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
   const periodPurchaseIds = new Set(
     (periodData?.installments || []).map(item => item.purchase_id).filter(Boolean)
   );
-  const filteredPurchases = periodPurchaseIds.size > 0
+  const filteredPurchases = periodData
     ? cardPurchases.filter(p => periodPurchaseIds.has(p.id))
     : cardPurchases;
 
@@ -535,76 +544,206 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
         {/* Period Budget Registration */}
         {periodData && (
           <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
-            <div className="flex justify-between items-center mb-4">
+            {/* Period Navigation & Header */}
+            <div className="flex justify-between items-start mb-4">
               <h3 className="text-lg font-bold text-gray-800">📅 Resumen del Período</h3>
               <div className="flex items-center gap-2">
-                <button onClick={() => handlePeriodChange(-1)} className="p-1 hover:bg-gray-100 rounded text-gray-600">◀</button>
-                <span className="font-semibold text-gray-700 min-w-[140px] text-center capitalize">
-                  {new Date(periodYear, periodMonth - 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
-                </span>
-                <button onClick={() => handlePeriodChange(1)} className="p-1 hover:bg-gray-100 rounded text-gray-600">▶</button>
+                <button onClick={() => handlePeriodChange(-1)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600 text-lg">◀</button>
+                <div className="text-center min-w-[220px]">
+                  <span className="font-bold text-gray-800 text-lg">
+                    {periodData.period_start && periodData.period_end
+                      ? (() => {
+                          const ps = new Date(periodData.period_start + 'T12:00:00');
+                          const pe = new Date(periodData.period_end + 'T12:00:00');
+                          const startMonth = ps.toLocaleDateString('es-ES', { month: 'long' });
+                          const endMonth = pe.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+                          return `${startMonth.charAt(0).toUpperCase() + startMonth.slice(1)} – ${endMonth.charAt(0).toUpperCase() + endMonth.slice(1)}`;
+                        })()
+                      : new Date(periodYear, periodMonth - 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
+                    }
+                  </span>
+                </div>
+                <button onClick={() => handlePeriodChange(1)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600 text-lg">▶</button>
               </div>
             </div>
-            <div className="flex items-center justify-between flex-wrap gap-4">
-              <div className="flex gap-6">
-                <div>
-                  <p className="text-sm text-gray-500">Total Resumen</p>
-                  <p className="text-2xl font-bold text-gray-800">{formatCurrency(periodData.total_due)}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Pago Mínimo</p>
-                  <input
-                    type="number"
-                    value={minimumPayment}
-                    onChange={(e) => setMinimumPayment(e.target.value)}
-                    className="w-40 text-lg font-bold text-orange-500 border border-orange-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-orange-400"
-                    placeholder="Monto mínimo"
-                  />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Pagado (Gastos)</p>
-                  <p className={`text-2xl font-bold ${periodData.total_paid > 0 ? 'text-green-600' : 'text-gray-400'}`}>{formatCurrency(periodData.total_paid)}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Pendiente</p>
-                  <p className={`text-2xl font-bold ${(periodData.total_due - periodData.total_paid) > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                    {formatCurrency(Math.max(0, periodData.total_due - periodData.total_paid))}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Items</p>
-                  <p className="text-2xl font-bold text-indigo-600">{periodData.installment_count}</p>
+
+            {/* Period Info Block (11.8) */}
+            {periodData.period_start && (
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 mb-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <p className="text-indigo-400 text-xs font-medium uppercase">Período</p>
+                    <p className="font-semibold text-indigo-800">
+                      {new Date(periodData.period_start + 'T12:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}
+                      {' → '}
+                      {new Date(periodData.period_end + 'T12:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-indigo-400 text-xs font-medium uppercase">Cierre</p>
+                    <p className="font-semibold text-indigo-800">
+                      {new Date(periodData.closing_date + 'T12:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-indigo-400 text-xs font-medium uppercase">Vencimiento</p>
+                    <p className="font-semibold text-indigo-800">
+                      {new Date(periodData.due_date + 'T12:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </p>
+                  </div>
+                  <div className="flex gap-4">
+                    <div>
+                      <p className="text-indigo-400 text-xs font-medium uppercase">Día Cierre</p>
+                      <input
+                        type="number"
+                        value={periodData.closing_day || ''}
+                        onChange={async (e) => {
+                          const val = parseInt(e.target.value);
+                          if (val >= 1 && val <= 31) {
+                            try {
+                              await creditCardAPI.updatePeriodConfig(selectedCard.id, periodYear, periodMonth, val, periodData.due_day);
+                              await loadPeriodData(selectedCard.id, periodYear, periodMonth);
+                              toast.success('Día de cierre actualizado');
+                            } catch (err) { toast.error('Error al actualizar día de cierre'); }
+                          }
+                        }}
+                        min="1" max="31"
+                        className="w-16 text-sm font-bold text-indigo-800 border border-indigo-300 rounded px-2 py-0.5 text-center focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                      />
+                    </div>
+                    <div>
+                      <p className="text-indigo-400 text-xs font-medium uppercase">Día Venc.</p>
+                      <input
+                        type="number"
+                        value={periodData.due_day || ''}
+                        onChange={async (e) => {
+                          const val = parseInt(e.target.value);
+                          if (val >= 1 && val <= 31) {
+                            try {
+                              await creditCardAPI.updatePeriodConfig(selectedCard.id, periodYear, periodMonth, periodData.closing_day, val);
+                              await loadPeriodData(selectedCard.id, periodYear, periodMonth);
+                              toast.success('Día de vencimiento actualizado');
+                            } catch (err) { toast.error('Error al actualizar día de vencimiento'); }
+                          }
+                        }}
+                        min="1" max="31"
+                        className="w-16 text-sm font-bold text-indigo-800 border border-indigo-300 rounded px-2 py-0.5 text-center focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
-              {canEdit && (
-                <div className="flex flex-col gap-2">
-                  <button
-                    onClick={() => handleRegisterPeriodBudget('total')}
-                    disabled={periodData.total_due === 0}
-                    className={`px-5 py-2.5 rounded-lg font-medium transition-colors shadow-md text-sm ${
-                      periodData.total_due === 0
-                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
-                        : periodData.budget_registered
-                          ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 border border-indigo-300'
-                          : 'bg-finly-primary hover:bg-finly-primary-dark text-white'
-                    }`}
-                  >
-                    {periodData.budget_registered ? '🔄 Actualizar Total' : '📋 Registrar Total'}
-                  </button>
-                  <button
-                    onClick={() => handleRegisterPeriodBudget('minimum')}
-                    disabled={periodData.total_due === 0}
-                    className={`px-5 py-2.5 rounded-lg font-medium transition-colors shadow-md text-sm ${
-                      periodData.total_due === 0
-                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
-                        : 'bg-orange-100 text-orange-700 hover:bg-orange-200 border border-orange-300'
-                    }`}
-                  >
-                    📋 Registrar Pago Mínimo
-                  </button>
-                </div>
-              )}
+            )}
+
+            <div className="flex flex-wrap gap-6 mb-4">
+              <div>
+                <p className="text-sm text-gray-500">Total Resumen</p>
+                <p className="text-2xl font-bold text-gray-800">{formatCurrency(periodData.total_due)}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Pago Mínimo</p>
+                <input
+                  type="number"
+                  value={minimumPayment}
+                  onChange={(e) => setMinimumPayment(e.target.value)}
+                  className="w-40 text-lg font-bold text-orange-500 border border-orange-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  placeholder="Monto mínimo"
+                />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Pagado (Gastos)</p>
+                <p className={`text-2xl font-bold ${periodData.total_paid > 0 ? 'text-green-600' : 'text-gray-400'}`}>{formatCurrency(periodData.total_paid)}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Pendiente</p>
+                <p className={`text-2xl font-bold ${(periodData.total_due - periodData.total_paid) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                  {formatCurrency(Math.max(0, periodData.total_due - periodData.total_paid))}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Items</p>
+                <p className="text-2xl font-bold text-indigo-600">{periodData.installment_count}</p>
+              </div>
             </div>
+            {canEdit && (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => handleRegisterPeriodBudget('total')}
+                  disabled={periodData.total_due === 0}
+                  className={`px-5 py-2.5 rounded-lg font-medium transition-colors shadow-md text-sm ${
+                    periodData.total_due === 0
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                      : periodData.budget_registered
+                        ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 border border-indigo-300'
+                        : 'bg-finly-primary hover:bg-finly-primary-dark text-white'
+                  }`}
+                >
+                  {periodData.budget_registered ? '🔄 Actualizar Total' : '📋 Registrar Total'}
+                </button>
+                <button
+                  onClick={() => handleRegisterPeriodBudget('minimum')}
+                  disabled={periodData.total_due === 0}
+                  className={`px-5 py-2.5 rounded-lg font-medium transition-colors shadow-md text-sm ${
+                    periodData.total_due === 0
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                      : 'bg-orange-100 text-orange-700 hover:bg-orange-200 border border-orange-300'
+                  }`}
+                >
+                  📋 Registrar Pago Mínimo
+                </button>
+                <button
+                  onClick={() => setPaymentModalOpen(true)}
+                  disabled={periodData.total_due === 0}
+                  className={`px-5 py-2.5 rounded-lg font-medium transition-colors shadow-md text-sm ${
+                    periodData.total_due === 0
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                      : 'bg-green-100 text-green-700 hover:bg-green-200 border border-green-300'
+                  }`}
+                >
+                  💳 Registrar Pago
+                </button>
+              </div>
+            )}
+
+            {/* Pagos Registrados */}
+            {periodData.payment_transactions && periodData.payment_transactions.length > 0 && (
+              <div className="mt-4 border-t pt-4">
+                <h4 className="text-sm font-semibold text-gray-600 mb-2">Pagos Registrados</h4>
+                <div className="space-y-2">
+                  {periodData.payment_transactions.map((pmt) => (
+                    <div key={pmt.id} className="flex items-center justify-between bg-green-50 rounded-lg px-4 py-2">
+                      <div className="flex items-center gap-4">
+                        <span className="text-sm text-gray-500">{pmt.date}</span>
+                        <span className="font-semibold text-green-700">{formatCurrency(pmt.amount)}</span>
+                        <span className="text-xs text-gray-500">{pmt.payment_method}</span>
+                        {pmt.detail && <span className="text-xs text-gray-400 truncate max-w-[200px]">{pmt.detail}</span>}
+                      </div>
+                      {canEdit && (
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => {
+                              setEditingPayment(pmt);
+                              setPaymentModalOpen(true);
+                            }}
+                            className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
+                            title="Editar pago"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            onClick={() => setDeletePaymentDialog({ isOpen: true, paymentId: pmt.id })}
+                            className="p-1.5 text-red-600 hover:bg-red-100 rounded-lg transition-colors"
+                            title="Eliminar pago"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1053,6 +1192,91 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
           onClose={() => setCsvImportOpen(false)}
         />
       )}
+
+      <CreditCardPaymentModal
+        isOpen={paymentModalOpen}
+        onClose={() => {
+          setPaymentModalOpen(false);
+          setEditingPayment(null);
+        }}
+        onSubmit={async (transaction, isEditing) => {
+          try {
+            let itemId = periodData?.budget_item_id;
+
+            // Auto-create budget item if it doesn't exist yet
+            if (!itemId && !isEditing) {
+              const minPaymentValue = parseFloat(minimumPayment) || 0;
+              const result = await creditCardAPI.registerCardPeriodBudget(
+                selectedCard.id, periodYear, periodMonth, 'total', minPaymentValue
+              );
+              itemId = result.data.budget_item_id;
+            }
+
+            // Ensure debt_id is set to link payment to budget item
+            if (itemId && !transaction.debt_id) {
+              transaction.debt_id = itemId;
+            }
+
+            if (isEditing) {
+              const { id, ...data } = transaction;
+              await transactionsAPI.updateTransaction(id, data);
+              toast.success('Pago actualizado correctamente');
+            } else {
+              await transactionsAPI.saveTransaction(transaction);
+              toast.success('Pago registrado correctamente');
+            }
+
+            // Update budget item totals after payment
+            if (itemId) {
+              const minPaymentValue = parseFloat(minimumPayment) || 0;
+              await creditCardAPI.registerCardPeriodBudget(
+                selectedCard.id, periodYear, periodMonth, 'total', minPaymentValue
+              );
+            }
+
+            setPaymentModalOpen(false);
+            setEditingPayment(null);
+            if (selectedCard) {
+              await loadPeriodData(selectedCard.id, periodYear, periodMonth);
+              await loadCardSummary(selectedCard.id);
+            }
+            // Refresh main transaction list so payment appears in Gastos
+            if (refreshTransactions) await refreshTransactions();
+          } catch (error) {
+            const detail = error.response?.data?.detail || (isEditing ? 'Error al actualizar el pago' : 'Error al registrar el pago');
+            toast.error(detail);
+          }
+        }}
+        cardName={selectedCard ? `${selectedCard.bank_name} - ${selectedCard.card_name}` : ''}
+        periodYear={periodYear}
+        periodMonth={periodMonth}
+        totalDue={periodData?.total_due || 0}
+        totalPaid={periodData?.total_paid || 0}
+        budgetItemId={periodData?.budget_item_id || null}
+        editingPayment={editingPayment}
+      />
+
+      <ConfirmDialog
+        isOpen={deletePaymentDialog.isOpen}
+        title="Eliminar Pago"
+        message="¿Estás seguro de que quieres eliminar este pago registrado?"
+        confirmText="Eliminar"
+        cancelText="Cancelar"
+        onConfirm={async () => {
+          try {
+            await transactionsAPI.deleteTransaction(deletePaymentDialog.paymentId);
+            toast.success('Pago eliminado correctamente');
+            setDeletePaymentDialog({ isOpen: false, paymentId: null });
+            if (selectedCard) {
+              await loadPeriodData(selectedCard.id, periodYear, periodMonth);
+            }
+          } catch (error) {
+            toast.error('Error al eliminar el pago');
+          }
+        }}
+        onCancel={() => setDeletePaymentDialog({ isOpen: false, paymentId: null })}
+        isDangerous={true}
+      />
 
       <ConfirmDialog
         isOpen={deleteDialog.isOpen}
