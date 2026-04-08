@@ -41,7 +41,8 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
     fecha_vencimiento: '',
     tipo_presupuesto: 'OBLIGATION',
     tipo_flujo: 'Gasto',
-    monto_ejecutado: '0'
+    monto_ejecutado: '0',
+    estimated_payment: ''
   });
 
   const [categories, setCategories] = useState([]);
@@ -73,6 +74,13 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
         ...prev,
         tipo_flujo: value,
         tipo: value === 'Ingreso' ? tiposIngreso[0] : tiposGasto[0]
+      }));
+    } else if (name === 'monto_total') {
+      setFormData(prev => ({
+        ...prev,
+        monto_total: value,
+        // Auto-sync estimated_payment if it was empty or equal to old monto_total
+        estimated_payment: (!prev.estimated_payment || prev.estimated_payment === prev.monto_total) ? value : prev.estimated_payment
       }));
     } else {
       setFormData(prev => ({
@@ -106,7 +114,8 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
         fecha_vencimiento: '',
         tipo_presupuesto: 'OBLIGATION',
         tipo_flujo: 'Gasto',
-        monto_ejecutado: '0'
+        monto_ejecutado: '0',
+        estimated_payment: ''
       });
       
       onSuccess();
@@ -131,7 +140,8 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
       fecha_vencimiento: '',
       tipo_presupuesto: 'OBLIGATION',
       tipo_flujo: 'Gasto',
-      monto_ejecutado: '0'
+      monto_ejecutado: '0',
+      estimated_payment: ''
     });
     onClose();
   };
@@ -237,7 +247,7 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
               >
                 {categories.length > 0 ? (
                   categories.map((category) => (
-                    <option key={category} value={category}>{category}</option>
+                    <option key={category.id || category} value={category.name || category}>{category.name || category}</option>
                   ))
                 ) : (
                   <option value="Otro">Otro</option>
@@ -259,6 +269,23 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
                 placeholder="0.00"
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
                 required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">
+                Monto a Pagar (ARS)
+                <span className="text-xs text-gray-500 ml-2">(por defecto 100% del total)</span>
+              </label>
+              <input
+                type="number"
+                name="estimated_payment"
+                value={formData.estimated_payment}
+                onChange={handleChange}
+                step="0.01"
+                min="0"
+                placeholder={formData.monto_total || '0.00'}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
               />
             </div>
 

@@ -219,8 +219,16 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
   }, [filteredAndSortedTransactions]);
 
   const presupuestoVsAsignadoData = useMemo(() => {
+    // Filtrar presupuestos por mes/año seleccionado
+    const filteredDebts = debts.filter(debt => {
+      const iso = toISODate(debt.fecha_vencimiento || debt.fecha);
+      if (!iso) return false;
+      const [year, month] = iso.split('-').map(Number);
+      return year === filterYear && month === filterMonth;
+    });
+
     // Agrupar presupuestos por categoría
-    const categoriaGroups = debts.reduce((acc, debt) => {
+    const categoriaGroups = filteredDebts.reduce((acc, debt) => {
       const cat = debt.categoria || 'Sin categoría';
       if (!acc[cat]) {
         acc[cat] = {
@@ -258,7 +266,7 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
         }
       ]
     };
-  }, [debts]);
+  }, [debts, filterMonth, filterYear]);
 
   const stats = useMemo(() => {
     const ingresos = filteredAndSortedTransactions

@@ -221,7 +221,7 @@ function TransactionForm({ addTransaction }) {
               // Filtrar deudas por el mes de la transacción (Mejora 4)
               const txMonth = formData.date ? formData.date.substring(0, 7) : ''; // YYYY-MM
               const debtsForMonth = txMonth
-                ? debts.filter(d => d.fecha && d.fecha.substring(0, 7) === txMonth)
+                ? debts.filter(d => d.fecha_vencimiento && d.fecha_vencimiento.substring(0, 7) === txMonth)
                 : debts;
               return debtsForMonth.length > 0 && (
               <div className="md:col-span-2">

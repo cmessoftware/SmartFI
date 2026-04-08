@@ -25,6 +25,7 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
     'Inversiones',
     'Freelance',
     'Ventas',
+    'Reintegros',
     'Otro'
   ];
   
@@ -37,7 +38,8 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
     fecha_vencimiento: '',
     tipo_presupuesto: 'OBLIGATION',
     tipo_flujo: 'Gasto',
-    monto_ejecutado: '0'
+    monto_ejecutado: '0',
+    estimated_payment: ''
   });
 
   useEffect(() => {
@@ -51,7 +53,8 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
         fecha_vencimiento: toISODate(debt.fecha_vencimiento) || '',
         tipo_presupuesto: debt.tipo_presupuesto || 'OBLIGATION',
         tipo_flujo: debt.tipo_flujo || 'Gasto',
-        monto_ejecutado: (debt.monto_ejecutado || debt.monto_pagado || 0).toString()
+        monto_ejecutado: (debt.monto_ejecutado || debt.monto_pagado || 0).toString(),
+        estimated_payment: (debt.estimated_payment != null ? debt.estimated_payment : debt.monto_total).toString()
       });
     }
   }, [debt]);
@@ -65,6 +68,12 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
         ...formData,
         tipo_flujo: value,
         tipo: value === 'Ingreso' ? tiposIngreso[0] : tiposGasto[0]
+      });
+    } else if (name === 'monto_total') {
+      setFormData({
+        ...formData,
+        monto_total: value,
+        estimated_payment: (!formData.estimated_payment || formData.estimated_payment === formData.monto_total) ? value : formData.estimated_payment
       });
     } else {
       setFormData({
@@ -84,7 +93,8 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
     onSave({
       ...formData,
       monto_total: parseFloat(formData.monto_total),
-      monto_ejecutado: parseFloat(formData.monto_ejecutado)
+      monto_ejecutado: parseFloat(formData.monto_ejecutado),
+      estimated_payment: formData.estimated_payment ? parseFloat(formData.estimated_payment) : parseFloat(formData.monto_total)
     });
   };
 
@@ -159,7 +169,7 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
               >
                 {categories && categories.length > 0 ? (
                   categories.map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
+                    <option key={cat.id || cat} value={cat.name || cat}>{cat.name || cat}</option>
                   ))
                 ) : (
                   <>
@@ -187,6 +197,24 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
                 step="0.01"
                 min="0"
                 required
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
+              />
+            </div>
+
+            {/* Monto a Pagar */}
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">
+                Monto a Pagar
+                <span className="text-xs text-gray-500 ml-2">(por defecto 100% del total)</span>
+              </label>
+              <input
+                type="number"
+                name="estimated_payment"
+                value={formData.estimated_payment}
+                onChange={handleChange}
+                step="0.01"
+                min="0"
+                placeholder={formData.monto_total || '0.00'}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
               />
             </div>

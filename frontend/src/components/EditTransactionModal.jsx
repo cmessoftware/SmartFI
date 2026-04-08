@@ -48,7 +48,7 @@ function EditTransactionModal({ transaction, onSave, onClose, categories, necess
   // Filtrar debts por el mes de la transacción (Mejora 4)
   const txMonth = formData.date ? formData.date.substring(0, 7) : ''; // YYYY-MM
   const debtsForMonth = txMonth
-    ? debts.filter(d => d.fecha && d.fecha.substring(0, 7) === txMonth)
+    ? debts.filter(d => d.fecha_vencimiento && d.fecha_vencimiento.substring(0, 7) === txMonth)
     : debts;
 
   // Filtrar debts por tipo de flujo coincidente

@@ -115,20 +115,42 @@ function AdminPanel() {
     setShowModal(false);
   };
 
-  const handleAddCategory = (e) => {
+  const handleAddCategory = async (e) => {
     e.preventDefault();
     const catName = newCategory.trim();
-    if (catName && !categories.some(c => (c.name || c) === catName)) {
-      setCategories([...categories, { id: Date.now(), name: catName }].sort((a, b) => (a.name || a).localeCompare(b.name || b)));
+    if (!catName) return;
+    if (categories.some(c => (c.name || c) === catName)) {
+      toast.warning('La categoría ya existe');
+      return;
+    }
+    try {
+      const response = await transactionsAPI.createCategory(catName);
+      setCategories([...categories, response.data].sort((a, b) => (a.name || a).localeCompare(b.name || b)));
       setNewCategory('');
+      toast.success('Categoría creada correctamente');
+    } catch (error) {
+      const detail = error.response?.data?.detail || 'Error al crear la categoría';
+      toast.error(detail);
     }
   };
 
-  const handleDeleteCategory = (category) => {
+  const handleDeleteCategory = async (category) => {
     const catName = category.name || category;
-    if (confirm(`¿Estás seguro de eliminar la categoría "${catName}"?`)) {
-      setCategories(categories.filter(c => (c.name || c) !== catName));
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Eliminar Categoría',
+      message: `¿Estás seguro de eliminar la categoría "${catName}"?`,
+      onConfirm: async () => {
+        try {
+          await transactionsAPI.deleteCategory(category.id);
+          setCategories(categories.filter(c => (c.id || c) !== (category.id || category)));
+          toast.success('Categoría eliminada correctamente');
+        } catch (error) {
+          const detail = error.response?.data?.detail || 'Error al eliminar la categoría';
+          toast.error(detail);
+        }
+      }
+    });
   };
 
   return (

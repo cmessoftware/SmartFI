@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from typing import Optional, List
@@ -137,19 +137,20 @@ class Debt(BaseModel):
     tipo_presupuesto: Optional[str] = "OBLIGATION"
     tipo_flujo: Optional[str] = "Gasto"
     monto_ejecutado: Optional[float] = 0.0
+    estimated_payment: Optional[float] = None
 
 class Transaction(BaseModel):
     id: Optional[int] = None
-    marca_temporal: Optional[str] = None
-    fecha: str
-    tipo: str
-    categoria: str
-    monto: float
-    necesidad: str
-    forma_pago: str = "Débito"
-    detalle: str
-    debt_id: Optional[int] = None  # Nueva relación con deuda
-    estado_asignacion: Optional[str] = "ASIGNADA_MANUAL"  # Estado de asignación automática/manual
+    timestamp: Optional[str] = None
+    date: str
+    type: str
+    category: str
+    amount: float
+    necessity: str
+    payment_method: str = "Débito"
+    detail: str = ""
+    debt_id: Optional[int] = None
+    assignment_status: Optional[str] = "ASIGNADA_MANUAL"
 
 class CloneMonthRequest(BaseModel):
     source_month: int  # 1-12
@@ -315,6 +316,25 @@ async def get_categories(current_user: User = Depends(get_current_user)):
         return cats
     return []
 
+@app.post("/api/categories")
+async def create_category(data: dict, current_user: User = Depends(require_role(["admin"]))):
+    name = (data.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="El nombre de la categoría es requerido")
+    try:
+        cat = database_service.add_category(name)
+        return cat
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+@app.delete("/api/categories/{category_id}")
+async def delete_category(category_id: int, current_user: User = Depends(require_role(["admin"]))):
+    try:
+        database_service.delete_category(category_id)
+        return {"message": "Categoría eliminada"}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
 @app.get("/api/transaction-types")
 async def get_transaction_types(current_user: User = Depends(get_current_user)):
     return ["Gasto", "Ingreso"]
@@ -323,10 +343,32 @@ async def get_transaction_types(current_user: User = Depends(get_current_user)):
 async def get_necessity_types(current_user: User = Depends(get_current_user)):
     return ["Necesario", "Superfluo", "Importante pero no urgente"]
 
+# Background task helpers for Google Sheets sync
+def _sync_transaction_to_sheets(transaction_data: dict):
+    """Sync a single transaction to Google Sheets in background"""
+    try:
+        if sheets_service:
+            success = sheets_service.add_transaction(transaction_data)
+            if success:
+                print(f"✅ Transaction also saved to Google Sheets (backup)")
+    except Exception as e:
+        print(f"⚠️ Could not save to Google Sheets backup: {e}")
+
+def _sync_transactions_batch_to_sheets(transactions: list):
+    """Sync a batch of transactions to Google Sheets in background"""
+    try:
+        if sheets_service:
+            success = sheets_service.add_transactions_batch(transactions)
+            if success:
+                print(f"✅ {len(transactions)} transactions also saved to Google Sheets (backup)")
+    except Exception as e:
+        print(f"⚠️ Could not save imported transactions to Google Sheets backup: {e}")
+
 # Transaction routes
 @app.post("/api/transactions")
 async def create_transaction(
     transaction: Transaction,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(require_role(["admin", "writer"]))
 ):
     # Save to PostgreSQL (primary storage)
@@ -345,22 +387,15 @@ async def create_transaction(
             import traceback
             traceback.print_exc()
     
-    # Also save to Google Sheets as backup if configured
-    sheets_success = False
+    # Schedule Google Sheets backup in background (non-blocking)
     if sheets_service and transaction_id:
-        try:
-            sheets_success = sheets_service.add_transaction(transaction.dict())
-            if sheets_success:
-                print(f"✅ Transaction also saved to Google Sheets (backup)")
-        except Exception as e:
-            print(f"⚠️ Could not save to Google Sheets backup: {e}")
+        background_tasks.add_task(_sync_transaction_to_sheets, transaction.dict())
     
     if transaction_id:
         return {
             "message": "Transaction created successfully",
             "transaction": transaction,
-            "id": transaction_id,
-            "saved_to_sheets": sheets_success
+            "id": transaction_id
         }
     else:
         detail_msg = f"Failed to save transaction: {error_detail}" if error_detail else "Failed to save transaction"
@@ -369,6 +404,7 @@ async def create_transaction(
 @app.post("/api/transactions/import")
 async def import_transactions(
     transactions: List[Transaction],
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(require_role(["admin", "writer"]))
 ):
     if not database_service:
@@ -390,28 +426,21 @@ async def import_transactions(
         except Exception as e:
             errors.append(f"Fila {index + 1}: {str(e)}")
 
-    # Backup a Google Sheets solo de filas exitosas
-    sheets_success = False
-    if sheets_service and imported_transactions:
-        try:
-            sheets_success = sheets_service.add_transactions_batch(imported_transactions)
-            if sheets_success:
-                print(f"✅ {len(imported_transactions)} transactions also saved to Google Sheets (backup)")
-        except Exception as e:
-            print(f"⚠️ Could not save imported transactions to Google Sheets backup: {e}")
-
     if added_count == 0:
         detail = "No se pudo importar ninguna transacción"
         if errors:
             detail = f"{detail}. {errors[0]}"
         raise HTTPException(status_code=400, detail=detail)
 
+    # Schedule Google Sheets backup in background (non-blocking)
+    if sheets_service and imported_transactions:
+        background_tasks.add_task(_sync_transactions_batch_to_sheets, imported_transactions)
+
     return {
         "message": f"{added_count} transacciones importadas exitosamente",
         "added": added_count,
         "total": len(transactions),
-        "errors": errors if errors else None,
-        "saved_to_sheets": sheets_success
+        "errors": errors if errors else None
     }
 
 @app.get("/api/transactions")
@@ -776,7 +805,11 @@ async def update_transaction(
             
             return {"message": "Transaction updated successfully", "transaction": transaction}
         else:
-            raise HTTPException(status_code=404, detail="Transaction not found")
+            raise HTTPException(status_code=404, detail="Transacción no encontrada")
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         print(f"❌ Error updating transaction: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -930,7 +963,8 @@ async def clone_month_debts(
                         'status': 'PENDIENTE',
                         'tipo_presupuesto': debt.tipo_presupuesto.value if hasattr(debt.tipo_presupuesto, 'value') else debt.tipo_presupuesto,
                         'tipo_flujo': debt.tipo_flujo.value if hasattr(debt.tipo_flujo, 'value') else debt.tipo_flujo,
-                        'monto_ejecutado': 0.0
+                        'monto_ejecutado': 0.0,
+                        'estimated_payment': debt.estimated_payment if debt.estimated_payment is not None else debt.monto_total
                     }
                     
                     new_debt_id = debt_service.add_debt(new_debt_data)
@@ -1307,6 +1341,23 @@ async def get_credit_cards(
         print(f"❌ Error fetching credit cards: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/credit-cards/monthly-purchases-total")
+async def get_monthly_purchases_total(
+    month: int,
+    year: int,
+    current_user: User = Depends(get_current_user)
+):
+    """Get total credit card purchases for a specific month across all cards"""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+
+    try:
+        result = credit_card_service.get_monthly_purchases_total(year, month)
+        return result
+    except Exception as e:
+        print(f"❌ Error fetching monthly purchases total: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/credit-cards/{card_id}")
 async def get_credit_card(
     card_id: int,
@@ -1655,6 +1706,58 @@ async def register_card_period_budget(
         print(f"❌ Error registering period budget: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.put("/api/credit-cards/{card_id}/period-config")
+async def update_period_config(
+    card_id: int,
+    config_data: dict,
+    current_user: User = Depends(require_role(["admin", "writer"]))
+):
+    """Update closing_day and due_day for a specific card period"""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+    
+    year = config_data.get('year')
+    month = config_data.get('month')
+    closing_day = config_data.get('closing_day')
+    due_day = config_data.get('due_day')
+    
+    if not all([year, month, closing_day, due_day]):
+        raise HTTPException(status_code=400, detail="year, month, closing_day, due_day are required")
+    
+    closing_day = int(closing_day)
+    due_day = int(due_day)
+    if not (1 <= closing_day <= 31) or not (1 <= due_day <= 31):
+        raise HTTPException(status_code=400, detail="closing_day and due_day must be between 1 and 31")
+    
+    try:
+        result = credit_card_service.save_period_config(
+            card_id, int(year), int(month), closing_day, due_day
+        )
+        return result
+    except Exception as e:
+        print(f"❌ Error updating period config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/credit-cards/{card_id}/period-for-date")
+async def get_period_for_date(
+    card_id: int,
+    purchase_date: str,
+    current_user: User = Depends(require_role(["admin", "writer", "reader"]))
+):
+    """Given a purchase date, return which billing period it belongs to."""
+    if not credit_card_service:
+        raise HTTPException(status_code=503, detail="Credit Card service not configured")
+    try:
+        result = credit_card_service.get_period_for_date(card_id, purchase_date)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Credit card not found")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error getting period for date: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/credit-cards/{card_id}/import-csv")
 async def bulk_import_credit_card_purchases(
     card_id: int,
@@ -1698,6 +1801,59 @@ async def bulk_import_credit_card_purchases(
         "total": len(purchases),
         "errors": errors if errors else None
     }
+
+# ==================== MONTH CLOSING ENDPOINTS ====================
+
+@app.get("/api/month-closings")
+async def get_all_closings(current_user: User = Depends(get_current_user)):
+    """Get all month closings"""
+    return database_service.get_all_closings()
+
+@app.get("/api/month-closings/{year}/{month}")
+async def get_month_closing(year: int, month: int, current_user: User = Depends(get_current_user)):
+    """Check if a specific month is closed, with stale detection"""
+    closing = database_service.get_month_closing(year, month)
+    if not closing:
+        return {"closed": False, "year": year, "month": month}
+    # Detect if closing is stale (balance changed since close)
+    cc_total = 0.0
+    if credit_card_service:
+        try:
+            cc_data = credit_card_service.get_monthly_purchases_total(year, month)
+            cc_total = cc_data.get('total', 0.0)
+        except Exception:
+            pass
+    current = database_service.calculate_month_balance(year, month, cc_total)
+    is_stale = round(current['balance'], 2) != round(closing['balance'], 2)
+    return {"closed": True, "is_stale": is_stale, "current_balance": current['balance'], **closing}
+
+@app.post("/api/month-closings/{year}/{month}")
+async def close_month(year: int, month: int, current_user: User = Depends(require_role(["admin"]))):
+    """Close (or re-close) a month: calculate balance and create carry-over transaction"""
+    if month < 1 or month > 12:
+        raise HTTPException(status_code=400, detail="Mes inválido")
+    # Get CC purchases total for this month
+    cc_total = 0.0
+    if credit_card_service:
+        try:
+            cc_data = credit_card_service.get_monthly_purchases_total(year, month)
+            cc_total = cc_data.get('total', 0.0)
+        except Exception:
+            pass
+    try:
+        result = database_service.close_month(year, month, current_user.username, cc_total)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+@app.delete("/api/month-closings/{year}/{month}")
+async def reopen_month(year: int, month: int, current_user: User = Depends(require_role(["admin"]))):
+    """Reopen a closed month (delete closing record and carry-over transaction)"""
+    try:
+        database_service.reopen_month(year, month)
+        return {"message": f"Mes {month}/{year} reabierto"}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 # ==================== SETTINGS ENDPOINTS ====================
 
