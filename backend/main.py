@@ -1,27 +1,22 @@
-from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from typing import Optional, List
-from datetime import datetime, timedelta
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-from pydantic import BaseModel
 import os
 import sys
 from dotenv import load_dotenv
-from database.database import SessionLocal, Transaction as DBTransaction, Debt as DBDebt, AppSetting
+
+load_dotenv()
 
 # Fix Windows console encoding for Unicode characters
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8')
 
-load_dotenv()
+from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional, List
+from datetime import datetime, timedelta
+from pydantic import BaseModel
+from database.database import SessionLocal, get_db, Transaction as DBTransaction, Debt as DBDebt, AppSetting, User as DBUser
+from security.auth_dependencies import get_current_user, require_role
 
 # Configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production-min-32-characters")
-ALGORITHM = os.getenv("ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
-
 app = FastAPI(title="Finly API", version="1.0.0")
 
 # Initialize PostgreSQL Database
@@ -105,23 +100,7 @@ async def health_check():
         "sheet_id": sheets_service.sheet_id if sheets_service else None
     }
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
-
-# Models
-class User(BaseModel):
-    username: str
-    role: str
-    full_name: Optional[str] = None
-
-class UserInDB(User):
-    hashed_password: str
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-    user: User
+# Pydantic Models (business domain only — auth models live in security/)
 
 class Debt(BaseModel):
     id: Optional[int] = None
@@ -204,120 +183,42 @@ class CreditCardBulkPurchaseItem(BaseModel):
     interest_rate: Optional[float] = 0.0
     detalle: Optional[str] = None
 
-# Hardcoded users database
-fake_users_db = {
-    "admin": {
-        "username": "admin",
-        "full_name": "Administrador",
-        "role": "admin",
-        "hashed_password": pwd_context.hash("admin123")
-    },
-    "writer": {
-        "username": "writer",
-        "full_name": "Editor",
-        "role": "writer",
-        "hashed_password": pwd_context.hash("writer123")
-    },
-    "reader": {
-        "username": "reader",
-        "full_name": "Lector",
-        "role": "reader",
-        "hashed_password": pwd_context.hash("reader123")
-    }
-}
+# ── Security routers ─────────────────────────────────────────
+from security.auth_router import router as auth_router
+from security.users_router import router as users_router
+from security.roles_router import router as roles_router
 
-# Helper functions
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+app.include_router(auth_router)
+app.include_router(users_router)
+app.include_router(roles_router)
 
-def get_user(username: str):
-    if username in fake_users_db:
-        user_dict = fake_users_db[username]
-        return UserInDB(**user_dict)
-
-def authenticate_user(username: str, password: str):
-    user = get_user(username)
-    if not user:
-        return False
-    if not verify_password(password, user.hashed_password):
-        return False
-    return user
-
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-async def get_current_user(token: str = Depends(oauth2_scheme)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+# ── Seed default data on startup ─────────────────────────────
+@app.on_event("startup")
+def on_startup():
+    from security.seed_data import seed
+    db = SessionLocal()
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
-    user = get_user(username)
-    if user is None:
-        raise credentials_exception
-    return User(username=user.username, role=user.role, full_name=user.full_name)
-
-def require_role(required_roles: List[str]):
-    def role_checker(current_user: User = Depends(get_current_user)):
-        if current_user.role not in required_roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Not enough permissions"
-            )
-        return current_user
-    return role_checker
+        seed(db)
+        print("✅ Security seed data initialized")
+    except Exception as e:
+        print(f"⚠️ Security seed failed: {e}")
+    finally:
+        db.close()
 
 # Routes
 @app.get("/")
 async def root():
     return {"message": "Finly API v1.0.0"}
 
-@app.post("/api/auth/login", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = authenticate_user(form_data.username, form_data.password)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username, "role": user.role}, expires_delta=access_token_expires
-    )
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": User(username=user.username, role=user.role, full_name=user.full_name)
-    }
-
-@app.get("/api/auth/me", response_model=User)
-async def read_users_me(current_user: User = Depends(get_current_user)):
-    return current_user
-
 @app.get("/api/categories")
-async def get_categories(current_user: User = Depends(get_current_user)):
+async def get_categories(current_user: DBUser = Depends(get_current_user)):
     if database_service:
         cats = database_service.get_categories()
         return cats
     return []
 
 @app.post("/api/categories")
-async def create_category(data: dict, current_user: User = Depends(require_role(["admin"]))):
+async def create_category(data: dict, current_user: DBUser = Depends(require_role(["ADMIN"]))):
     name = (data.get("name") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="El nombre de la categoría es requerido")
@@ -328,7 +229,7 @@ async def create_category(data: dict, current_user: User = Depends(require_role(
         raise HTTPException(status_code=409, detail=str(e))
 
 @app.delete("/api/categories/{category_id}")
-async def delete_category(category_id: int, current_user: User = Depends(require_role(["admin"]))):
+async def delete_category(category_id: int, current_user: DBUser = Depends(require_role(["ADMIN"]))):
     try:
         database_service.delete_category(category_id)
         return {"message": "Categoría eliminada"}
@@ -336,11 +237,11 @@ async def delete_category(category_id: int, current_user: User = Depends(require
         raise HTTPException(status_code=404, detail=str(e))
 
 @app.get("/api/transaction-types")
-async def get_transaction_types(current_user: User = Depends(get_current_user)):
+async def get_transaction_types(current_user: DBUser = Depends(get_current_user)):
     return ["Gasto", "Ingreso"]
 
 @app.get("/api/necessity-types")
-async def get_necessity_types(current_user: User = Depends(get_current_user)):
+async def get_necessity_types(current_user: DBUser = Depends(get_current_user)):
     return ["Necesario", "Superfluo", "Importante pero no urgente"]
 
 # Background task helpers for Google Sheets sync
@@ -369,7 +270,7 @@ def _sync_transactions_batch_to_sheets(transactions: list):
 async def create_transaction(
     transaction: Transaction,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     # Save to PostgreSQL (primary storage)
     transaction_id = None
@@ -405,7 +306,7 @@ async def create_transaction(
 async def import_transactions(
     transactions: List[Transaction],
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     if not database_service:
         raise HTTPException(status_code=503, detail="Database not configured")
@@ -444,7 +345,7 @@ async def import_transactions(
     }
 
 @app.get("/api/transactions")
-async def get_transactions(current_user: User = Depends(get_current_user)):
+async def get_transactions(current_user: DBUser = Depends(get_current_user)):
     # Get from PostgreSQL (primary storage)
     if database_service:
         try:
@@ -469,7 +370,7 @@ async def get_transactions(current_user: User = Depends(get_current_user)):
 @app.post("/api/transactions/migrate")
 async def migrate_transactions(
     transactions: List[Transaction],
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Migrate transactions from localStorage to Google Sheets"""
     if not sheets_service:
@@ -518,7 +419,7 @@ async def migrate_transactions(
 @app.post("/api/transactions/sync-from-sheets")
 async def sync_from_sheets(
     force: bool = False,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Sync transactions from Google Sheets to PostgreSQL
     
@@ -636,7 +537,7 @@ async def sync_from_sheets(
 @app.post("/api/transactions/sync-to-sheets")
 async def sync_to_sheets(
     force: bool = False,
-    current_user: User = Depends(require_role(["admin"]))
+    current_user: DBUser = Depends(require_role(["ADMIN"]))
 ):
     """Sync transactions from PostgreSQL to Google Sheets
     
@@ -742,7 +643,7 @@ async def sync_to_sheets(
 
 @app.get("/api/transactions/debug-sync")
 async def debug_sync_status(
-    current_user: User = Depends(require_role(["admin"]))
+    current_user: DBUser = Depends(require_role(["ADMIN"]))
 ):
     """Debug endpoint to see what's in Sheets vs PostgreSQL"""
     if not sheets_service or not database_service:
@@ -784,7 +685,7 @@ async def debug_sync_status(
 async def update_transaction(
     transaction_id: int,
     transaction: Transaction,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Update an existing transaction"""
     if not database_service:
@@ -817,7 +718,7 @@ async def update_transaction(
 @app.delete("/api/transactions/{transaction_id}")
 async def delete_transaction(
     transaction_id: int,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Delete a transaction"""
     if not database_service:
@@ -845,7 +746,7 @@ async def delete_transaction(
 
 # Debt routes
 @app.get("/api/debts")
-async def get_debts(current_user: User = Depends(get_current_user)):
+async def get_debts(current_user: DBUser = Depends(get_current_user)):
     """Get all debts"""
     if not debt_service:
         raise HTTPException(status_code=503, detail="Debt service not configured")
@@ -858,7 +759,7 @@ async def get_debts(current_user: User = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/debts/summary")
-async def get_debt_summary(current_user: User = Depends(get_current_user)):
+async def get_debt_summary(current_user: DBUser = Depends(get_current_user)):
     """Get debt summary statistics"""
     if not debt_service:
         raise HTTPException(status_code=503, detail="Debt service not configured")
@@ -873,7 +774,7 @@ async def get_debt_summary(current_user: User = Depends(get_current_user)):
 @app.post("/api/debts/import-csv")
 async def import_debts_csv(
     debts: List[Debt],
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Importación masiva de presupuestos desde CSV"""
     if not debt_service:
@@ -902,7 +803,7 @@ async def import_debts_csv(
 @app.post("/api/debts/clone-month")
 async def clone_month_debts(
     request: CloneMonthRequest,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Clonar presupuestos de un mes a otro"""
     if not debt_service:
@@ -1006,7 +907,7 @@ async def clone_month_debts(
 @app.get("/api/debts/{debt_id}")
 async def get_debt(
     debt_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: DBUser = Depends(get_current_user)
 ):
     """Get a specific debt"""
     if not debt_service:
@@ -1024,7 +925,7 @@ async def get_debt(
 @app.post("/api/debts")
 async def create_debt(
     debt: Debt,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Create a new debt"""
     if not debt_service:
@@ -1049,7 +950,7 @@ async def create_debt(
 async def update_debt(
     debt_id: int,
     debt: Debt,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Update an existing debt"""
     if not debt_service:
@@ -1069,7 +970,7 @@ async def update_debt(
 @app.delete("/api/debts/{debt_id}")
 async def delete_debt(
     debt_id: int,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Delete a debt"""
     if not debt_service:
@@ -1105,7 +1006,7 @@ async def delete_debt(
 # ============================================================
 
 @app.get("/api/budget-items")
-async def get_budget_items(current_user: User = Depends(get_current_user)):
+async def get_budget_items(current_user: DBUser = Depends(get_current_user)):
     """Alias for GET /api/debts - Get all budget items"""
     if not debt_service:
         raise HTTPException(status_code=503, detail="Debt service not configured")
@@ -1121,7 +1022,7 @@ async def get_budget_items(current_user: User = Depends(get_current_user)):
 async def get_budget_items_summary(
     month: Optional[int] = None,
     year: Optional[int] = None,
-    current_user: User = Depends(get_current_user)
+    current_user: DBUser = Depends(get_current_user)
 ):
     """Get budget items summary, optionally filtered by month/year"""
     if not debt_service:
@@ -1137,7 +1038,7 @@ async def get_budget_items_summary(
 @app.post("/api/budget-items/import-csv")
 async def import_budget_items_csv(
     debts: List[Debt],
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Alias for POST /api/debts/import-csv - Import budget items from CSV"""
     if not debt_service:
@@ -1171,7 +1072,7 @@ async def import_budget_items_csv(
 @app.get("/api/budget-items/{item_id}")
 async def get_budget_item(
     item_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: DBUser = Depends(get_current_user)
 ):
     """Alias for GET /api/debts/{id} - Get a specific budget item"""
     if not debt_service:
@@ -1189,7 +1090,7 @@ async def get_budget_item(
 @app.post("/api/budget-items")
 async def create_budget_item(
     debt: Debt,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Alias for POST /api/debts - Create a new budget item"""
     if not debt_service:
@@ -1214,7 +1115,7 @@ async def create_budget_item(
 async def update_budget_item(
     item_id: int,
     debt: Debt,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Alias for PUT /api/debts/{id} - Update an existing budget item"""
     if not debt_service:
@@ -1234,7 +1135,7 @@ async def update_budget_item(
 @app.delete("/api/budget-items/{item_id}")
 async def delete_budget_item(
     item_id: int,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Alias for DELETE /api/debts/{id} - Delete a budget item"""
     if not debt_service:
@@ -1265,62 +1166,6 @@ async def delete_budget_item(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Admin routes
-@app.get("/api/admin/users")
-async def get_users(current_user: User = Depends(require_role(["admin"]))):
-    users = [
-        {"username": u.username, "full_name": u.full_name, "role": u.role}
-        for u in fake_users_db.values()
-    ]
-    return users
-
-@app.post("/api/admin/users")
-async def create_user(
-    username: str,
-    full_name: str,
-    role: str,
-    password: str,
-    current_user: User = Depends(require_role(["admin"]))
-):
-    if username in fake_users_db:
-        raise HTTPException(status_code=400, detail="Username already exists")
-    
-    fake_users_db[username] = {
-        "username": username,
-        "full_name": full_name,
-        "role": role,
-        "hashed_password": pwd_context.hash(password)
-    }
-    return {"message": "User created successfully"}
-
-@app.put("/api/admin/users/{username}")
-async def update_user(
-    username: str,
-    full_name: str,
-    role: str,
-    current_user: User = Depends(require_role(["admin"]))
-):
-    if username not in fake_users_db:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    fake_users_db[username]["full_name"] = full_name
-    fake_users_db[username]["role"] = role
-    return {"message": "User updated successfully"}
-
-@app.delete("/api/admin/users/{username}")
-async def delete_user(
-    username: str,
-    current_user: User = Depends(require_role(["admin"]))
-):
-    if username == "admin":
-        raise HTTPException(status_code=400, detail="Cannot delete admin user")
-    
-    if username not in fake_users_db:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    del fake_users_db[username]
-    return {"message": "User deleted successfully"}
-
 # ============================================================
 # CREDIT CARD MANAGEMENT API
 # ============================================================
@@ -1328,7 +1173,7 @@ async def delete_user(
 @app.get("/api/credit-cards")
 async def get_credit_cards(
     active_only: bool = True,
-    current_user: User = Depends(get_current_user)
+    current_user: DBUser = Depends(get_current_user)
 ):
     """Get all credit cards"""
     if not credit_card_service:
@@ -1345,7 +1190,7 @@ async def get_credit_cards(
 async def get_monthly_purchases_total(
     month: int,
     year: int,
-    current_user: User = Depends(get_current_user)
+    current_user: DBUser = Depends(get_current_user)
 ):
     """Get total credit card purchases for a specific month across all cards"""
     if not credit_card_service:
@@ -1361,7 +1206,7 @@ async def get_monthly_purchases_total(
 @app.get("/api/credit-cards/{card_id}")
 async def get_credit_card(
     card_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: DBUser = Depends(get_current_user)
 ):
     """Get a specific credit card"""
     if not credit_card_service:
@@ -1381,7 +1226,7 @@ async def get_credit_card(
 @app.post("/api/credit-cards")
 async def create_credit_card(
     card: CreditCardCreate,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Create a new credit card"""
     if not credit_card_service:
@@ -1411,7 +1256,7 @@ async def create_credit_card(
 async def update_credit_card(
     card_id: int,
     card: CreditCardUpdate,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Update an existing credit card"""
     if not credit_card_service:
@@ -1436,7 +1281,7 @@ async def update_credit_card(
 @app.delete("/api/credit-cards/{card_id}")
 async def delete_credit_card(
     card_id: int,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Delete a credit card"""
     if not credit_card_service:
@@ -1458,7 +1303,7 @@ async def delete_credit_card(
 @app.get("/api/credit-cards/{card_id}/summary")
 async def get_credit_card_summary(
     card_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: DBUser = Depends(get_current_user)
 ):
     """Get credit card summary with analytics"""
     if not credit_card_service:
@@ -1478,7 +1323,7 @@ async def get_credit_card_summary(
 @app.get("/api/credit-cards/{card_id}/purchases-summary")
 async def get_credit_card_purchases_summary(
     card_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: DBUser = Depends(get_current_user)
 ):
     """Get aggregated purchases summary for a credit card (for pie chart)"""
     if not credit_card_service:
@@ -1494,7 +1339,7 @@ async def get_credit_card_purchases_summary(
 @app.post("/api/credit-cards/purchases")
 async def create_purchase(
     purchase: CreditCardPurchaseCreate,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Create a new credit card purchase with installment plan"""
     if not credit_card_service:
@@ -1518,7 +1363,7 @@ async def create_purchase(
 @app.get("/api/credit-cards/{card_id}/purchases")
 async def get_card_purchases(
     card_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: DBUser = Depends(get_current_user)
 ):
     """Get all purchases for a specific credit card"""
     if not credit_card_service:
@@ -1534,7 +1379,7 @@ async def get_card_purchases(
 @app.get("/api/installment-plans/{plan_id}/schedule")
 async def get_installment_schedule(
     plan_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: DBUser = Depends(get_current_user)
 ):
     """Get the installment schedule for a plan"""
     if not credit_card_service:
@@ -1555,7 +1400,7 @@ async def get_installment_schedule(
 async def pay_installment(
     installment_id: int,
     payment: InstallmentPayment,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Mark an installment as paid"""
     if not credit_card_service:
@@ -1580,7 +1425,7 @@ async def pay_installment(
 @app.put("/api/installments/{installment_id}/unpay")
 async def unpay_installment(
     installment_id: int,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Revert a paid installment back to pending"""
     if not credit_card_service:
@@ -1606,7 +1451,7 @@ async def unpay_installment(
 async def update_purchase(
     purchase_id: int,
     purchase_data: dict,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Update an existing credit card purchase"""
     if not credit_card_service:
@@ -1631,7 +1476,7 @@ async def update_purchase(
 @app.delete("/api/credit-cards/purchases/{purchase_id}")
 async def delete_purchase(
     purchase_id: int,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Delete a credit card purchase"""
     if not credit_card_service:
@@ -1655,7 +1500,7 @@ async def get_card_period_installments(
     card_id: int,
     year: int,
     month: int,
-    current_user: User = Depends(require_role(["admin", "writer", "reader"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER", "READER"]))
 ):
     """Get all installments for a card in a specific month"""
     if not credit_card_service:
@@ -1676,7 +1521,7 @@ async def get_card_period_installments(
 async def register_card_period_budget(
     card_id: int,
     period_data: dict,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Register a budget item for all installments due in a card period"""
     if not credit_card_service:
@@ -1710,7 +1555,7 @@ async def register_card_period_budget(
 async def update_period_config(
     card_id: int,
     config_data: dict,
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Update closing_day and due_day for a specific card period"""
     if not credit_card_service:
@@ -1742,7 +1587,7 @@ async def update_period_config(
 async def get_period_for_date(
     card_id: int,
     purchase_date: str,
-    current_user: User = Depends(require_role(["admin", "writer", "reader"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER", "READER"]))
 ):
     """Given a purchase date, return which billing period it belongs to."""
     if not credit_card_service:
@@ -1762,7 +1607,7 @@ async def get_period_for_date(
 async def bulk_import_credit_card_purchases(
     card_id: int,
     purchases: List[CreditCardBulkPurchaseItem],
-    current_user: User = Depends(require_role(["admin", "writer"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Bulk import credit card purchases from CSV data"""
     if not credit_card_service:
@@ -1805,12 +1650,12 @@ async def bulk_import_credit_card_purchases(
 # ==================== MONTH CLOSING ENDPOINTS ====================
 
 @app.get("/api/month-closings")
-async def get_all_closings(current_user: User = Depends(get_current_user)):
+async def get_all_closings(current_user: DBUser = Depends(get_current_user)):
     """Get all month closings"""
     return database_service.get_all_closings()
 
 @app.get("/api/month-closings/{year}/{month}")
-async def get_month_closing(year: int, month: int, current_user: User = Depends(get_current_user)):
+async def get_month_closing(year: int, month: int, current_user: DBUser = Depends(get_current_user)):
     """Check if a specific month is closed, with stale detection"""
     closing = database_service.get_month_closing(year, month)
     if not closing:
@@ -1828,7 +1673,7 @@ async def get_month_closing(year: int, month: int, current_user: User = Depends(
     return {"closed": True, "is_stale": is_stale, "current_balance": current['balance'], **closing}
 
 @app.post("/api/month-closings/{year}/{month}")
-async def close_month(year: int, month: int, current_user: User = Depends(require_role(["admin"]))):
+async def close_month(year: int, month: int, current_user: DBUser = Depends(require_role(["ADMIN"]))):
     """Close (or re-close) a month: calculate balance and create carry-over transaction"""
     if month < 1 or month > 12:
         raise HTTPException(status_code=400, detail="Mes inválido")
@@ -1847,7 +1692,7 @@ async def close_month(year: int, month: int, current_user: User = Depends(requir
         raise HTTPException(status_code=409, detail=str(e))
 
 @app.delete("/api/month-closings/{year}/{month}")
-async def reopen_month(year: int, month: int, current_user: User = Depends(require_role(["admin"]))):
+async def reopen_month(year: int, month: int, current_user: DBUser = Depends(require_role(["ADMIN"]))):
     """Reopen a closed month (delete closing record and carry-over transaction)"""
     try:
         database_service.reopen_month(year, month)
@@ -1858,7 +1703,7 @@ async def reopen_month(year: int, month: int, current_user: User = Depends(requi
 # ==================== SETTINGS ENDPOINTS ====================
 
 @app.get("/api/settings/{key}")
-async def get_setting(key: str, current_user: dict = Depends(get_current_user)):
+async def get_setting(key: str, current_user: DBUser = Depends(get_current_user)):
     """Get a specific setting value"""
     db = SessionLocal()
     try:
@@ -1870,7 +1715,7 @@ async def get_setting(key: str, current_user: dict = Depends(get_current_user)):
         db.close()
 
 @app.put("/api/settings/{key}")
-async def update_setting(key: str, body: dict, current_user: User = Depends(require_role(["admin"]))):
+async def update_setting(key: str, body: dict, current_user: DBUser = Depends(require_role(["ADMIN"]))):
     """Update a setting value (admin only)"""
     db = SessionLocal()
     try:

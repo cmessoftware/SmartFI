@@ -5,25 +5,24 @@ import ConfirmDialog from './ConfirmDialog';
 
 function AdminPanel() {
   const [activeTab, setActiveTab] = useState('users');
-  const [users, setUsers] = useState([
-    { username: 'admin', full_name: 'Administrador', role: 'admin' },
-    { username: 'writer', full_name: 'Editor', role: 'writer' },
-    { username: 'reader', full_name: 'Lector', role: 'reader' }
-  ]);
+  const [users, setUsers] = useState([]);
+  const [roles, setRoles] = useState([]);
   const [categories, setCategories] = useState([]);
   const [showModal, setShowModal] = useState(false);
-  const [modalType, setModalType] = useState('user');
   const [editingItem, setEditingItem] = useState(null);
-  const [formData, setFormData] = useState({ username: '', full_name: '', role: 'reader', password: '' });
+  const [formData, setFormData] = useState({ username: '', email: '', first_name: '', last_name: '', password: '', role_ids: [] });
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
   const [newCategory, setNewCategory] = useState('');
   const [exchangeRate, setExchangeRate] = useState('');
   const [exchangeRateLoading, setExchangeRateLoading] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, onConfirm: null, title: '', message: '' });
   const toast = useToast();
 
-  const roles = ['admin', 'writer', 'reader'];
-
   useEffect(() => {
+    if (activeTab === 'users') {
+      loadUsers();
+      loadRoles();
+    }
     if (activeTab === 'settings') {
       loadExchangeRate();
     }
@@ -31,6 +30,25 @@ function AdminPanel() {
       loadCategories();
     }
   }, [activeTab]);
+
+  const loadUsers = async () => {
+    try {
+      const response = await adminAPI.getUsers();
+      setUsers(response.data || []);
+    } catch (error) {
+      console.error('Error loading users:', error);
+      toast.error('Error al cargar usuarios');
+    }
+  };
+
+  const loadRoles = async () => {
+    try {
+      const response = await adminAPI.getRoles();
+      setRoles(response.data || []);
+    } catch (error) {
+      console.error('Error loading roles:', error);
+    }
+  };
 
   const loadCategories = async () => {
     try {
@@ -70,49 +88,82 @@ function AdminPanel() {
   };
 
   const handleAddUser = () => {
-    setModalType('user');
     setEditingItem(null);
-    setFormData({ username: '', full_name: '', role: 'reader', password: '' });
+    setFormData({ username: '', email: '', first_name: '', last_name: '', password: '', role_ids: [] });
     setShowModal(true);
   };
 
   const handleEditUser = (user) => {
-    setModalType('user');
     setEditingItem(user);
-    setFormData({ ...user, password: '' });
+    setFormData({
+      username: user.username,
+      email: user.email || '',
+      first_name: user.first_name || '',
+      last_name: user.last_name || '',
+      password: '',
+      role_ids: (user.roles || []).map(r => r.id),
+    });
     setShowModal(true);
   };
 
-  const handleDeleteUser = (username) => {
-    if (username === 'admin') {
-      toast.warning('No se puede eliminar el usuario administrador');
+  const handleDeleteUser = (user) => {
+    if (user.username === 'admin') {
+      toast.warning('No se puede desactivar el usuario administrador');
       return;
     }
     setConfirmDialog({
       isOpen: true,
-      title: 'Eliminar Usuario',
-      message: `¿Estás seguro de eliminar al usuario ${username}?`,
-      onConfirm: () => {
-        setUsers(users.filter(u => u.username !== username));
-        toast.success('Usuario eliminado correctamente');
+      title: 'Desactivar Usuario',
+      message: `¿Estás seguro de desactivar al usuario ${user.username}?`,
+      onConfirm: async () => {
+        try {
+          await adminAPI.deactivateUser(user.id);
+          toast.success('Usuario desactivado correctamente');
+          loadUsers();
+        } catch (error) {
+          toast.error(error.response?.data?.detail || 'Error al desactivar usuario');
+        }
       }
     });
   };
 
-  const handleSaveUser = (e) => {
-    e.preventDefault();
-    if (editingItem) {
-      setUsers(users.map(u => u.username === editingItem.username ? { ...formData, password: undefined } : u));
-      toast.success('Usuario actualizado correctamente');
-    } else {
-      if (users.find(u => u.username === formData.username)) {
-        toast.error('El nombre de usuario ya existe');
-        return;
-      }
-      setUsers([...users, { ...formData, password: undefined }]);
-      toast.success('Usuario creado correctamente');
+  const handleUnlockUser = async (user) => {
+    try {
+      await adminAPI.unlockUser(user.id);
+      toast.success('Usuario desbloqueado correctamente');
+      loadUsers();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Error al desbloquear usuario');
     }
-    setShowModal(false);
+  };
+
+  const handleSaveUser = async (e) => {
+    e.preventDefault();
+    try {
+      if (editingItem) {
+        await adminAPI.updateUser(editingItem.id, {
+          email: formData.email,
+          first_name: formData.first_name,
+          last_name: formData.last_name,
+          role_ids: formData.role_ids,
+        });
+        toast.success('Usuario actualizado correctamente');
+      } else {
+        await adminAPI.createUser({
+          username: formData.username,
+          email: formData.email,
+          password: formData.password,
+          first_name: formData.first_name,
+          last_name: formData.last_name,
+          role_ids: formData.role_ids,
+        });
+        toast.success('Usuario creado correctamente');
+      }
+      setShowModal(false);
+      loadUsers();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Error al guardar usuario');
+    }
   };
 
   const handleAddCategory = async (e) => {
@@ -213,38 +264,65 @@ function AdminPanel() {
                   <thead>
                     <tr className="border-b border-gray-200">
                       <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Usuario</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Nombre Completo</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Rol</th>
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Email</th>
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Nombre</th>
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Roles</th>
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Estado</th>
                       <th className="text-right py-3 px-4 text-sm font-semibold text-finly-text">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
                     {users.map(user => (
-                      <tr key={user.username} className="border-b border-gray-100 hover:bg-gray-50">
+                      <tr key={user.id} className="border-b border-gray-100 hover:bg-gray-50">
                         <td className="py-3 px-4 text-sm font-medium text-finly-text">{user.username}</td>
-                        <td className="py-3 px-4 text-sm text-finly-text">{user.full_name}</td>
+                        <td className="py-3 px-4 text-sm text-finly-text">{user.email}</td>
+                        <td className="py-3 px-4 text-sm text-finly-text">{[user.first_name, user.last_name].filter(Boolean).join(' ')}</td>
                         <td className="py-3 px-4">
-                          <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
-                            user.role === 'admin' ? 'bg-purple-100 text-purple-700' :
-                            user.role === 'writer' ? 'bg-blue-100 text-blue-700' :
-                            'bg-gray-100 text-gray-700'
-                          }`}>
-                            {user.role}
-                          </span>
+                          <div className="flex flex-wrap gap-1">
+                            {(user.roles || []).map(r => (
+                              <span key={r.id} className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                r.name === 'ADMIN' ? 'bg-purple-100 text-purple-700' :
+                                r.name === 'WRITER' ? 'bg-blue-100 text-blue-700' :
+                                'bg-gray-100 text-gray-700'
+                              }`}>
+                                {r.name}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          {user.is_locked ? (
+                            <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">Bloqueado</span>
+                          ) : user.is_active ? (
+                            <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">Activo</span>
+                          ) : (
+                            <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">Inactivo</span>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-right">
                           <button
                             onClick={() => handleEditUser(user)}
-                            className="text-blue-600 hover:text-blue-800 mx-2"
+                            className="text-blue-600 hover:text-blue-800 mx-1"
+                            title="Editar"
                           >
                             ✏️
                           </button>
+                          {user.is_locked && (
+                            <button
+                              onClick={() => handleUnlockUser(user)}
+                              className="text-yellow-600 hover:text-yellow-800 mx-1"
+                              title="Desbloquear"
+                            >
+                              🔓
+                            </button>
+                          )}
                           {user.username !== 'admin' && (
                             <button
-                              onClick={() => handleDeleteUser(user.username)}
-                              className="text-red-600 hover:text-red-800 mx-2"
+                              onClick={() => handleDeleteUser(user)}
+                              className="text-red-600 hover:text-red-800 mx-1"
+                              title="Desactivar"
                             >
-                              🗑️
+                              🚫
                             </button>
                           )}
                         </td>
@@ -363,43 +441,93 @@ function AdminPanel() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-finly-text mb-2">
-                  Nombre Completo *
+                  Email *
                 </label>
                 <input
-                  type="text"
-                  value={formData.full_name}
-                  onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
                   required
                 />
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-finly-text mb-2">Nombre</label>
+                  <input
+                    type="text"
+                    value={formData.first_name}
+                    onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-finly-text mb-2">Apellido</label>
+                  <input
+                    type="text"
+                    value={formData.last_name}
+                    onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
+                  />
+                </div>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-finly-text mb-2">
-                  Rol *
+                  Roles
                 </label>
-                <select
-                  value={formData.role}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
-                  required
-                >
+                <div className="space-y-2">
                   {roles.map(role => (
-                    <option key={role} value={role}>{role}</option>
+                    <label key={role.id} className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={formData.role_ids.includes(role.id)}
+                        onChange={(e) => {
+                          const newIds = e.target.checked
+                            ? [...formData.role_ids, role.id]
+                            : formData.role_ids.filter(id => id !== role.id);
+                          setFormData({ ...formData, role_ids: newIds });
+                        }}
+                        className="rounded border-gray-300 text-finly-primary focus:ring-finly-primary"
+                      />
+                      <span className="text-sm text-finly-text">{role.name} {role.description ? `— ${role.description}` : ''}</span>
+                    </label>
                   ))}
-                </select>
+                </div>
               </div>
               {!editingItem && (
                 <div>
                   <label className="block text-sm font-medium text-finly-text mb-2">
                     Contraseña *
                   </label>
-                  <input
-                    type="password"
-                    value={formData.password}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
-                    required={!editingItem}
-                  />
+                  <div className="relative">
+                    <input
+                      type={showAdminPassword ? 'text' : 'password'}
+                      value={formData.password}
+                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary pr-10"
+                      required={!editingItem}
+                      minLength={8}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowAdminPassword(!showAdminPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                      tabIndex={-1}
+                    >
+                      {showAdminPassword ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clipRule="evenodd" />
+                          <path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z" />
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                          <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Mínimo 8 caracteres, 1 mayúscula, 1 número, 1 especial</p>
                 </div>
               )}
               <div className="flex space-x-4 pt-4">

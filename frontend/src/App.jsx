@@ -74,7 +74,7 @@ function App() {
       setLoading(true);
       
       // Sync from Google Sheets to PostgreSQL (admin only)
-      if (user && user.role === 'admin') {
+      if (user && user.roles && user.roles.includes('ADMIN')) {
         try {
           console.log(`🔄 Syncing from Google Sheets to PostgreSQL${force ? ' (FORCE MODE)' : ''}...`);
           const syncResponse = await transactionsAPI.syncFromSheets(force);
@@ -106,18 +106,27 @@ function App() {
     }
   };
 
-  const handleLogin = (userData, token) => {
+  const handleLogin = (userData, token, refreshToken) => {
     setUser(userData);
     localStorage.setItem('user', JSON.stringify(userData));
     localStorage.setItem('token', token);
+    if (refreshToken) {
+      localStorage.setItem('refresh_token', refreshToken);
+    }
     // Load transactions immediately after login
     loadTransactionsFromDB();
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await authAPI.logout();
+    } catch (e) {
+      // ignore — token might already be expired
+    }
     setUser(null);
     localStorage.removeItem('user');
     localStorage.removeItem('token');
+    localStorage.removeItem('refresh_token');
   };
 
   const addTransaction = async (newTransaction) => {
