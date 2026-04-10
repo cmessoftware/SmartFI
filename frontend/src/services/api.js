@@ -98,6 +98,8 @@ export const adminAPI = {
   // Settings
   getSetting: (key) => api.get(`/api/settings/${key}`),
   updateSetting: (key, value) => api.put(`/api/settings/${key}`, { value }),
+  // Clone data
+  cloneUserData: (data) => api.post('/api/admin/clone-data', data),
 };
 
 export const monthClosingAPI = {

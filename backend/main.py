@@ -137,6 +137,16 @@ class CloneMonthRequest(BaseModel):
     target_month: int  # 1-12
     target_year: int
 
+class CloneUserDataRequest(BaseModel):
+    source_user_id: int
+    target_user_id: int
+    modules: List[str]  # "transactions", "budget_items", "credit_cards"
+    clone_all: bool = True
+    start_month: Optional[int] = None  # 1-12
+    start_year: Optional[int] = None
+    end_month: Optional[int] = None  # 1-12
+    end_year: Optional[int] = None
+
 # Credit Card Models
 class CreditCardCreate(BaseModel):
     card_name: str
@@ -1737,6 +1747,62 @@ async def update_setting(key: str, body: dict, current_user: DBUser = Depends(re
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+# ── Admin: Clone user data ───────────────────────────────────
+
+@app.post("/api/admin/clone-data")
+async def clone_user_data_endpoint(
+    request: CloneUserDataRequest,
+    current_user: DBUser = Depends(require_role(["ADMIN"]))
+):
+    """Clone data from one user to another (admin only)."""
+    if request.source_user_id == request.target_user_id:
+        raise HTTPException(status_code=400, detail="Usuario origen y destino deben ser diferentes")
+
+    valid_modules = {"transactions", "budget_items", "credit_cards"}
+    invalid = set(request.modules) - valid_modules
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Módulos inválidos: {', '.join(invalid)}")
+
+    if not request.clone_all:
+        if not all([request.start_month, request.start_year, request.end_month, request.end_year]):
+            raise HTTPException(status_code=400, detail="Se requiere rango de meses completo cuando clone_all es false")
+        if not (1 <= request.start_month <= 12 and 1 <= request.end_month <= 12):
+            raise HTTPException(status_code=400, detail="Mes debe estar entre 1 y 12")
+
+    # Verify both users exist
+    db = SessionLocal()
+    try:
+        from database.database import User as DBUserModel
+        source = db.query(DBUserModel).filter(DBUserModel.id == request.source_user_id).first()
+        target = db.query(DBUserModel).filter(DBUserModel.id == request.target_user_id).first()
+        if not source:
+            raise HTTPException(status_code=404, detail="Usuario origen no encontrado")
+        if not target:
+            raise HTTPException(status_code=404, detail="Usuario destino no encontrado")
+    finally:
+        db.close()
+
+    try:
+        from services.clone_service import clone_user_data
+        result = clone_user_data(
+            source_user_id=request.source_user_id,
+            target_user_id=request.target_user_id,
+            modules=request.modules,
+            clone_all=request.clone_all,
+            start_month=request.start_month,
+            start_year=request.start_year,
+            end_month=request.end_month,
+            end_year=request.end_year,
+        )
+        return {
+            "message": "Datos clonados exitosamente",
+            "source_user_id": request.source_user_id,
+            "target_user_id": request.target_user_id,
+            **result,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al clonar datos: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

@@ -3,9 +3,10 @@
 Mejoras
 
 1. ~~habilitar vizualizador de password (ojito)~~ ✅ Completada
-2. Clonado de datos de un usuario a otros (solo desde role admin)
-   2.1 Clonado de datos módulos Gastos, Presupuestos y Tarjeta de Crédito y sus relaciones (vinculaciones entre gasto y presupuesto por ej)
-   2.2 Crear selección para clonar todo, o solo un rango de meses. En el caso de tarjeta de Crédito el periodo a cloanr sería cuya fecha de cierre anterior coincida con el mes indicado.
+2. ~~Clonado de datos de un usuario a otros (solo desde role admin)~~ ✅ Completada
+   ~~2.1 Clonado de datos módulos Gastos, Presupuestos y Tarjeta de Crédito y sus relaciones (vinculaciones entre gasto y presupuesto por ej)~~ ✅
+   ~~2.2 Crear selección para clonar todo, o solo un rango de meses. En el caso de tarjeta de Crédito el periodo a cloanr sería cuya fecha de cierre anterior coincida con el mes indicado.~~ ✅
+   Implementación: Endpoint `POST /api/admin/clone-data` + tab "Clonar Datos" en AdminPanel. Clona transactions, budget_items, credit_cards con sus relaciones (purchases, installment plans, statements). Soporta clonado total o por rango de meses.
    
 
 Bugs
