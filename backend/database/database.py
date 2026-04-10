@@ -74,6 +74,7 @@ class BudgetItem(Base):
     __tablename__ = "budget_items"
     
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=True, index=True)
     fecha = Column(String, nullable=False)
     tipo = Column(String, nullable=False)  # Tarjeta, Préstamo, Crédito, Gasto Planificado, etc.
     categoria = Column(String, nullable=False)
@@ -99,6 +100,7 @@ class Transaction(Base):
     __tablename__ = "transactions"
     
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=True, index=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
     date = Column(String, nullable=False)
     type = Column(SQLEnum(TransactionType), nullable=False)
@@ -361,6 +363,7 @@ class MonthClosing(Base):
     __tablename__ = "month_closings"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=True, index=True)
     year = Column(Integer, nullable=False)
     month = Column(Integer, nullable=False)  # 1-12
     total_ingresos = Column(Float, nullable=False, default=0.0)
@@ -371,7 +374,7 @@ class MonthClosing(Base):
     closed_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
-        UniqueConstraint('year', 'month', name='uq_month_closings_year_month'),
+        UniqueConstraint('year', 'month', 'user_id', name='uq_month_closings_year_month_user'),
     )
 
 def init_db():

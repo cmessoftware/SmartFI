@@ -277,7 +277,7 @@ async def create_transaction(
     error_detail = None
     if database_service:
         try:
-            transaction_id = database_service.add_transaction(transaction.dict())
+            transaction_id = database_service.add_transaction(transaction.dict(), user_id=current_user.id)
             if transaction_id:
                 print(f"✅ Transaction {transaction_id} saved to PostgreSQL")
             else:
@@ -318,7 +318,7 @@ async def import_transactions(
     for index, transaction in enumerate(transactions):
         try:
             transaction_data = transaction.dict()
-            transaction_id = database_service.add_transaction(transaction_data)
+            transaction_id = database_service.add_transaction(transaction_data, user_id=current_user.id)
             if transaction_id:
                 added_count += 1
                 imported_transactions.append(transaction_data)
@@ -349,7 +349,7 @@ async def get_transactions(current_user: DBUser = Depends(get_current_user)):
     # Get from PostgreSQL (primary storage)
     if database_service:
         try:
-            transactions = database_service.get_all_transactions()
+            transactions = database_service.get_all_transactions(user_id=current_user.id)
             print(f"✅ Retrieved {len(transactions)} transactions from PostgreSQL")
             return transactions
         except Exception as e:
@@ -692,7 +692,7 @@ async def update_transaction(
         raise HTTPException(status_code=503, detail="Database not configured")
     
     try:
-        success = database_service.update_transaction(transaction_id, transaction.dict())
+        success = database_service.update_transaction(transaction_id, transaction.dict(), user_id=current_user.id)
         if success:
             print(f"✅ Transaction {transaction_id} updated in PostgreSQL")
             
@@ -725,7 +725,7 @@ async def delete_transaction(
         raise HTTPException(status_code=503, detail="Database not configured")
     
     try:
-        success = database_service.delete_transaction(transaction_id)
+        success = database_service.delete_transaction(transaction_id, user_id=current_user.id)
         if success:
             print(f"✅ Transaction {transaction_id} deleted from PostgreSQL")
             
@@ -752,7 +752,7 @@ async def get_debts(current_user: DBUser = Depends(get_current_user)):
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
     try:
-        debts = debt_service.get_all_debts()
+        debts = debt_service.get_all_debts(user_id=current_user.id)
         return debts
     except Exception as e:
         print(f"❌ Error getting debts: {e}")
@@ -765,7 +765,7 @@ async def get_debt_summary(current_user: DBUser = Depends(get_current_user)):
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
     try:
-        summary = debt_service.get_debt_summary()
+        summary = debt_service.get_debt_summary(user_id=current_user.id)
         return summary
     except Exception as e:
         print(f"❌ Error getting debt summary: {e}")
@@ -785,7 +785,7 @@ async def import_debts_csv(
 
     for index, debt in enumerate(debts):
         try:
-            debt_id = debt_service.add_debt(debt.dict())
+            debt_id = debt_service.add_debt(debt.dict(), user_id=current_user.id)
             if debt_id:
                 added_count += 1
             else:
@@ -822,7 +822,9 @@ async def clone_month_debts(
         
         # Obtener todos los debts del mes origen
         db = SessionLocal()
-        debts = db.query(DBDebt).all()
+        query = db.query(DBDebt)
+        query = query.filter(DBDebt.user_id == current_user.id)
+        debts = query.all()
         
         cloned_count = 0
         cloned_items = []
@@ -868,7 +870,7 @@ async def clone_month_debts(
                         'estimated_payment': debt.estimated_payment if debt.estimated_payment is not None else debt.monto_total
                     }
                     
-                    new_debt_id = debt_service.add_debt(new_debt_data)
+                    new_debt_id = debt_service.add_debt(new_debt_data, user_id=current_user.id)
                     if new_debt_id:
                         cloned_count += 1
                         cloned_items.append({
@@ -914,7 +916,7 @@ async def get_debt(
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
     try:
-        debt = debt_service.get_debt_by_id(debt_id)
+        debt = debt_service.get_debt_by_id(debt_id, user_id=current_user.id)
         if not debt:
             raise HTTPException(status_code=404, detail="Debt not found")
         return debt
@@ -932,7 +934,7 @@ async def create_debt(
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
     try:
-        debt_id = debt_service.add_debt(debt.dict())
+        debt_id = debt_service.add_debt(debt.dict(), user_id=current_user.id)
         if debt_id:
             print(f"✅ Debt {debt_id} created in PostgreSQL")
             return {
@@ -957,7 +959,7 @@ async def update_debt(
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
     try:
-        success = debt_service.update_debt(debt_id, debt.dict())
+        success = debt_service.update_debt(debt_id, debt.dict(), user_id=current_user.id)
         if success:
             print(f"✅ Debt {debt_id} updated in PostgreSQL")
             return {"message": "Debt updated successfully", "debt": debt}
@@ -979,7 +981,7 @@ async def delete_debt(
     try:
         # Check if there are linked transactions first
         db = SessionLocal()
-        linked_count = db.query(DBTransaction).filter(DBTransaction.debt_id == debt_id).count()
+        linked_count = db.query(DBTransaction).filter(DBTransaction.debt_id == debt_id, DBTransaction.user_id == current_user.id).count()
         db.close()
         
         if linked_count > 0:
@@ -988,7 +990,7 @@ async def delete_debt(
                 detail=f"No se puede eliminar: hay {linked_count} transacción(es) vinculada(s). Elimínelas primero."
             )
         
-        success = debt_service.delete_debt(debt_id)
+        success = debt_service.delete_debt(debt_id, user_id=current_user.id)
         if success:
             print(f"✅ Debt {debt_id} deleted from PostgreSQL")
             return {"message": "Debt deleted successfully", "id": debt_id}
@@ -1012,7 +1014,7 @@ async def get_budget_items(current_user: DBUser = Depends(get_current_user)):
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
     try:
-        debts = debt_service.get_all_debts()
+        debts = debt_service.get_all_debts(user_id=current_user.id)
         return debts
     except Exception as e:
         print(f"❌ Error getting budget items: {e}")
@@ -1029,7 +1031,7 @@ async def get_budget_items_summary(
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
     try:
-        summary = debt_service.get_debt_summary(month=month, year=year)
+        summary = debt_service.get_debt_summary(month=month, year=year, user_id=current_user.id)
         return summary
     except Exception as e:
         print(f"❌ Error getting budget items summary: {e}")
@@ -1050,7 +1052,7 @@ async def import_budget_items_csv(
         
         for debt_data in debts:
             try:
-                debt_id = debt_service.add_debt(debt_data.dict())
+                debt_id = debt_service.add_debt(debt_data.dict(), user_id=current_user.id)
                 if debt_id:
                     added_count += 1
                     print(f"✅ Budget item {debt_id} added")
@@ -1079,7 +1081,7 @@ async def get_budget_item(
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
     try:
-        debt = debt_service.get_debt_by_id(item_id)
+        debt = debt_service.get_debt_by_id(item_id, user_id=current_user.id)
         if not debt:
             raise HTTPException(status_code=404, detail="Budget item not found")
         return debt
@@ -1097,7 +1099,7 @@ async def create_budget_item(
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
     try:
-        debt_id = debt_service.add_debt(debt.dict())
+        debt_id = debt_service.add_debt(debt.dict(), user_id=current_user.id)
         if debt_id:
             print(f"✅ Budget item {debt_id} created in PostgreSQL")
             return {
@@ -1122,7 +1124,7 @@ async def update_budget_item(
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
     try:
-        success = debt_service.update_debt(item_id, debt.dict())
+        success = debt_service.update_debt(item_id, debt.dict(), user_id=current_user.id)
         if success:
             print(f"✅ Budget item {item_id} updated in PostgreSQL")
             return {"message": "Budget item updated successfully", "debt": debt}
@@ -1144,7 +1146,7 @@ async def delete_budget_item(
     try:
         # Check if there are linked transactions first
         db = SessionLocal()
-        linked_count = db.query(DBTransaction).filter(DBTransaction.debt_id == item_id).count()
+        linked_count = db.query(DBTransaction).filter(DBTransaction.debt_id == item_id, DBTransaction.user_id == current_user.id).count()
         db.close()
         
         if linked_count > 0:
@@ -1153,7 +1155,7 @@ async def delete_budget_item(
                 detail=f"No se puede eliminar: hay {linked_count} transacción(es) vinculada(s). Elimínelas primero."
             )
         
-        success = debt_service.delete_debt(item_id)
+        success = debt_service.delete_debt(item_id, user_id=current_user.id)
         if success:
             print(f"✅ Budget item {item_id} deleted from PostgreSQL")
             return {"message": "Budget item deleted successfully", "id": item_id}
@@ -1180,7 +1182,7 @@ async def get_credit_cards(
         raise HTTPException(status_code=503, detail="Credit Card service not configured")
     
     try:
-        cards = credit_card_service.get_credit_cards(active_only=active_only)
+        cards = credit_card_service.get_credit_cards(active_only=active_only, user_id=current_user.id)
         return cards
     except Exception as e:
         print(f"❌ Error fetching credit cards: {e}")
@@ -1197,7 +1199,7 @@ async def get_monthly_purchases_total(
         raise HTTPException(status_code=503, detail="Credit Card service not configured")
 
     try:
-        result = credit_card_service.get_monthly_purchases_total(year, month)
+        result = credit_card_service.get_monthly_purchases_total(year, month, user_id=current_user.id)
         return result
     except Exception as e:
         print(f"❌ Error fetching monthly purchases total: {e}")
@@ -1213,7 +1215,7 @@ async def get_credit_card(
         raise HTTPException(status_code=503, detail="Credit Card service not configured")
     
     try:
-        card = credit_card_service.get_credit_card(card_id)
+        card = credit_card_service.get_credit_card(card_id, user_id=current_user.id)
         if not card:
             raise HTTPException(status_code=404, detail="Credit card not found")
         return card
@@ -1233,7 +1235,7 @@ async def create_credit_card(
         raise HTTPException(status_code=503, detail="Credit Card service not configured")
     
     try:
-        card_id = credit_card_service.create_credit_card(card.dict())
+        card_id = credit_card_service.create_credit_card(card.dict(), user_id=current_user.id)
         if card_id:
             print(f"✅ Credit card {card_id} created successfully")
             return {
@@ -1263,7 +1265,7 @@ async def update_credit_card(
         raise HTTPException(status_code=503, detail="Credit Card service not configured")
     
     try:
-        updated_card = credit_card_service.update_credit_card(card_id, card.dict(exclude_unset=True))
+        updated_card = credit_card_service.update_credit_card(card_id, card.dict(exclude_unset=True), user_id=current_user.id)
         if updated_card:
             print(f"✅ Credit card {card_id} updated successfully")
             return {
@@ -1288,7 +1290,7 @@ async def delete_credit_card(
         raise HTTPException(status_code=503, detail="Credit Card service not configured")
     
     try:
-        success = credit_card_service.delete_credit_card(card_id)
+        success = credit_card_service.delete_credit_card(card_id, user_id=current_user.id)
         if success:
             print(f"✅ Credit card {card_id} deleted successfully")
             return {"message": "Credit card deleted successfully", "id": card_id}
@@ -1652,23 +1654,23 @@ async def bulk_import_credit_card_purchases(
 @app.get("/api/month-closings")
 async def get_all_closings(current_user: DBUser = Depends(get_current_user)):
     """Get all month closings"""
-    return database_service.get_all_closings()
+    return database_service.get_all_closings(user_id=current_user.id)
 
 @app.get("/api/month-closings/{year}/{month}")
 async def get_month_closing(year: int, month: int, current_user: DBUser = Depends(get_current_user)):
     """Check if a specific month is closed, with stale detection"""
-    closing = database_service.get_month_closing(year, month)
+    closing = database_service.get_month_closing(year, month, user_id=current_user.id)
     if not closing:
         return {"closed": False, "year": year, "month": month}
     # Detect if closing is stale (balance changed since close)
     cc_total = 0.0
     if credit_card_service:
         try:
-            cc_data = credit_card_service.get_monthly_purchases_total(year, month)
+            cc_data = credit_card_service.get_monthly_purchases_total(year, month, user_id=current_user.id)
             cc_total = cc_data.get('total', 0.0)
         except Exception:
             pass
-    current = database_service.calculate_month_balance(year, month, cc_total)
+    current = database_service.calculate_month_balance(year, month, cc_total, user_id=current_user.id)
     is_stale = round(current['balance'], 2) != round(closing['balance'], 2)
     return {"closed": True, "is_stale": is_stale, "current_balance": current['balance'], **closing}
 
@@ -1681,12 +1683,12 @@ async def close_month(year: int, month: int, current_user: DBUser = Depends(requ
     cc_total = 0.0
     if credit_card_service:
         try:
-            cc_data = credit_card_service.get_monthly_purchases_total(year, month)
+            cc_data = credit_card_service.get_monthly_purchases_total(year, month, user_id=current_user.id)
             cc_total = cc_data.get('total', 0.0)
         except Exception:
             pass
     try:
-        result = database_service.close_month(year, month, current_user.username, cc_total)
+        result = database_service.close_month(year, month, current_user.username, cc_total, user_id=current_user.id)
         return result
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
@@ -1695,7 +1697,7 @@ async def close_month(year: int, month: int, current_user: DBUser = Depends(requ
 async def reopen_month(year: int, month: int, current_user: DBUser = Depends(require_role(["ADMIN"]))):
     """Reopen a closed month (delete closing record and carry-over transaction)"""
     try:
-        database_service.reopen_month(year, month)
+        database_service.reopen_month(year, month, user_id=current_user.id)
         return {"message": f"Mes {month}/{year} reabierto"}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

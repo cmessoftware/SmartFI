@@ -26,7 +26,7 @@ class CreditCardService:
     # CREDIT CARDS CRUD
     # ========================================================================
     
-    def create_credit_card(self, card_data: dict) -> int:
+    def create_credit_card(self, card_data: dict, user_id: int = None) -> int:
         """Create a new credit card"""
         from sqlalchemy.exc import IntegrityError
         try:
@@ -38,7 +38,8 @@ class CreditCardService:
                 currency=card_data.get('currency', 'USD'),
                 credit_limit=card_data.get('credit_limit'),
                 is_active=card_data.get('is_active', True),
-                notes=card_data.get('notes')
+                notes=card_data.get('notes'),
+                user_id=user_id
             )
             
             self.db.add(card)
@@ -56,12 +57,14 @@ class CreditCardService:
             logger.error(f"❌ Error creating credit card: {e}")
             raise
     
-    def get_credit_cards(self, active_only=True) -> list:
+    def get_credit_cards(self, active_only=True, user_id: int = None) -> list:
         """Get all credit cards"""
         try:
             query = self.db.query(CreditCard)
             if active_only:
                 query = query.filter(CreditCard.is_active == True)
+            if user_id is not None:
+                query = query.filter(CreditCard.user_id == user_id)
             
             cards = query.order_by(CreditCard.card_name).all()
             
@@ -82,10 +85,13 @@ class CreditCardService:
             logger.error(f"❌ Error fetching credit cards: {e}")
             raise
     
-    def get_credit_card(self, card_id: int) -> dict:
+    def get_credit_card(self, card_id: int, user_id: int = None) -> dict:
         """Get a single credit card"""
         try:
-            card = self.db.query(CreditCard).filter(CreditCard.id == card_id).first()
+            query = self.db.query(CreditCard).filter(CreditCard.id == card_id)
+            if user_id is not None:
+                query = query.filter(CreditCard.user_id == user_id)
+            card = query.first()
             
             if not card:
                 return None
@@ -107,10 +113,13 @@ class CreditCardService:
             logger.error(f"❌ Error fetching credit card {card_id}: {e}")
             raise
     
-    def update_credit_card(self, card_id: int, card_data: dict) -> dict:
+    def update_credit_card(self, card_id: int, card_data: dict, user_id: int = None) -> dict:
         """Update an existing credit card"""
         try:
-            card = self.db.query(CreditCard).filter(CreditCard.id == card_id).first()
+            query = self.db.query(CreditCard).filter(CreditCard.id == card_id)
+            if user_id is not None:
+                query = query.filter(CreditCard.user_id == user_id)
+            card = query.first()
             
             if not card:
                 return None
@@ -144,10 +153,13 @@ class CreditCardService:
             logger.error(f"❌ Error updating credit card {card_id}: {e}")
             raise
     
-    def delete_credit_card(self, card_id: int) -> bool:
+    def delete_credit_card(self, card_id: int, user_id: int = None) -> bool:
         """Delete a credit card (soft delete by marking inactive)"""
         try:
-            card = self.db.query(CreditCard).filter(CreditCard.id == card_id).first()
+            query = self.db.query(CreditCard).filter(CreditCard.id == card_id)
+            if user_id is not None:
+                query = query.filter(CreditCard.user_id == user_id)
+            card = query.first()
             
             if not card:
                 return False
@@ -1200,27 +1212,27 @@ class CreditCardService:
             logger.error(f"❌ Error generating card summary: {e}")
             raise
     
-    def get_monthly_purchases_total(self, year: int, month: int) -> dict:
+    def get_monthly_purchases_total(self, year: int, month: int, user_id: int = None) -> dict:
         """Get total credit card purchases for a specific month across all cards.
         Only counts purchases NOT already linked to a transaction (to avoid double-counting)."""
         try:
             from sqlalchemy import extract, func
 
-            query = self.db.query(
-                func.coalesce(func.sum(CreditCardPurchase.total_amount), 0)
-            ).filter(
+            base_filters = [
                 extract('year', CreditCardPurchase.purchase_date) == year,
                 extract('month', CreditCardPurchase.purchase_date) == month,
                 CreditCardPurchase.transaction_id.is_(None)
-            )
+            ]
+            if user_id is not None:
+                base_filters.append(CreditCardPurchase.card_id.in_(
+                    self.db.query(CreditCard.id).filter(CreditCard.user_id == user_id)
+                ))
 
             # Only ARS purchases (ignore USD for now, they have separate exchange_rate logic)
             total_ars = self.db.query(
                 func.coalesce(func.sum(CreditCardPurchase.total_amount), 0)
             ).filter(
-                extract('year', CreditCardPurchase.purchase_date) == year,
-                extract('month', CreditCardPurchase.purchase_date) == month,
-                CreditCardPurchase.transaction_id.is_(None),
+                *base_filters,
                 CreditCardPurchase.currency == 'ARS'
             ).scalar()
 
@@ -1228,16 +1240,12 @@ class CreditCardService:
             total_usd_in_pesos = self.db.query(
                 func.coalesce(func.sum(CreditCardPurchase.amount_in_pesos), 0)
             ).filter(
-                extract('year', CreditCardPurchase.purchase_date) == year,
-                extract('month', CreditCardPurchase.purchase_date) == month,
-                CreditCardPurchase.transaction_id.is_(None),
+                *base_filters,
                 CreditCardPurchase.currency != 'ARS'
             ).scalar()
 
             purchase_count = self.db.query(func.count(CreditCardPurchase.id)).filter(
-                extract('year', CreditCardPurchase.purchase_date) == year,
-                extract('month', CreditCardPurchase.purchase_date) == month,
-                CreditCardPurchase.transaction_id.is_(None)
+                *base_filters
             ).scalar()
 
             total = float(total_ars) + float(total_usd_in_pesos)

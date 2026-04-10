@@ -23,7 +23,7 @@ class DebtService:
             print(f"Database connection error: {e}")
             return False
 
-    def add_debt(self, debt_data):
+    def add_debt(self, debt_data, user_id=None):
         """Add a new debt to database"""
         try:
             db = self._get_db()
@@ -73,7 +73,8 @@ class DebtService:
                 tipo_presupuesto=tipo_presupuesto,
                 tipo_flujo=tipo_flujo,
                 monto_ejecutado=monto_ejecutado,
-                estimated_payment=estimated_payment_val
+                estimated_payment=estimated_payment_val,
+                user_id=user_id
             )
             
             db.add(budget_item)
@@ -86,11 +87,14 @@ class DebtService:
             print(f"Error adding debt: {e}")
             return None
 
-    def get_all_debts(self):
+    def get_all_debts(self, user_id=None):
         """Get all budget items from database"""
         try:
             db = self._get_db()
-            budget_items = db.query(BudgetItem).order_by(BudgetItem.fecha_vencimiento.desc()).all()
+            query = db.query(BudgetItem)
+            if user_id is not None:
+                query = query.filter(BudgetItem.user_id == user_id)
+            budget_items = query.order_by(BudgetItem.fecha_vencimiento.desc()).all()
             
             result = []
             for budget_item in budget_items:
@@ -133,11 +137,14 @@ class DebtService:
             print(f"Error getting budget items: {e}")
             return []
 
-    def get_debt_by_id(self, debt_id):
+    def get_debt_by_id(self, debt_id, user_id=None):
         """Get a specific budget item by ID"""
         try:
             db = self._get_db()
-            budget_item = db.query(BudgetItem).filter(BudgetItem.id == debt_id).first()
+            query = db.query(BudgetItem).filter(BudgetItem.id == debt_id)
+            if user_id is not None:
+                query = query.filter(BudgetItem.user_id == user_id)
+            budget_item = query.first()
             
             if not budget_item:
                 return None
@@ -167,11 +174,14 @@ class DebtService:
             print(f"Error getting debt: {e}")
             return None
 
-    def update_debt(self, debt_id, debt_data):
+    def update_debt(self, debt_id, debt_data, user_id=None):
         """Update an existing debt"""
         try:
             db = self._get_db()
-            debt = db.query(BudgetItem).filter(BudgetItem.id == debt_id).first()
+            query = db.query(BudgetItem).filter(BudgetItem.id == debt_id)
+            if user_id is not None:
+                query = query.filter(BudgetItem.user_id == user_id)
+            debt = query.first()
             
             if not debt:
                 return False
@@ -228,11 +238,14 @@ class DebtService:
             print(f"Error updating debt: {e}")
             return False
 
-    def delete_debt(self, debt_id):
+    def delete_debt(self, debt_id, user_id=None):
         """Delete a debt"""
         try:
             db = self._get_db()
-            debt = db.query(BudgetItem).filter(BudgetItem.id == debt_id).first()
+            query = db.query(BudgetItem).filter(BudgetItem.id == debt_id)
+            if user_id is not None:
+                query = query.filter(BudgetItem.user_id == user_id)
+            debt = query.first()
             
             if not debt:
                 return False
@@ -317,7 +330,7 @@ class DebtService:
             print(f"Error removing payment from debt: {e}")
             return False
 
-    def get_debt_summary(self, month=None, year=None):
+    def get_debt_summary(self, month=None, year=None, user_id=None):
         """Get summary statistics of debts, optionally filtered by month/year"""
         try:
             db = self._get_db()
@@ -327,6 +340,10 @@ class DebtService:
             if month and year:
                 prefix = f"{year}-{month:02d}"
                 month_filter = [Debt.fecha_vencimiento.like(f"{prefix}%")]
+            
+            # User filter
+            if user_id is not None:
+                month_filter.append(Debt.user_id == user_id)
             
             # Filtro para excluir Ingresos de los montos a pagar
             gasto_filter = [Debt.tipo_flujo == FlowType.GASTO]
