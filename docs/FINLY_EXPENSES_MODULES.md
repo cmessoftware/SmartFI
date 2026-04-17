@@ -207,3 +207,24 @@ App.jsx:57 ✅ Loaded 94 transactions from PostgreSQL
 (index):1 Uncaught (in promise) Error: A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received
 (index):1 Uncaught (in promise) Error: A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received
 </details>
+
+9. Prioridad Alta - Error en alta masiva desde un csv.
+
+<details>
+    App.jsx:47 ⚡ Loaded from cache
+    App.jsx:47 ⚡ Loaded from cache
+    App.jsx:57 ✅ Loaded 156 transactions from PostgreSQL
+    App.jsx:57 ✅ Loaded 156 transactions from PostgreSQL
+    (index):1 Uncaught (in promise) Error: A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received
+    (index):1 Uncaught (in promise) Error: A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received
+    (index):1 Uncaught (in promise) Error: A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received
+    (index):1 Uncaught (in promise) Error: A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received
+    :8000/api/transactions/import:1  Failed to load resource: the server responded with a status of 401 (Unauthorized)
+    App.jsx:154 ✅ CSV import result: Object
+    App.jsx:47 ⚡ Loaded from cache
+    :8000/api/transactions/import:1  Failed to load resource: the server responded with a status of 401 (Unauthorized)
+    App.jsx:57 ✅ Loaded 167 transactions from PostgreSQL
+    App.jsx:154 ✅ CSV import result: {message: '11 transacciones importadas exitosamente', added: 11, total: 11, errors: null}
+    App.jsx:47 ⚡ Loaded from cache
+    App.jsx:57 ✅ Loaded 178 transactions from PostgreSQL
+</details>

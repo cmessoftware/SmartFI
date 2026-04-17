@@ -154,9 +154,12 @@ class CreditCardService:
             raise
     
     def delete_credit_card(self, card_id: int, user_id: int = None) -> bool:
-        """Delete a credit card (soft delete by marking inactive)"""
+        """Soft-delete a credit card (mark as inactive)."""
         try:
-            query = self.db.query(CreditCard).filter(CreditCard.id == card_id)
+            query = self.db.query(CreditCard).filter(
+                CreditCard.id == card_id,
+                CreditCard.is_active == True,
+            )
             if user_id is not None:
                 query = query.filter(CreditCard.user_id == user_id)
             card = query.first()
@@ -164,12 +167,10 @@ class CreditCardService:
             if not card:
                 return False
             
-            # Soft delete
             card.is_active = False
             card.updated_at = datetime.utcnow()
             self.db.commit()
-            
-            logger.info(f"✅ Credit card {card_id} deactivated successfully")
+            logger.info(f"✅ Credit card {card_id} deactivated")
             return True
             
         except Exception as e:
@@ -815,7 +816,8 @@ class CreditCardService:
         
         # Get period-specific config (may have override)
         p_closing, p_due = self._get_period_config(card_id, period_year, period_month)
-        period_start, period_end = self._get_period_date_range(p_closing, period_year, period_month)
+        prev_closing = self._get_prev_period_closing_day(card_id, period_year, period_month)
+        period_start, period_end = self._get_period_date_range(p_closing, period_year, period_month, prev_closing)
         
         MONTH_NAMES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
                        'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
@@ -831,9 +833,11 @@ class CreditCardService:
             'period_label': period_label,
         }
 
-    def _get_period_date_range(self, closing_day: int, year: int, month: int):
+    def _get_period_date_range(self, closing_day: int, year: int, month: int, prev_period_closing_day: int = None):
         """Calculate the date range for a billing period based on closing_day.
-        Period M = day after closing of previous month to closing day of month M.
+        Period M = day after closing of previous period to closing day of month M.
+        Uses prev_period_closing_day (the previous period's closing day) to compute
+        the start date, avoiding overlap when closing days differ between periods.
         Example: closing_day=20, April 2026 → March 21 to April 20.
         Example: closing_day=29, February 2026 → Jan 30 to Feb 28."""
         from calendar import monthrange
@@ -845,19 +849,28 @@ class CreditCardService:
         end_date = date(year, month, end_day)
 
         # Start of period: day after closing_day of previous month
+        # Use previous period's closing_day if provided, otherwise fall back to current
         prev = date(year, month, 1) - timedelta(days=1)  # last day of prev month
         prev_last_day = monthrange(prev.year, prev.month)[1]
-        prev_closing_day = min(closing_day, prev_last_day)
-        start_date = date(prev.year, prev.month, prev_closing_day) + timedelta(days=1)
+        effective_prev_closing = prev_period_closing_day if prev_period_closing_day is not None else closing_day
+        prev_closing_clamped = min(effective_prev_closing, prev_last_day)
+        start_date = date(prev.year, prev.month, prev_closing_clamped) + timedelta(days=1)
 
         return start_date, end_date
+
+    def _get_prev_period_closing_day(self, card_id: int, year: int, month: int) -> int:
+        """Get the closing_day of the previous period (for computing start of current period)."""
+        prev_date = date(year, month, 1) - timedelta(days=1)
+        prev_closing, _ = self._get_period_config(card_id, prev_date.year, prev_date.month)
+        return prev_closing
 
     def _get_standalone_purchases_for_period(self, card_id: int, year: int, month: int):
         """Get 1-cuota purchases for a given billing period.
         Uses period-specific closing_day (with card default fallback) for the date range."""
         closing_day, _ = self._get_period_config(card_id, year, month)
+        prev_closing = self._get_prev_period_closing_day(card_id, year, month)
 
-        start_date, end_date = self._get_period_date_range(closing_day, year, month)
+        start_date, end_date = self._get_period_date_range(closing_day, year, month, prev_closing)
 
         return self.db.query(CreditCardPurchase).filter(
             CreditCardPurchase.card_id == card_id,
@@ -1004,7 +1017,8 @@ class CreditCardService:
             period_closing_day, period_due_day = self._get_period_config(card_id, year, month)
             
             # Calculate full period dates for display
-            period_start, period_end = self._get_period_date_range(period_closing_day, year, month)
+            prev_closing = self._get_prev_period_closing_day(card_id, year, month)
+            period_start, period_end = self._get_period_date_range(period_closing_day, year, month, prev_closing)
             from calendar import monthrange as mr
             closing_last = mr(year, month)[1]
             closing_d = min(period_closing_day, closing_last)

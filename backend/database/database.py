@@ -220,10 +220,13 @@ class AuditLog(Base):
 
 class CreditCard(Base):
     __tablename__ = "credit_cards"
+    __table_args__ = (
+        UniqueConstraint('user_id', 'card_name', name='uq_credit_cards_user_card_name'),
+    )
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, nullable=True)  # Future FK to users table
-    card_name = Column(String(100), nullable=False, unique=True)
+    card_name = Column(String(100), nullable=False)
     bank_name = Column(String(100), nullable=False)
     closing_day = Column(Integer, nullable=False)  # 1-31
     due_day = Column(Integer, nullable=False)  # 1-31

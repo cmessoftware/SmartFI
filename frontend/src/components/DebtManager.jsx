@@ -835,7 +835,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
             <span>📤</span>
             <span>Exportar CSV</span>
           </button>
-          {isAdmin && canEdit && (
+          {canEdit && (
             <label className="text-sm text-gray-600 inline-flex items-center gap-2 px-2">
               <input
                 type="checkbox"
@@ -845,7 +845,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
               Mostrar solo seleccionados
             </label>
           )}
-          {isAdmin && canEdit && (
+          {canEdit && (
             <button
               onClick={() => setBulkDeleteDialogOpen(true)}
               disabled={selectedDebtIds.length === 0 || isBulkDeleting}
@@ -1069,7 +1069,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                {isAdmin && canEdit && (
+                {canEdit && (
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
                     <input
                       type="checkbox"
@@ -1110,7 +1110,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
             <tbody className="divide-y divide-gray-200">
               {paginatedDebts.length === 0 ? (
                 <tr>
-                  <td colSpan={isAdmin && canEdit ? "14" : canEdit ? "13" : "12"} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={canEdit ? "14" : "13"} className="px-4 py-8 text-center text-gray-500">
                     {debts.length === 0 ? 'No hay items de presupuesto registrados' : 'No hay resultados para los filtros aplicados'}
                   </td>
                 </tr>
@@ -1128,7 +1128,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
 
                   return (
                     <tr key={debt.id} className="hover:bg-gray-50">
-                      {isAdmin && canEdit && (
+                      {canEdit && (
                         <td className="px-4 py-3 text-center">
                           <input
                             type="checkbox"

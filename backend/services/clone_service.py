@@ -124,10 +124,24 @@ def clone_user_data(
         # ── 3. Clone credit cards and related data ──
         if "credit_cards" in modules:
             cards = db.query(DBCreditCard).filter(DBCreditCard.user_id == source_user_id).all()
+            # Get existing card names for the target user to avoid duplicates
+            existing_names = {
+                c.card_name for c in
+                db.query(DBCreditCard.card_name).filter(DBCreditCard.user_id == target_user_id).all()
+            }
             for card in cards:
+                # Generate a unique card name for the target user
+                base_name = card.card_name
+                new_name = base_name
+                counter = 2
+                while new_name in existing_names:
+                    new_name = f"{base_name} ({counter})"
+                    counter += 1
+                existing_names.add(new_name)
+
                 new_card = DBCreditCard(
                     user_id=target_user_id,
-                    card_name=f"{card.card_name} (clon)",
+                    card_name=new_name,
                     bank_name=card.bank_name,
                     closing_day=card.closing_day,
                     due_day=card.due_day,
