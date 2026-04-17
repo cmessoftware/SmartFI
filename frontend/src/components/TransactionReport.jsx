@@ -519,7 +519,7 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
               Transacciones ({allDisplayedTransactions.length})
             </h3>
             <div className="flex items-center gap-3">
-              {isAdmin && canEdit && (
+              {canEdit && (
                 <label className="text-sm text-finly-textSecondary inline-flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -529,7 +529,7 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
                   Mostrar solo seleccionadas
                 </label>
               )}
-              {isAdmin && canEdit && (
+              {canEdit && (
                 <button
                   onClick={() => setBulkConfirmDialogOpen(true)}
                   disabled={selectedTransactionIds.length === 0 || isBulkDeleting}
@@ -668,7 +668,7 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200">
-                  {isAdmin && canEdit && (
+                  {canEdit && (
                     <th className="text-center py-3 px-4 text-sm font-semibold text-finly-text w-12">
                       <input
                         type="checkbox"
@@ -703,7 +703,7 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
               <tbody>
                 {displayedTransactions.map((t, idx) => (
                   <tr key={t.id || idx} className="border-b border-gray-100 hover:bg-gray-50">
-                    {isAdmin && canEdit && (
+                    {canEdit && (
                       <td className="py-3 px-4 text-center">
                         <input
                           type="checkbox"

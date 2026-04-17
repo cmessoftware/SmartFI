@@ -114,8 +114,9 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
     }
   };
 
-  const canEdit = user && (user.role === 'admin' || user.role === 'writer');
-  const isAdmin = user?.role === 'admin';
+  const userRoles = user?.roles || [];
+  const canEdit = user && (userRoles.includes('ADMIN') || userRoles.includes('WRITER'));
+  const isAdmin = userRoles.includes('ADMIN');
 
   return (
     <div className="p-8">
@@ -148,7 +149,7 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
         />
       )}
       
-      {currentView === 'admin' && user.role === 'admin' && (
+      {currentView === 'admin' && isAdmin && (
         <AdminPanel />
       )}
 

@@ -89,13 +89,13 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
   const handleDeleteConfirm = async () => {
     try {
       await creditCardAPI.deleteCreditCard(deleteDialog.cardId);
-      toast.success('Tarjeta eliminada correctamente');
+      toast.success('Tarjeta desactivada correctamente');
       loadCards();
       if (selectedCard?.id === deleteDialog.cardId) {
         setSelectedCard(null);
       }
     } catch (error) {
-      toast.error('Error al eliminar tarjeta');
+      toast.error('Error al desactivar tarjeta');
       console.error('Error deleting credit card:', error);
     }
     setDeleteDialog({ isOpen: false, cardId: null, cardName: '' });
@@ -494,16 +494,18 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
                           >
                             ✏️
                           </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteClick(card);
-                            }}
-                            className="p-2 hover:bg-white/20 rounded-lg transition-colors"
-                            title="Eliminar"
-                          >
-                            🗑️
-                          </button>
+                          {card.is_active && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteClick(card);
+                              }}
+                              className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                              title="Desactivar"
+                            >
+                              🗑️
+                            </button>
+                          )}
                         </>
                       )}
                     </div>
@@ -1274,19 +1276,17 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
             toast.error('Error al eliminar el pago');
           }
         }}
-        onCancel={() => setDeletePaymentDialog({ isOpen: false, paymentId: null })}
-        isDangerous={true}
+        onClose={() => setDeletePaymentDialog({ isOpen: false, paymentId: null })}
       />
 
       <ConfirmDialog
         isOpen={deleteDialog.isOpen}
-        title="Eliminar Tarjeta"
-        message={`¿Estás seguro de que quieres eliminar la tarjeta "${deleteDialog.cardName}"? Esta acción no se puede deshacer.`}
-        confirmText="Eliminar"
+        title="Desactivar Tarjeta"
+        message={`¿Desactivar la tarjeta "${deleteDialog.cardName}"? La tarjeta quedará visible en tarjetas inactivas.`}
+        confirmText="Desactivar"
         cancelText="Cancelar"
         onConfirm={handleDeleteConfirm}
-        onCancel={() => setDeleteDialog({ isOpen: false, cardId: null, cardName: '' })}
-        isDangerous={true}
+        onClose={() => setDeleteDialog({ isOpen: false, cardId: null, cardName: '' })}
       />
 
       <ConfirmDialog
@@ -1296,8 +1296,7 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
         confirmText="Eliminar"
         cancelText="Cancelar"
         onConfirm={handleDeletePurchaseConfirm}
-        onCancel={() => setDeletePurchaseDialog({ isOpen: false, purchaseId: null, purchaseName: '' })}
-        isDangerous={true}
+        onClose={() => setDeletePurchaseDialog({ isOpen: false, purchaseId: null, purchaseName: '' })}
       />
     </div>
   );

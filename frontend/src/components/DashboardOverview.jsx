@@ -109,7 +109,7 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
 
   const handleOpenSyncModal = async () => {
     setShowSyncModal(true);
-    if (user.role === 'admin') {
+    if ((user.roles || []).includes('ADMIN')) {
       setLoadingStats(true);
       try {
         const response = await transactionsAPI.debugSync();
@@ -187,7 +187,7 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-finly-text">
-            Bienvenido, {user.full_name || user.username}
+            Bienvenido, {user.first_name || user.username}
           </h1>
           <p className="text-finly-textSecondary mt-2 flex items-center gap-2">
             Panel de control de finanzas personales
@@ -197,7 +197,7 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
           </p>
         </div>
         <div className="flex items-center gap-4">
-          {user.role === 'admin' && (
+          {(user.roles || []).includes('ADMIN') && (
             <button
               onClick={handleOpenSyncModal}
               disabled={loading}
@@ -283,7 +283,7 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
               Hoy
             </button>
           )}
-          {user.role === 'admin' && (
+          {(user.roles || []).includes('ADMIN') && (
             monthClosingStatus?.closed ? (
               <>
                 {monthClosingStatus?.is_stale && (
@@ -587,7 +587,7 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
                     <span className="text-2xl">🔄</span>
                   </button>
 
-                  {user.role === 'admin' && (
+                  {(user.roles || []).includes('ADMIN') && (
                     <button
                       onClick={() => {
                         setConfirmDialog({
@@ -630,7 +630,7 @@ function DashboardOverview({ transactions, user, refreshTransactions, loading, s
                     <span className="text-2xl">⬆️</span>
                   </button>
 
-                  {user.role === 'admin' && (
+                  {(user.roles || []).includes('ADMIN') && (
                     <button
                       onClick={() => {
                         setConfirmDialog({

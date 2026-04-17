@@ -1,15 +1,16 @@
 function Sidebar({ user, currentView, setCurrentView, onLogout }) {
   const menuItems = [
-    { id: 'dashboard', label: 'Panel Principal', icon: '📊', roles: ['admin', 'writer', 'reader'] },
-    { id: 'add', label: 'Cargar Gasto/Ingreso', icon: '➕', roles: ['admin', 'writer'] },
-    { id: 'import', label: 'Importar CSV', icon: '📁', roles: ['admin', 'writer'] },
-    { id: 'reports', label: 'Reportes', icon: '📈', roles: ['admin', 'writer', 'reader'] },
-    { id: 'debts', label: 'Presupuesto', icon: '📊', roles: ['admin', 'writer', 'reader'] },
-    { id: 'credit-cards', label: 'Tarjetas de Crédito', icon: '💳', roles: ['admin', 'writer', 'reader'] },
-    { id: 'admin', label: 'Administración', icon: '⚙️', roles: ['admin'] },
+    { id: 'dashboard', label: 'Panel Principal', icon: '📊', roles: ['ADMIN', 'WRITER', 'READER'] },
+    { id: 'add', label: 'Cargar Gasto/Ingreso', icon: '➕', roles: ['ADMIN', 'WRITER'] },
+    { id: 'import', label: 'Importar CSV', icon: '📁', roles: ['ADMIN', 'WRITER'] },
+    { id: 'reports', label: 'Reportes', icon: '📈', roles: ['ADMIN', 'WRITER', 'READER'] },
+    { id: 'debts', label: 'Presupuesto', icon: '📊', roles: ['ADMIN', 'WRITER', 'READER'] },
+    { id: 'credit-cards', label: 'Tarjetas de Crédito', icon: '💳', roles: ['ADMIN', 'WRITER', 'READER'] },
+    { id: 'admin', label: 'Administración', icon: '⚙️', roles: ['ADMIN'] },
   ];
 
-  const visibleItems = menuItems.filter(item => item.roles.includes(user.role));
+  const userRoles = user.roles || [];
+  const visibleItems = menuItems.filter(item => item.roles.some(r => userRoles.includes(r)));
 
   return (
     <aside className="w-64 bg-white shadow-lg flex flex-col">
@@ -30,10 +31,10 @@ function Sidebar({ user, currentView, setCurrentView, onLogout }) {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-finly-text truncate">
-              {user.full_name || user.username}
+              {user.first_name || user.username}
             </p>
             <p className="text-xs text-finly-textSecondary capitalize">
-              {user.role}
+              {(user.roles || []).join(', ')}
             </p>
           </div>
         </div>

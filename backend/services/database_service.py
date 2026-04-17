@@ -48,7 +48,7 @@ class DatabaseService:
             return new_cat.id
         raise ValueError("category_id or category name is required")
 
-    def add_transaction(self, transaction_data: Dict) -> Optional[int]:
+    def add_transaction(self, transaction_data: Dict, user_id: int = None) -> Optional[int]:
         """Add a single transaction to the database"""
         db = next(get_db())
         try:
@@ -74,7 +74,8 @@ class DatabaseService:
                 payment_method=transaction_data.get('payment_method', 'Débito'),
                 detail=transaction_data.get('detail', ''),
                 debt_id=transaction_data.get('debt_id'),
-                assignment_status=transaction_data.get('assignment_status', 'ASIGNADA_MANUAL')
+                assignment_status=transaction_data.get('assignment_status', 'ASIGNADA_MANUAL'),
+                user_id=user_id
             )
             
             db.add(db_transaction)
@@ -111,7 +112,7 @@ class DatabaseService:
         finally:
             db.close()
 
-    def add_transactions_batch(self, transactions: List[Dict]) -> bool:
+    def add_transactions_batch(self, transactions: List[Dict], user_id: int = None) -> bool:
         """Add multiple transactions to the database"""
         db = next(get_db())
         try:
@@ -138,7 +139,8 @@ class DatabaseService:
                     payment_method=t_data.get('payment_method', 'Débito'),
                     detail=t_data.get('detail', ''),
                     debt_id=t_data.get('debt_id'),
-                    assignment_status=t_data.get('assignment_status', 'ASIGNADA_MANUAL')
+                    assignment_status=t_data.get('assignment_status', 'ASIGNADA_MANUAL'),
+                    user_id=user_id
                 )
                 db_transactions.append(db_transaction)
             
@@ -163,11 +165,14 @@ class DatabaseService:
         finally:
             db.close()
 
-    def get_all_transactions(self) -> List[Dict]:
+    def get_all_transactions(self, user_id: int = None) -> List[Dict]:
         """Get all transactions from the database"""
         db = next(get_db())
         try:
-            transactions = db.query(DBTransaction).order_by(DBTransaction.date.desc()).all()
+            query = db.query(DBTransaction)
+            if user_id is not None:
+                query = query.filter(DBTransaction.user_id == user_id)
+            transactions = query.order_by(DBTransaction.date.desc()).all()
             
             result = []
             for t in transactions:
@@ -193,11 +198,14 @@ class DatabaseService:
         finally:
             db.close()
 
-    def update_transaction(self, transaction_id: int, transaction_data: Dict) -> bool:
+    def update_transaction(self, transaction_id: int, transaction_data: Dict, user_id: int = None) -> bool:
         """Update a transaction in the database"""
         db = next(get_db())
         try:
-            db_transaction = db.query(DBTransaction).filter(DBTransaction.id == transaction_id).first()
+            query = db.query(DBTransaction).filter(DBTransaction.id == transaction_id)
+            if user_id is not None:
+                query = query.filter(DBTransaction.user_id == user_id)
+            db_transaction = query.first()
             
             if not db_transaction:
                 logger.warning(f"⚠️ Transaction {transaction_id} not found")
@@ -265,11 +273,14 @@ class DatabaseService:
         finally:
             db.close()
 
-    def delete_transaction(self, transaction_id: int) -> bool:
+    def delete_transaction(self, transaction_id: int, user_id: int = None) -> bool:
         """Delete a transaction from the database"""
         db = next(get_db())
         try:
-            db_transaction = db.query(DBTransaction).filter(DBTransaction.id == transaction_id).first()
+            query = db.query(DBTransaction).filter(DBTransaction.id == transaction_id)
+            if user_id is not None:
+                query = query.filter(DBTransaction.user_id == user_id)
+            db_transaction = query.first()
             
             if not db_transaction:
                 logger.warning(f"⚠️ Transaction {transaction_id} not found")
@@ -353,14 +364,17 @@ class DatabaseService:
     # MONTH CLOSING
     # ======================================================================
 
-    def get_month_closing(self, year: int, month: int) -> Optional[Dict]:
+    def get_month_closing(self, year: int, month: int, user_id: int = None) -> Optional[Dict]:
         """Get the closing record for a specific month, if it exists"""
         db = next(get_db())
         try:
-            closing = db.query(MonthClosing).filter(
+            query = db.query(MonthClosing).filter(
                 MonthClosing.year == year,
                 MonthClosing.month == month
-            ).first()
+            )
+            if user_id is not None:
+                query = query.filter(MonthClosing.user_id == user_id)
+            closing = query.first()
             if not closing:
                 return None
             return {
@@ -377,11 +391,14 @@ class DatabaseService:
         finally:
             db.close()
 
-    def get_all_closings(self) -> List[Dict]:
+    def get_all_closings(self, user_id: int = None) -> List[Dict]:
         """Get all month closings ordered by date desc"""
         db = next(get_db())
         try:
-            closings = db.query(MonthClosing).order_by(
+            query = db.query(MonthClosing)
+            if user_id is not None:
+                query = query.filter(MonthClosing.user_id == user_id)
+            closings = query.order_by(
                 MonthClosing.year.desc(), MonthClosing.month.desc()
             ).all()
             return [{
@@ -398,30 +415,36 @@ class DatabaseService:
         finally:
             db.close()
 
-    def calculate_month_balance(self, year: int, month: int, cc_purchases_total: float = 0.0) -> Dict:
+    def calculate_month_balance(self, year: int, month: int, cc_purchases_total: float = 0.0, user_id: int = None) -> Dict:
         """Calculate ingresos, gastos, and balance for a month without closing it"""
         db = next(get_db())
         try:
             month_prefix = f"{year}-{month:02d}"
-            ingresos = float(db.query(
+            ing_query = db.query(
                 func.coalesce(func.sum(DBTransaction.amount), 0)
             ).filter(
                 DBTransaction.date.like(f"{month_prefix}%"),
                 DBTransaction.type == 'Ingreso'
-            ).scalar())
-            gastos_txn = float(db.query(
+            )
+            if user_id is not None:
+                ing_query = ing_query.filter(DBTransaction.user_id == user_id)
+            ingresos = float(ing_query.scalar())
+            gasto_query = db.query(
                 func.coalesce(func.sum(DBTransaction.amount), 0)
             ).filter(
                 DBTransaction.date.like(f"{month_prefix}%"),
                 DBTransaction.type == 'Gasto'
-            ).scalar())
+            )
+            if user_id is not None:
+                gasto_query = gasto_query.filter(DBTransaction.user_id == user_id)
+            gastos_txn = float(gasto_query.scalar())
             total_gastos = gastos_txn + cc_purchases_total
             balance = round(ingresos - total_gastos, 2)
             return {'total_ingresos': ingresos, 'total_gastos': total_gastos, 'balance': balance}
         finally:
             db.close()
 
-    def close_month(self, year: int, month: int, closed_by: str, cc_purchases_total: float = 0.0) -> Dict:
+    def close_month(self, year: int, month: int, closed_by: str, cc_purchases_total: float = 0.0, user_id: int = None) -> Dict:
         """
         Close a month: calculate balance and create carry-over transaction in next month.
         If the month is already closed, it will be reopened and re-closed.
@@ -429,10 +452,13 @@ class DatabaseService:
         db = next(get_db())
         try:
             # If already closed, reopen first (delete old closing + carry-over)
-            existing = db.query(MonthClosing).filter(
+            existing_q = db.query(MonthClosing).filter(
                 MonthClosing.year == year,
                 MonthClosing.month == month
-            ).first()
+            )
+            if user_id is not None:
+                existing_q = existing_q.filter(MonthClosing.user_id == user_id)
+            existing = existing_q.first()
             if existing:
                 if existing.carry_over_transaction_id:
                     old_txn = db.query(DBTransaction).filter(
@@ -446,21 +472,25 @@ class DatabaseService:
 
             month_prefix = f"{year}-{month:02d}"
             
-            ingresos = db.query(
+            ing_q = db.query(
                 func.coalesce(func.sum(DBTransaction.amount), 0)
             ).filter(
                 DBTransaction.date.like(f"{month_prefix}%"),
                 DBTransaction.type == 'Ingreso'
-            ).scalar()
-            ingresos = float(ingresos)
+            )
+            if user_id is not None:
+                ing_q = ing_q.filter(DBTransaction.user_id == user_id)
+            ingresos = float(ing_q.scalar())
 
-            gastos_txn = db.query(
+            gasto_q = db.query(
                 func.coalesce(func.sum(DBTransaction.amount), 0)
             ).filter(
                 DBTransaction.date.like(f"{month_prefix}%"),
                 DBTransaction.type == 'Gasto'
-            ).scalar()
-            gastos_txn = float(gastos_txn)
+            )
+            if user_id is not None:
+                gasto_q = gasto_q.filter(DBTransaction.user_id == user_id)
+            gastos_txn = float(gasto_q.scalar())
 
             total_gastos = gastos_txn + cc_purchases_total
             balance = round(ingresos - total_gastos, 2)
@@ -494,7 +524,8 @@ class DatabaseService:
                     necessity='Necesario',
                     payment_method='Cierre de mes',
                     detail=f"Saldo {MONTH_NAMES[month - 1]} {year}",
-                    assignment_status='ASIGNADA_AUTOMATICA'
+                    assignment_status='ASIGNADA_AUTOMATICA',
+                    user_id=user_id
                 )
                 db.add(carry_over_txn)
                 db.flush()
@@ -508,7 +539,8 @@ class DatabaseService:
                 total_gastos=total_gastos,
                 balance=balance,
                 carry_over_transaction_id=carry_over_txn_id,
-                closed_by=closed_by
+                closed_by=closed_by,
+                user_id=user_id
             )
             db.add(closing)
             db.commit()
@@ -536,14 +568,17 @@ class DatabaseService:
         finally:
             db.close()
 
-    def reopen_month(self, year: int, month: int) -> bool:
+    def reopen_month(self, year: int, month: int, user_id: int = None) -> bool:
         """Reopen a closed month: delete the closing record and the carry-over transaction"""
         db = next(get_db())
         try:
-            closing = db.query(MonthClosing).filter(
+            query = db.query(MonthClosing).filter(
                 MonthClosing.year == year,
                 MonthClosing.month == month
-            ).first()
+            )
+            if user_id is not None:
+                query = query.filter(MonthClosing.user_id == user_id)
+            closing = query.first()
             if not closing:
                 raise ValueError(f"El mes {month}/{year} no está cerrado")
 

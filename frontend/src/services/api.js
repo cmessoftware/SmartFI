@@ -21,13 +21,60 @@ api.interceptors.request.use(
   }
 );
 
-// Handle token expiration
+// Handle token expiration — try refresh before giving up
+// Use a queue to prevent concurrent refresh calls from racing
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (error, token = null) => {
+  failedQueue.forEach(({ resolve, reject }) => {
+    if (error) {
+      reject(error);
+    } else {
+      resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
+  async (error) => {
+    const originalRequest = error.config;
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      // If a refresh is already in progress, queue this request
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        }).then((token) => {
+          originalRequest.headers.Authorization = `Bearer ${token}`;
+          return api(originalRequest);
+        });
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      const refreshToken = localStorage.getItem('refresh_token');
+      if (refreshToken) {
+        try {
+          const res = await axios.post(`${API_URL}/api/auth/refresh`, { refresh_token: refreshToken });
+          const newToken = res.data.access_token;
+          localStorage.setItem('token', newToken);
+          processQueue(null, newToken);
+          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          return api(originalRequest);
+        } catch (refreshError) {
+          processQueue(refreshError, null);
+          // refresh failed — log out
+        } finally {
+          isRefreshing = false;
+        }
+      }
+      isRefreshing = false;
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      localStorage.removeItem('refresh_token');
       window.location.href = '/';
     }
     return Promise.reject(error);
@@ -42,6 +89,9 @@ export const authAPI = {
     return api.post('/api/auth/login', formData);
   },
   getCurrentUser: () => api.get('/api/auth/me'),
+  logout: () => api.post('/api/auth/logout'),
+  changePassword: (currentPassword, newPassword) =>
+    api.post('/api/auth/change-password', { current_password: currentPassword, new_password: newPassword }),
 };
 
 export const transactionsAPI = {
@@ -62,12 +112,26 @@ export const transactionsAPI = {
 };
 
 export const adminAPI = {
+  // Users
   getUsers: () => api.get('/api/admin/users'),
+  getUser: (id) => api.get(`/api/admin/users/${id}`),
   createUser: (user) => api.post('/api/admin/users', user),
-  updateUser: (username, user) => api.put(`/api/admin/users/${username}`, user),
-  deleteUser: (username) => api.delete(`/api/admin/users/${username}`),
+  updateUser: (id, user) => api.put(`/api/admin/users/${id}`, user),
+  activateUser: (id) => api.patch(`/api/admin/users/${id}/activate`),
+  deactivateUser: (id) => api.patch(`/api/admin/users/${id}/deactivate`),
+  unlockUser: (id) => api.patch(`/api/admin/users/${id}/unlock`),
+  resetPassword: (id, newPassword) => api.post(`/api/admin/users/${id}/reset-password`, { new_password: newPassword }),
+  // Roles
+  getRoles: () => api.get('/api/admin/roles'),
+  createRole: (role) => api.post('/api/admin/roles', role),
+  updateRole: (id, role) => api.put(`/api/admin/roles/${id}`, role),
+  deleteRole: (id) => api.delete(`/api/admin/roles/${id}`),
+  getPermissions: () => api.get('/api/admin/roles/permissions/all'),
+  // Settings
   getSetting: (key) => api.get(`/api/settings/${key}`),
   updateSetting: (key, value) => api.put(`/api/settings/${key}`, { value }),
+  // Clone data
+  cloneUserData: (data) => api.post('/api/admin/clone-data', data),
 };
 
 export const monthClosingAPI = {

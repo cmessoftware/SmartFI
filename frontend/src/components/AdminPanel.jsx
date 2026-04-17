@@ -5,32 +5,65 @@ import ConfirmDialog from './ConfirmDialog';
 
 function AdminPanel() {
   const [activeTab, setActiveTab] = useState('users');
-  const [users, setUsers] = useState([
-    { username: 'admin', full_name: 'Administrador', role: 'admin' },
-    { username: 'writer', full_name: 'Editor', role: 'writer' },
-    { username: 'reader', full_name: 'Lector', role: 'reader' }
-  ]);
+  const [users, setUsers] = useState([]);
+  const [roles, setRoles] = useState([]);
   const [categories, setCategories] = useState([]);
   const [showModal, setShowModal] = useState(false);
-  const [modalType, setModalType] = useState('user');
   const [editingItem, setEditingItem] = useState(null);
-  const [formData, setFormData] = useState({ username: '', full_name: '', role: 'reader', password: '' });
+  const [formData, setFormData] = useState({ username: '', email: '', first_name: '', last_name: '', password: '', role_ids: [] });
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
   const [newCategory, setNewCategory] = useState('');
   const [exchangeRate, setExchangeRate] = useState('');
   const [exchangeRateLoading, setExchangeRateLoading] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, onConfirm: null, title: '', message: '' });
+  const [cloneForm, setCloneForm] = useState({
+    source_user_id: '',
+    target_user_id: '',
+    modules: ['transactions', 'budget_items', 'credit_cards'],
+    clone_all: true,
+    start_month: new Date().getMonth() + 1,
+    start_year: new Date().getFullYear(),
+    end_month: new Date().getMonth() + 1,
+    end_year: new Date().getFullYear(),
+  });
+  const [cloneLoading, setCloneLoading] = useState(false);
+  const [cloneResult, setCloneResult] = useState(null);
   const toast = useToast();
 
-  const roles = ['admin', 'writer', 'reader'];
-
   useEffect(() => {
+    if (activeTab === 'users') {
+      loadUsers();
+      loadRoles();
+    }
     if (activeTab === 'settings') {
       loadExchangeRate();
+    }
+    if (activeTab === 'clone') {
+      loadUsers();
     }
     if (activeTab === 'categories') {
       loadCategories();
     }
   }, [activeTab]);
+
+  const loadUsers = async () => {
+    try {
+      const response = await adminAPI.getUsers();
+      setUsers(response.data || []);
+    } catch (error) {
+      console.error('Error loading users:', error);
+      toast.error('Error al cargar usuarios');
+    }
+  };
+
+  const loadRoles = async () => {
+    try {
+      const response = await adminAPI.getRoles();
+      setRoles(response.data || []);
+    } catch (error) {
+      console.error('Error loading roles:', error);
+    }
+  };
 
   const loadCategories = async () => {
     try {
@@ -70,49 +103,137 @@ function AdminPanel() {
   };
 
   const handleAddUser = () => {
-    setModalType('user');
     setEditingItem(null);
-    setFormData({ username: '', full_name: '', role: 'reader', password: '' });
+    setFormData({ username: '', email: '', first_name: '', last_name: '', password: '', role_ids: [] });
     setShowModal(true);
   };
 
   const handleEditUser = (user) => {
-    setModalType('user');
     setEditingItem(user);
-    setFormData({ ...user, password: '' });
+    setFormData({
+      username: user.username,
+      email: user.email || '',
+      first_name: user.first_name || '',
+      last_name: user.last_name || '',
+      password: '',
+      role_ids: (user.roles || []).map(r => r.id),
+    });
     setShowModal(true);
   };
 
-  const handleDeleteUser = (username) => {
-    if (username === 'admin') {
-      toast.warning('No se puede eliminar el usuario administrador');
+  const handleDeleteUser = (user) => {
+    if (user.username === 'admin') {
+      toast.warning('No se puede desactivar el usuario administrador');
       return;
     }
     setConfirmDialog({
       isOpen: true,
-      title: 'Eliminar Usuario',
-      message: `¿Estás seguro de eliminar al usuario ${username}?`,
-      onConfirm: () => {
-        setUsers(users.filter(u => u.username !== username));
-        toast.success('Usuario eliminado correctamente');
+      title: 'Desactivar Usuario',
+      message: `¿Estás seguro de desactivar al usuario ${user.username}?`,
+      onConfirm: async () => {
+        try {
+          await adminAPI.deactivateUser(user.id);
+          toast.success('Usuario desactivado correctamente');
+          loadUsers();
+        } catch (error) {
+          toast.error(error.response?.data?.detail || 'Error al desactivar usuario');
+        }
       }
     });
   };
 
-  const handleSaveUser = (e) => {
-    e.preventDefault();
-    if (editingItem) {
-      setUsers(users.map(u => u.username === editingItem.username ? { ...formData, password: undefined } : u));
-      toast.success('Usuario actualizado correctamente');
-    } else {
-      if (users.find(u => u.username === formData.username)) {
-        toast.error('El nombre de usuario ya existe');
-        return;
-      }
-      setUsers([...users, { ...formData, password: undefined }]);
-      toast.success('Usuario creado correctamente');
+  const handleUnlockUser = async (user) => {
+    try {
+      await adminAPI.unlockUser(user.id);
+      toast.success('Usuario desbloqueado correctamente');
+      loadUsers();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Error al desbloquear usuario');
     }
-    setShowModal(false);
+  };
+
+  const handleSaveUser = async (e) => {
+    e.preventDefault();
+    try {
+      if (editingItem) {
+        await adminAPI.updateUser(editingItem.id, {
+          email: formData.email,
+          first_name: formData.first_name,
+          last_name: formData.last_name,
+          role_ids: formData.role_ids,
+        });
+        toast.success('Usuario actualizado correctamente');
+      } else {
+        await adminAPI.createUser({
+          username: formData.username,
+          email: formData.email,
+          password: formData.password,
+          first_name: formData.first_name,
+          last_name: formData.last_name,
+          role_ids: formData.role_ids,
+        });
+        toast.success('Usuario creado correctamente');
+      }
+      setShowModal(false);
+      loadUsers();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Error al guardar usuario');
+    }
+  };
+
+  const handleToggleModule = (mod) => {
+    setCloneForm(prev => ({
+      ...prev,
+      modules: prev.modules.includes(mod)
+        ? prev.modules.filter(m => m !== mod)
+        : [...prev.modules, mod],
+    }));
+  };
+
+  const handleCloneData = async (e) => {
+    e.preventDefault();
+    if (!cloneForm.source_user_id || !cloneForm.target_user_id) {
+      toast.warning('Seleccione usuario origen y destino');
+      return;
+    }
+    if (cloneForm.source_user_id === cloneForm.target_user_id) {
+      toast.warning('Usuario origen y destino deben ser diferentes');
+      return;
+    }
+    if (cloneForm.modules.length === 0) {
+      toast.warning('Seleccione al menos un módulo');
+      return;
+    }
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Confirmar Clonado',
+      message: `¿Está seguro de clonar datos de "${users.find(u => u.id === Number(cloneForm.source_user_id))?.username}" a "${users.find(u => u.id === Number(cloneForm.target_user_id))?.username}"? Esta acción no se puede deshacer.`,
+      onConfirm: async () => {
+        setCloneLoading(true);
+        setCloneResult(null);
+        try {
+          const payload = {
+            source_user_id: Number(cloneForm.source_user_id),
+            target_user_id: Number(cloneForm.target_user_id),
+            modules: cloneForm.modules,
+            clone_all: cloneForm.clone_all,
+          };
+          if (!cloneForm.clone_all) {
+            payload.start_month = cloneForm.start_month;
+            payload.start_year = cloneForm.start_year;
+            payload.end_month = cloneForm.end_month;
+            payload.end_year = cloneForm.end_year;
+          }
+          const response = await adminAPI.cloneUserData(payload);
+          setCloneResult(response.data);
+          toast.success('Datos clonados exitosamente');
+        } catch (error) {
+          toast.error(error.response?.data?.detail || 'Error al clonar datos');
+        } finally {
+          setCloneLoading(false);
+        }
+      },
+    });
   };
 
   const handleAddCategory = async (e) => {
@@ -189,6 +310,16 @@ function AdminPanel() {
             >
               💲 Cotización
             </button>
+            <button
+              onClick={() => setActiveTab('clone')}
+              className={`py-4 px-2 border-b-2 font-semibold transition ${
+                activeTab === 'clone'
+                  ? 'border-finly-primary text-finly-primary'
+                  : 'border-transparent text-finly-textSecondary hover:text-finly-text'
+              }`}
+            >
+              📋 Clonar Datos
+            </button>
           </div>
         </div>
 
@@ -213,38 +344,65 @@ function AdminPanel() {
                   <thead>
                     <tr className="border-b border-gray-200">
                       <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Usuario</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Nombre Completo</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Rol</th>
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Email</th>
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Nombre</th>
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Roles</th>
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-finly-text">Estado</th>
                       <th className="text-right py-3 px-4 text-sm font-semibold text-finly-text">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
                     {users.map(user => (
-                      <tr key={user.username} className="border-b border-gray-100 hover:bg-gray-50">
+                      <tr key={user.id} className="border-b border-gray-100 hover:bg-gray-50">
                         <td className="py-3 px-4 text-sm font-medium text-finly-text">{user.username}</td>
-                        <td className="py-3 px-4 text-sm text-finly-text">{user.full_name}</td>
+                        <td className="py-3 px-4 text-sm text-finly-text">{user.email}</td>
+                        <td className="py-3 px-4 text-sm text-finly-text">{[user.first_name, user.last_name].filter(Boolean).join(' ')}</td>
                         <td className="py-3 px-4">
-                          <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
-                            user.role === 'admin' ? 'bg-purple-100 text-purple-700' :
-                            user.role === 'writer' ? 'bg-blue-100 text-blue-700' :
-                            'bg-gray-100 text-gray-700'
-                          }`}>
-                            {user.role}
-                          </span>
+                          <div className="flex flex-wrap gap-1">
+                            {(user.roles || []).map(r => (
+                              <span key={r.id} className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                r.name === 'ADMIN' ? 'bg-purple-100 text-purple-700' :
+                                r.name === 'WRITER' ? 'bg-blue-100 text-blue-700' :
+                                'bg-gray-100 text-gray-700'
+                              }`}>
+                                {r.name}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          {user.is_locked ? (
+                            <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">Bloqueado</span>
+                          ) : user.is_active ? (
+                            <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">Activo</span>
+                          ) : (
+                            <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">Inactivo</span>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-right">
                           <button
                             onClick={() => handleEditUser(user)}
-                            className="text-blue-600 hover:text-blue-800 mx-2"
+                            className="text-blue-600 hover:text-blue-800 mx-1"
+                            title="Editar"
                           >
                             ✏️
                           </button>
+                          {user.is_locked && (
+                            <button
+                              onClick={() => handleUnlockUser(user)}
+                              className="text-yellow-600 hover:text-yellow-800 mx-1"
+                              title="Desbloquear"
+                            >
+                              🔓
+                            </button>
+                          )}
                           {user.username !== 'admin' && (
                             <button
-                              onClick={() => handleDeleteUser(user.username)}
-                              className="text-red-600 hover:text-red-800 mx-2"
+                              onClick={() => handleDeleteUser(user)}
+                              className="text-red-600 hover:text-red-800 mx-1"
+                              title="Desactivar"
                             >
-                              🗑️
+                              🚫
                             </button>
                           )}
                         </td>
@@ -337,6 +495,188 @@ function AdminPanel() {
               </form>
             </div>
           )}
+
+          {activeTab === 'clone' && (
+            <div>
+              <h2 className="text-2xl font-bold text-finly-text mb-6">
+                Clonar Datos entre Usuarios
+              </h2>
+              <form onSubmit={handleCloneData} className="max-w-2xl space-y-6">
+                {/* Source & Target users */}
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-finly-text mb-2">
+                      Usuario Origen
+                    </label>
+                    <select
+                      value={cloneForm.source_user_id}
+                      onChange={(e) => setCloneForm({ ...cloneForm, source_user_id: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
+                      required
+                    >
+                      <option value="">Seleccionar...</option>
+                      {users.filter(u => u.is_active).map(u => (
+                        <option key={u.id} value={u.id}>{u.username} ({u.first_name || u.email})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-finly-text mb-2">
+                      Usuario Destino
+                    </label>
+                    <select
+                      value={cloneForm.target_user_id}
+                      onChange={(e) => setCloneForm({ ...cloneForm, target_user_id: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
+                      required
+                    >
+                      <option value="">Seleccionar...</option>
+                      {users.filter(u => u.is_active && String(u.id) !== String(cloneForm.source_user_id)).map(u => (
+                        <option key={u.id} value={u.id}>{u.username} ({u.first_name || u.email})</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Modules */}
+                <div>
+                  <label className="block text-sm font-medium text-finly-text mb-3">
+                    Módulos a Clonar
+                  </label>
+                  <div className="flex flex-wrap gap-4">
+                    {[
+                      { key: 'transactions', label: '💰 Gastos' },
+                      { key: 'budget_items', label: '📋 Presupuestos' },
+                      { key: 'credit_cards', label: '💳 Tarjetas de Crédito' },
+                    ].map(mod => (
+                      <label key={mod.key} className="flex items-center space-x-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={cloneForm.modules.includes(mod.key)}
+                          onChange={() => handleToggleModule(mod.key)}
+                          className="w-4 h-4 text-finly-primary rounded focus:ring-finly-primary"
+                        />
+                        <span className="text-sm text-finly-text">{mod.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Las relaciones entre módulos (ej: gasto vinculado a presupuesto) se preservan automáticamente.
+                  </p>
+                </div>
+
+                {/* Clone mode */}
+                <div>
+                  <label className="block text-sm font-medium text-finly-text mb-3">
+                    Rango de Clonación
+                  </label>
+                  <div className="flex items-center space-x-6 mb-4">
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="clone_mode"
+                        checked={cloneForm.clone_all}
+                        onChange={() => setCloneForm({ ...cloneForm, clone_all: true })}
+                        className="w-4 h-4 text-finly-primary focus:ring-finly-primary"
+                      />
+                      <span className="text-sm text-finly-text">Clonar todo</span>
+                    </label>
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="clone_mode"
+                        checked={!cloneForm.clone_all}
+                        onChange={() => setCloneForm({ ...cloneForm, clone_all: false })}
+                        className="w-4 h-4 text-finly-primary focus:ring-finly-primary"
+                      />
+                      <span className="text-sm text-finly-text">Por rango de meses</span>
+                    </label>
+                  </div>
+                  {!cloneForm.clone_all && (
+                    <div className="grid grid-cols-2 gap-6 p-4 bg-gray-50 rounded-lg">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Desde</label>
+                        <div className="flex space-x-2">
+                          <select
+                            value={cloneForm.start_month}
+                            onChange={(e) => setCloneForm({ ...cloneForm, start_month: Number(e.target.value) })}
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-finly-primary"
+                          >
+                            {[...Array(12)].map((_, i) => (
+                              <option key={i + 1} value={i + 1}>
+                                {new Date(2000, i).toLocaleString('es-AR', { month: 'long' })}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            type="number"
+                            value={cloneForm.start_year}
+                            onChange={(e) => setCloneForm({ ...cloneForm, start_year: Number(e.target.value) })}
+                            min={2020}
+                            max={2100}
+                            className="w-24 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-finly-primary"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Hasta</label>
+                        <div className="flex space-x-2">
+                          <select
+                            value={cloneForm.end_month}
+                            onChange={(e) => setCloneForm({ ...cloneForm, end_month: Number(e.target.value) })}
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-finly-primary"
+                          >
+                            {[...Array(12)].map((_, i) => (
+                              <option key={i + 1} value={i + 1}>
+                                {new Date(2000, i).toLocaleString('es-AR', { month: 'long' })}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            type="number"
+                            value={cloneForm.end_year}
+                            onChange={(e) => setCloneForm({ ...cloneForm, end_year: Number(e.target.value) })}
+                            min={2020}
+                            max={2100}
+                            className="w-24 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-finly-primary"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={cloneLoading}
+                  className="bg-finly-primary text-white px-6 py-2 rounded-lg font-semibold hover:bg-indigo-700 transition disabled:opacity-50"
+                >
+                  {cloneLoading ? 'Clonando...' : 'Clonar Datos'}
+                </button>
+              </form>
+
+              {/* Clone result */}
+              {cloneResult && (
+                <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+                  <h3 className="text-lg font-semibold text-green-700 mb-2">✅ {cloneResult.message}</h3>
+                  <div className="grid grid-cols-2 gap-2 text-sm text-green-800">
+                    {cloneResult.transactions_cloned > 0 && (
+                      <p>💰 Transacciones: <strong>{cloneResult.transactions_cloned}</strong></p>
+                    )}
+                    {cloneResult.budget_items_cloned > 0 && (
+                      <p>📋 Presupuestos: <strong>{cloneResult.budget_items_cloned}</strong></p>
+                    )}
+                    {cloneResult.credit_cards_cloned > 0 && (
+                      <p>💳 Tarjetas: <strong>{cloneResult.credit_cards_cloned}</strong></p>
+                    )}
+                    {cloneResult.purchases_cloned > 0 && (
+                      <p>🛒 Compras TC: <strong>{cloneResult.purchases_cloned}</strong></p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -363,43 +703,93 @@ function AdminPanel() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-finly-text mb-2">
-                  Nombre Completo *
+                  Email *
                 </label>
                 <input
-                  type="text"
-                  value={formData.full_name}
-                  onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
                   required
                 />
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-finly-text mb-2">Nombre</label>
+                  <input
+                    type="text"
+                    value={formData.first_name}
+                    onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-finly-text mb-2">Apellido</label>
+                  <input
+                    type="text"
+                    value={formData.last_name}
+                    onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
+                  />
+                </div>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-finly-text mb-2">
-                  Rol *
+                  Roles
                 </label>
-                <select
-                  value={formData.role}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
-                  required
-                >
+                <div className="space-y-2">
                   {roles.map(role => (
-                    <option key={role} value={role}>{role}</option>
+                    <label key={role.id} className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={formData.role_ids.includes(role.id)}
+                        onChange={(e) => {
+                          const newIds = e.target.checked
+                            ? [...formData.role_ids, role.id]
+                            : formData.role_ids.filter(id => id !== role.id);
+                          setFormData({ ...formData, role_ids: newIds });
+                        }}
+                        className="rounded border-gray-300 text-finly-primary focus:ring-finly-primary"
+                      />
+                      <span className="text-sm text-finly-text">{role.name} {role.description ? `— ${role.description}` : ''}</span>
+                    </label>
                   ))}
-                </select>
+                </div>
               </div>
               {!editingItem && (
                 <div>
                   <label className="block text-sm font-medium text-finly-text mb-2">
                     Contraseña *
                   </label>
-                  <input
-                    type="password"
-                    value={formData.password}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
-                    required={!editingItem}
-                  />
+                  <div className="relative">
+                    <input
+                      type={showAdminPassword ? 'text' : 'password'}
+                      value={formData.password}
+                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary pr-10"
+                      required={!editingItem}
+                      minLength={8}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowAdminPassword(!showAdminPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                      tabIndex={-1}
+                    >
+                      {showAdminPassword ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clipRule="evenodd" />
+                          <path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z" />
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                          <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Mínimo 8 caracteres, 1 mayúscula, 1 número, 1 especial</p>
                 </div>
               )}
               <div className="flex space-x-4 pt-4">

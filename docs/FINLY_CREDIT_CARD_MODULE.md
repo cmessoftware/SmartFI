@@ -197,4 +197,6 @@ overrideMethod @ installHook.js:1
 
 22. ✅ RESUELTO — Verificar seteo de periodo, no veo donde registrar fecha de cierre (inicio) y de vencimiento (fin).
    → Fix: Los campos "Día Cierre" y "Día Vencimiento" ahora aparecen editables en el Resumen del Período de cada tarjeta. Cada período puede tener valores distintos (tabla `credit_card_period_configs`). Si no se configura un período específico, se usan los valores por defecto de la tarjeta. El ciclo de facturación usa el `closing_day` para determinar el rango real de compras del período (ej: cierre día 20 → período Mar 21 a Abr 20). Endpoint: `PUT /api/credit-cards/{id}/period-config`.
-    
+
+23. ✅ RESUELTO — No se pueden borrar tarjetas inactivas.
+   → Fix (revisado): Las tarjetas inactivas NO se pueden borrar. El botón de eliminar solo aparece en tarjetas activas y realiza un soft delete (desactivar). Las tarjetas inactivas permanecen visibles sin opción de borrado.

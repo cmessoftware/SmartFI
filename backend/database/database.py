@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Enum as SQLEnum, ForeignKey, Date, Boolean, Text, UniqueConstraint
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Enum as SQLEnum, ForeignKey, Date, Boolean, Text, UniqueConstraint, Table
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -74,6 +74,7 @@ class BudgetItem(Base):
     __tablename__ = "budget_items"
     
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=True, index=True)
     fecha = Column(String, nullable=False)
     tipo = Column(String, nullable=False)  # Tarjeta, Préstamo, Crédito, Gasto Planificado, etc.
     categoria = Column(String, nullable=False)
@@ -99,6 +100,7 @@ class Transaction(Base):
     __tablename__ = "transactions"
     
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=True, index=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
     date = Column(String, nullable=False)
     type = Column(SQLEnum(TransactionType), nullable=False)
@@ -122,15 +124,95 @@ class Category(Base):
     name = Column(String, unique=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+# ============================================================================
+# SECURITY MODULE
+# ============================================================================
+
+# Association tables
+user_roles = Table(
+    'user_roles', Base.metadata,
+    Column('user_id', Integer, ForeignKey('users.id', ondelete='CASCADE'), primary_key=True),
+    Column('role_id', Integer, ForeignKey('roles.id', ondelete='CASCADE'), primary_key=True),
+)
+
+role_permissions = Table(
+    'role_permissions', Base.metadata,
+    Column('role_id', Integer, ForeignKey('roles.id', ondelete='CASCADE'), primary_key=True),
+    Column('permission_id', Integer, ForeignKey('permissions.id', ondelete='CASCADE'), primary_key=True),
+)
+
 class User(Base):
     __tablename__ = "users"
     
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, unique=True, nullable=False, index=True)
-    full_name = Column(String, nullable=True)
-    role = Column(String, nullable=False)
-    hashed_password = Column(String, nullable=False)
+    username = Column(String(50), unique=True, nullable=False, index=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    hashed_password = Column(String(255), nullable=False)
+    first_name = Column(String(100), nullable=True)
+    last_name = Column(String(100), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    is_locked = Column(Boolean, default=False, nullable=False)
+    failed_login_attempts = Column(Integer, default=0, nullable=False)
+    force_password_change = Column(Boolean, default=False, nullable=False)
+    last_login_at = Column(DateTime, nullable=True)
+    password_changed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    roles = relationship("Role", secondary=user_roles, back_populates="users", lazy="joined")
+    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
+
+class Role(Base):
+    __tablename__ = "roles"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(50), unique=True, nullable=False, index=True)
+    description = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    users = relationship("User", secondary=user_roles, back_populates="roles")
+    permissions = relationship("Permission", secondary=role_permissions, back_populates="roles", lazy="joined")
+
+class Permission(Base):
+    __tablename__ = "permissions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(50), unique=True, nullable=False, index=True)
+    description = Column(String(255), nullable=True)
+    module = Column(String(50), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    roles = relationship("Role", secondary=role_permissions, back_populates="permissions")
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    token_hash = Column(String(255), nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    ip_address = Column(String(45), nullable=True)
+    user_agent = Column(String(500), nullable=True)
+    
+    user = relationship("User", back_populates="refresh_tokens")
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    username = Column(String(50), nullable=True)
+    action = Column(String(50), nullable=False, index=True)
+    entity = Column(String(50), nullable=True)
+    entity_id = Column(Integer, nullable=True)
+    details = Column(Text, nullable=True)
+    ip_address = Column(String(45), nullable=True)
+    user_agent = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 # ============================================================================
 # CREDIT CARD MANAGEMENT MODULE
@@ -138,10 +220,13 @@ class User(Base):
 
 class CreditCard(Base):
     __tablename__ = "credit_cards"
+    __table_args__ = (
+        UniqueConstraint('user_id', 'card_name', name='uq_credit_cards_user_card_name'),
+    )
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, nullable=True)  # Future FK to users table
-    card_name = Column(String(100), nullable=False, unique=True)
+    card_name = Column(String(100), nullable=False)
     bank_name = Column(String(100), nullable=False)
     closing_day = Column(Integer, nullable=False)  # 1-31
     due_day = Column(Integer, nullable=False)  # 1-31
@@ -281,6 +366,7 @@ class MonthClosing(Base):
     __tablename__ = "month_closings"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=True, index=True)
     year = Column(Integer, nullable=False)
     month = Column(Integer, nullable=False)  # 1-12
     total_ingresos = Column(Float, nullable=False, default=0.0)
@@ -291,7 +377,7 @@ class MonthClosing(Base):
     closed_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
-        UniqueConstraint('year', 'month', name='uq_month_closings_year_month'),
+        UniqueConstraint('year', 'month', 'user_id', name='uq_month_closings_year_month_user'),
     )
 
 def init_db():
