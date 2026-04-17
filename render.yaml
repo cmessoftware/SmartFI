@@ -1,7 +1,7 @@
 services:
   # Backend API
   - type: web
-    name: finly-api
+    name: smartfi-api
     runtime: docker
     region: oregon
     plan: free
@@ -25,7 +25,7 @@ services:
 
   # Frontend Static Site
   - type: web
-    name: finly-frontend
+    name: smartfi-frontend
     runtime: docker
     region: oregon
     plan: free
