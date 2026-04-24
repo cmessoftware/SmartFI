@@ -2,6 +2,7 @@ import { Chart as ChartJS, ArcElement, CategoryScale, LinearScale, BarElement, T
 import { Pie, Bar } from 'react-chartjs-2';
 import { useMemo, useState, useEffect } from 'react';
 import ConfirmDialog from './ConfirmDialog';
+import CSVImport from './CSVImport';
 import { formatDate, toISODate } from '../utils/dateUtils';
 import { exportToCsv } from '../utils/csvExport';
 import { debtsAPI } from '../services/api';
@@ -14,7 +15,7 @@ const parseComparableDate = (value) => {
   return Number.isNaN(date.getTime()) ? 0 : date.getTime();
 };
 
-function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEdit = false, isAdmin = false }) {
+function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMultipleTransactions, onGoToNewTransaction, canEdit = false, isAdmin = false }) {
   const chartColors = ['#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#22C55E', '#3B82F6', '#EF4444'];
   const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   const now = new Date();
@@ -33,6 +34,8 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [showSelectedOnly, setShowSelectedOnly] = useState(false);
   const [debts, setDebts] = useState([]);
+  const [filterDetail, setFilterDetail] = useState('');
+  const [showCSVImport, setShowCSVImport] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 10;
 
@@ -83,6 +86,12 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
       return year === filterYear && month === filterMonth;
     });
 
+    // Filtro por detalle
+    if (filterDetail.trim()) {
+      const q = filterDetail.trim().toLowerCase();
+      filtered = filtered.filter(t => (t.detail || '').toLowerCase().includes(q));
+    }
+
     if (filterBudget === 'vinculado') {
       filtered = filtered.filter(t => t.debt_id !== null && t.debt_id !== undefined);
     } else if (filterBudget === 'no_vinculado') {
@@ -118,12 +127,12 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
     });
 
     return filtered;
-  }, [transactions, filterType, filterCategory, filterBudget, filterMonth, filterYear, sortBy, sortOrder]);
+  }, [transactions, filterType, filterCategory, filterDetail, filterBudget, filterMonth, filterYear, sortBy, sortOrder]);
 
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterType, filterCategory, filterBudget, filterMonth, filterYear, sortBy, sortOrder, showSelectedOnly]);
+  }, [filterType, filterCategory, filterDetail, filterBudget, filterMonth, filterYear, sortBy, sortOrder, showSelectedOnly]);
 
   // Años disponibles para el filtro
   const availableYears = useMemo(() => {
@@ -514,13 +523,35 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
       {/* Transaction List */}
       {transactions.length > 0 && (
         <div className="bg-white rounded-xl shadow-md p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="text-lg font-bold text-finly-text">
-              Transacciones ({allDisplayedTransactions.length})
-            </h3>
-            <div className="flex items-center gap-3">
+          <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
+            <div className="flex flex-wrap items-center gap-3">
+              {canEdit && onGoToNewTransaction && (
+                <button
+                  onClick={onGoToNewTransaction}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  + Nuevo Item
+                </button>
+              )}
+              {canEdit && addMultipleTransactions && (
+                <button
+                  onClick={() => setShowCSVImport(v => !v)}
+                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
+                >
+                  <span>📥</span>
+                  <span>{showCSVImport ? 'Cerrar Importar' : 'Importar CSV'}</span>
+                </button>
+              )}
+              <button
+                onClick={handleExportCsv}
+                disabled={filteredAndSortedTransactions.length === 0}
+                className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+              >
+                <span>📤</span>
+                <span>Exportar CSV</span>
+              </button>
               {canEdit && (
-                <label className="text-sm text-finly-textSecondary inline-flex items-center gap-2">
+                <label className="text-sm text-gray-600 inline-flex items-center gap-2 px-2">
                   <input
                     type="checkbox"
                     checked={showSelectedOnly}
@@ -533,23 +564,17 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
                 <button
                   onClick={() => setBulkConfirmDialogOpen(true)}
                   disabled={selectedTransactionIds.length === 0 || isBulkDeleting}
-                  className="text-sm bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                  className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   Eliminar seleccionadas ({selectedTransactionIds.length})
                 </button>
               )}
               <button
-                onClick={handleExportCsv}
-                disabled={filteredAndSortedTransactions.length === 0}
-                className="text-sm bg-emerald-600 text-white px-3 py-2 rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
-              >
-                Exportar CSV
-              </button>
-              <button
                 onClick={() => {
                   setFilterType('all');
                   setFilterCategory('all');
                   setFilterBudget('all');
+                  setFilterDetail('');
                   setFilterMonth(new Date().getMonth() + 1);
                   setFilterYear(new Date().getFullYear());
                   setSortBy('date');
@@ -561,7 +586,25 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
                 Limpiar Filtros
               </button>
             </div>
+            <span className="text-lg font-bold text-finly-text">
+              Transacciones ({allDisplayedTransactions.length})
+            </span>
           </div>
+          {/* Importación CSV inline */}
+          {showCSVImport && (
+            <div className="bg-gray-50 rounded-lg p-4 mb-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold">Importar Transacciones desde CSV</h3>
+                <button
+                  onClick={() => setShowCSVImport(false)}
+                  className="text-gray-600 hover:text-gray-800"
+                >
+                  ✕ Cerrar
+                </button>
+              </div>
+              <CSVImport addMultipleTransactions={addMultipleTransactions} />
+            </div>
+          )}
 
           {/* Filtros y Ordenamiento */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 p-4 bg-gray-50 rounded-lg">
@@ -621,6 +664,20 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, canEd
                   </optgroup>
                 )}
               </select>
+            </div>
+
+            {/* Filtro por Detalle */}
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">
+                Detalle
+              </label>
+              <input
+                type="text"
+                value={filterDetail}
+                onChange={(e) => setFilterDetail(e.target.value)}
+                placeholder="Buscar texto"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary text-sm"
+              />
             </div>
 
             {/* Ordenar por */}

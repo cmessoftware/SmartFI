@@ -8,7 +8,11 @@ Mejoras:
 5. ✅ IMPLEMENTADO — Selector de mes/año con navegación ◀ ▶ y botón "Hoy" en página Reportes (TransactionReport.jsx). Misma funcionalidad que el Panel Principal: barra visual prominente, dropdown de mes y año, navegación con wrapping mes/año.
 6. ✅ IMPLEMENTADO — Normalización de categorías: tabla categories poblada con datos existentes + hardcoded, campo category_id (FK) en transactions, API /api/categories retorna [{id, name}], frontend usa objetos categoría. Migración Alembic b5e8f2a1c3d7.
 7. ✅ IMPLEMENTADO — Campos de transactions renombrados a inglés: marca_temporal→timestamp, fecha→date, tipo→type, categoria→category_id, monto→amount, necesidad→necessity, forma_pago→payment_method, detalle→detail, estado_asignacion→assignment_status. Backend (main.py, database_service.py, google_sheets.py) y frontend (6 componentes) actualizados.
-8. Agregar filtro por Detalles simil pantalla de Presupuesto.
+8. ✅ IMPLEMENTADO — Filtro por Detalle en pantalla de Reportes, similar al de Presupuesto. Campo de texto en la barra de filtros que busca coincidencias parciales (case-insensitive) en el campo `detail` de las transacciones.
+9. ✅ IMPLEMENTADO — Opción de Importar CSV integrada dentro de la pantalla de Reportes. Botón "Importar CSV" junto a "Exportar CSV" que despliega el componente CSVImport inline (mismo layout que Presupuesto con BudgetCSVImport). Se pasa `addMultipleTransactions` desde Dashboard → TransactionReport.
+10. ✅ IMPLEMENTADO — Se eliminó la opción "Importar CSV" del sidebar para evitar confusión. La importación masiva se mantiene dentro de Reportes.
+11. ✅ IMPLEMENTADO — Se ajustó el layout de acciones en Reportes con estilo de Presupuesto: `Nuevo Item | Importar CSV | Exportar CSV | Mostrar solo seleccionadas | Eliminar seleccionadas`, con barra de botones alineada a la izquierda y label de transacciones alineado a la derecha.
+    Revisión 11: ✅ IMPLEMENTADO.
 
 
 Bugs:

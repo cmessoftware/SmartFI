@@ -2,7 +2,6 @@ function Sidebar({ user, currentView, setCurrentView, onLogout }) {
   const menuItems = [
     { id: 'dashboard', label: 'Panel Principal', icon: '📊', roles: ['ADMIN', 'WRITER', 'READER'] },
     { id: 'add', label: 'Cargar Gasto/Ingreso', icon: '➕', roles: ['ADMIN', 'WRITER'] },
-    { id: 'import', label: 'Importar CSV', icon: '📁', roles: ['ADMIN', 'WRITER'] },
     { id: 'reports', label: 'Reportes', icon: '📈', roles: ['ADMIN', 'WRITER', 'READER'] },
     { id: 'debts', label: 'Presupuesto', icon: '📊', roles: ['ADMIN', 'WRITER', 'READER'] },
     { id: 'credit-cards', label: 'Tarjetas de Crédito', icon: '💳', roles: ['ADMIN', 'WRITER', 'READER'] },

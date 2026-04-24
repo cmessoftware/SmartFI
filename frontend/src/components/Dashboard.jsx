@@ -144,6 +144,8 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
           onEdit={handleEdit}
           onDelete={handleDelete}
           onBulkDelete={handleBulkDeleteTransactions}
+          addMultipleTransactions={addMultipleTransactions}
+          onGoToNewTransaction={() => setCurrentView('add')}
           canEdit={canEdit}
           isAdmin={isAdmin}
         />

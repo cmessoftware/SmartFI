@@ -2,7 +2,9 @@ import os
 import sys
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load backend/.env regardless of the process current working directory.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 # Fix Windows console encoding for Unicode characters
 if sys.platform == "win32":

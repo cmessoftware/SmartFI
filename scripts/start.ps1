@@ -39,7 +39,8 @@ if (!$useCondaEnv -and (Test-Path "backend/venv")) {
 Write-Host "📦 Starting Backend (FastAPI)..." -ForegroundColor Green
 
 if ($useCondaEnv) {
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd backend; Write-Host '🔧 Backend Server Starting (conda: finly)...' -ForegroundColor Yellow; conda run -n finly python main.py"
+    $condaEnvPython = "C:\Users\sergiosal\miniforge3\envs\finly\python.exe"
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd backend; Write-Host '🔧 Backend Server Starting (conda: finly)...' -ForegroundColor Yellow; & '$condaEnvPython' main.py"
 } elseif ($useVenv) {
     Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd backend; Write-Host '🔧 Backend Server Starting (venv)...' -ForegroundColor Yellow; .\venv\Scripts\Activate.ps1; python main.py"
 } else {

@@ -1,4 +1,4 @@
-# Finly — Budget Model Refactor v2 (adaptado a arquitectura actual)
+# SmartFI — Budget Model Refactor v2 (adaptado a arquitectura actual)
 
 ## Objetivo
 
