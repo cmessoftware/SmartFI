@@ -1,4 +1,8 @@
-from database.database import SessionLocal, BudgetItem, Debt, DebtStatus, Transaction, BudgetType, FlowType, InstallmentPlan, InstallmentScheduleItem, InstallmentStatus
+from database.database import (
+    SessionLocal, BudgetItem, Debt, DebtStatus, Transaction,
+    TransactionType, BudgetType, FlowType,
+    InstallmentPlan, InstallmentScheduleItem, InstallmentStatus
+)
 from datetime import datetime
 from sqlalchemy import func, case
 
@@ -22,6 +26,67 @@ class DebtService:
         except Exception as e:
             print(f"Database connection error: {e}")
             return False
+
+    def _calculate_status(self, budget_item, monto_ejecutado):
+        """Derive budget item status from executed amount and due date."""
+        if monto_ejecutado >= float(budget_item.monto_total or 0):
+            return DebtStatus.PAGADA
+        if monto_ejecutado > 0:
+            return DebtStatus.PAGO_PARCIAL
+        try:
+            from datetime import date as _date
+            venc = budget_item.fecha_vencimiento
+            if isinstance(venc, str):
+                venc = _date.fromisoformat(venc)
+            if hasattr(venc, 'date'):
+                venc = venc.date()
+            if venc < _date.today():
+                return DebtStatus.VENCIDA
+        except Exception:
+            pass
+        return DebtStatus.PENDIENTE
+
+    def _sync_budget_items_with_transactions(self, db, budget_items, user_id=None):
+        """Recompute monto_ejecutado from transactions linked via debt_id."""
+        if not budget_items:
+            return
+
+        budget_item_ids = [bi.id for bi in budget_items]
+
+        # One query: sum per debt_id for all items at once
+        flujo_by_id = {}
+        for bi in budget_items:
+            flujo = bi.tipo_flujo.value if hasattr(bi.tipo_flujo, 'value') else str(bi.tipo_flujo)
+            flujo_by_id[bi.id] = TransactionType.GASTO if flujo == 'Gasto' else TransactionType.INGRESO
+
+        rows = db.query(
+            Transaction.debt_id,
+            func.sum(Transaction.amount)
+        ).filter(
+            Transaction.debt_id.in_(budget_item_ids)
+        ).group_by(Transaction.debt_id).all()
+
+        totals = {debt_id: float(total or 0) for debt_id, total in rows}
+
+        updated = False
+        for budget_item in budget_items:
+            monto_ejecutado = totals.get(budget_item.id, 0.0)
+            status = self._calculate_status(budget_item, monto_ejecutado)
+            prev_ej = float(budget_item.monto_ejecutado or 0)
+            prev_pg = float(budget_item.monto_pagado or 0)
+            if (
+                abs(prev_ej - monto_ejecutado) > 0.0001
+                or abs(prev_pg - monto_ejecutado) > 0.0001
+                or budget_item.status != status
+            ):
+                budget_item.monto_ejecutado = monto_ejecutado
+                budget_item.monto_pagado = monto_ejecutado
+                budget_item.status = status
+                budget_item.updated_at = datetime.utcnow()
+                updated = True
+
+        if updated:
+            db.commit()
 
     def add_debt(self, debt_data, user_id=None):
         """Add a new debt to database"""
@@ -95,11 +160,12 @@ class DebtService:
             if user_id is not None:
                 query = query.filter(BudgetItem.user_id == user_id)
             budget_items = query.order_by(BudgetItem.fecha_vencimiento.desc()).all()
+            self._sync_budget_items_with_transactions(db, budget_items, user_id=user_id)
             
             result = []
             for budget_item in budget_items:
                 # Calculate remaining amount
-                monto_restante = budget_item.monto_total - budget_item.monto_pagado
+                monto_restante = budget_item.monto_total - (budget_item.monto_ejecutado or 0)
                 
                 # Retornar el status actual de la DB (ya actualizado por otras operaciones)
                 result.append({
@@ -148,8 +214,10 @@ class DebtService:
             
             if not budget_item:
                 return None
+
+            self._sync_budget_items_with_transactions(db, [budget_item], user_id=user_id)
             
-            monto_restante = budget_item.monto_total - budget_item.monto_pagado
+            monto_restante = budget_item.monto_total - (budget_item.monto_ejecutado or 0)
             
             return {
                 'id': budget_item.id,
@@ -344,13 +412,16 @@ class DebtService:
             # User filter
             if user_id is not None:
                 month_filter.append(Debt.user_id == user_id)
+
+            budget_items = db.query(Debt).filter(*month_filter).all()
+            self._sync_budget_items_with_transactions(db, budget_items, user_id=user_id)
             
             # Filtro para excluir Ingresos de los montos a pagar
             gasto_filter = [Debt.tipo_flujo == FlowType.GASTO]
             
             total_debts = db.query(func.count(Debt.id)).filter(*month_filter).scalar()
             total_amount = db.query(func.sum(Debt.monto_total)).filter(*gasto_filter, *month_filter).scalar() or 0
-            total_paid = db.query(func.sum(Debt.monto_pagado)).filter(*gasto_filter, *month_filter).scalar() or 0
+            total_paid = db.query(func.sum(Debt.monto_ejecutado)).filter(*gasto_filter, *month_filter).scalar() or 0
             total_remaining = total_amount - total_paid
             
             # Total ingresos presupuestados
@@ -377,19 +448,19 @@ class DebtService:
             
             # Montos por estado (resta de lo pendiente por pagar, solo gastos)
             pending_amount = db.query(
-                func.sum(Debt.monto_total - Debt.monto_pagado)
+                func.sum(Debt.monto_total - Debt.monto_ejecutado)
             ).filter(
                 Debt.status == DebtStatus.PENDIENTE, *gasto_filter, *month_filter
             ).scalar() or 0
             
             partial_amount = db.query(
-                func.sum(Debt.monto_total - Debt.monto_pagado)
+                func.sum(Debt.monto_total - Debt.monto_ejecutado)
             ).filter(
                 Debt.status == DebtStatus.PAGO_PARCIAL, *gasto_filter, *month_filter
             ).scalar() or 0
             
             overdue_amount = db.query(
-                func.sum(Debt.monto_total - Debt.monto_pagado)
+                func.sum(Debt.monto_total - Debt.monto_ejecutado)
             ).filter(
                 Debt.status == DebtStatus.VENCIDA, *gasto_filter, *month_filter
             ).scalar() or 0

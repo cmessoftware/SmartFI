@@ -9,7 +9,8 @@ Mejoras:
 5. ✅ IMPLEMENTADO — Tarjeta "Ingresos Presupuestados" agregada al encabezado del módulo Presupuesto (DebtManager.jsx). Usa el campo `total_ingresos` del summary del backend (agregado en fix Bug 5). Grid expandido de 4 a 5 columnas.
 6. ✅ IMPLEMENTADO — Filtro por detalle ya existía: estado `filterDetalle`, input de texto en la barra de filtros, y lógica de filtrado con `.includes()` en `displayedDebts`.
 7. ✅ IMPLEMENTADO — Label "Total por Pagar" cambiado a "Total Estimado a Pagar" en DebtManager.jsx.
-8. 
+8. Agregar link en cada item del presuesta para que muetra en otra pantalla (no en popup) los itema de gastos asociados.
+   
    
 Bugs:
 1. ✅ RESUELTO — Error al editar un item de presupuesto. Las categorías (ahora objetos `{id, name}`) se usaban como key/value directamente en `<option>`, generando keys `[object Object]` duplicados. Fix: `key={cat.id || cat}` y `value={cat.name || cat}` en EditDebtModal.jsx y NewDebtModal.jsx.
@@ -944,3 +945,5 @@ installHook.js:1 The above error occurred in the <option> component:
 2. ✅ ~~Parace que en el grafico Presupuestado vs Asignado por Categoría ![alt text](image-21.png) no está filtrando por mes.~~ **Resuelto**: Se agregó filtro por mes/año en `presupuestoVsAsignadoData` en TransactionReport.jsx.
 3. ✅ ~~Agregar columna monto_a_pagar (en ingles en la base de datos) para indicar el monto real estimado a pagar para ese item, por defeto 100% del monto_total.~~ **Implementado**: Se agregó columna `estimated_payment` (Float, nullable) con migración Alembic `454edd24e1a1`. Backfill automático desde `monto_total`. Campo visible en tabla, formularios de alta/edición y resumen (`total_estimated_payment`).
 4. ✅ ~~Agregar el formulario de alta unitaria, masiva por csv y edición de item de presupuesto.~~ **Implementado**: Los tres formularios ya existían (NewDebtModal.jsx, EditDebtModal.jsx, BudgetCSVImport.jsx). Se actualizaron para incluir el campo `estimated_payment` (Monto a Pagar) con auto-sync desde monto_total y soporte en plantilla CSV.
+5. ✅ RESUELTO — Prioridad Alta - desalineación de montos entre Gastos vinculados y montos en Presupuesto.
+    → Fix: se unificó la fuente de verdad en backend recalculando `monto_ejecutado` de cada item de presupuesto desde la suma real de transacciones vinculadas (`transactions.debt_id`) en altas, edición, bajas e importación masiva. Además se sincroniza `monto_pagado` para compatibilidad. Se actualizó `debt_service` para calcular `monto_restante` y summary usando `monto_ejecutado`, y en frontend (`DebtManager.jsx`) el "Resta" ahora usa `monto_ejecutado`.

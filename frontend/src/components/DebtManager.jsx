@@ -1122,7 +1122,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
                     : debt.monto_total > 0 
                       ? (montoEjecutado / debt.monto_total) * 100 
                       : 0;
-                  const remaining = debt.monto_total - (debt.monto_pagado || 0);
+                  const remaining = debt.monto_total - montoEjecutado;
                   const tipoPresupuesto = debt.tipo_presupuesto || 'OBLIGATION';
                   const tipoFlujo = debt.tipo_flujo || 'Gasto';
 

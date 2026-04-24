@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import text, extract, func
-from database.database import Transaction as DBTransaction, Category, User as DBUser, Debt as DBDebt, MonthClosing
+from database.database import Transaction as DBTransaction, Category, User as DBUser, Debt as DBDebt, MonthClosing, FlowType, TransactionType
 from database.database import get_db, init_db, engine
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -48,6 +48,45 @@ class DatabaseService:
             return new_cat.id
         raise ValueError("category_id or category name is required")
 
+    def _recalculate_debt_execution(self, db: Session, debt_id: int) -> None:
+        """Recalculate monto_ejecutado from transactions linked via debt_id."""
+        debt = db.query(DBDebt).filter(DBDebt.id == debt_id).first()
+        if not debt:
+            return
+
+        debt_flow = debt.tipo_flujo.value if hasattr(debt.tipo_flujo, 'value') else debt.tipo_flujo
+        tx_type = TransactionType.INGRESO if debt_flow == FlowType.INGRESO.value else TransactionType.GASTO
+
+        executed_amount = db.query(
+            func.coalesce(func.sum(DBTransaction.amount), 0.0)
+        ).filter(
+            DBTransaction.debt_id == debt_id,
+            DBTransaction.type == tx_type
+        ).scalar() or 0.0
+
+        executed_amount = float(executed_amount)
+        debt.monto_ejecutado = executed_amount
+        # Keep legacy field aligned while migration remains in progress.
+        debt.monto_pagado = executed_amount
+
+        due_date = None
+        if debt.fecha_vencimiento:
+            try:
+                due_date = datetime.strptime(str(debt.fecha_vencimiento)[:10], "%Y-%m-%d").date()
+            except ValueError:
+                due_date = None
+
+        if executed_amount >= float(debt.monto_total or 0):
+            debt.status = 'PAGADA'
+        elif executed_amount > 0:
+            debt.status = 'Pago parcial'
+        elif due_date and due_date < datetime.utcnow().date():
+            debt.status = 'VENCIDA'
+        else:
+            debt.status = 'PENDIENTE'
+
+        debt.updated_at = datetime.utcnow()
+
     def add_transaction(self, transaction_data: Dict, user_id: int = None) -> Optional[int]:
         """Add a single transaction to the database"""
         db = next(get_db())
@@ -82,23 +121,11 @@ class DatabaseService:
             db.commit()
             db.refresh(db_transaction)
             
-            # Si la transacción está vinculada a un presupuesto, actualizar monto ejecutado
+            # Recalculate linked budget item from transactions to avoid drift.
             if db_transaction.debt_id:
-                debt = db.query(DBDebt).filter(DBDebt.id == db_transaction.debt_id).first()
-                if debt:
-                    debt.monto_ejecutado = (debt.monto_ejecutado or 0) + float(transaction_data['amount'])
-                    
-                    if transaction_data['type'] == 'Gasto':
-                        if debt.monto_ejecutado >= debt.monto_total:
-                            debt.status = 'PAGADA'
-                        elif debt.monto_ejecutado > 0:
-                            debt.status = 'Pago parcial'
-                        else:
-                            debt.status = 'PENDIENTE'
-                    
-                    debt.updated_at = datetime.utcnow()
-                    db.commit()
-                    logger.info(f"✅ Updated debt {debt.id} executed amount: {debt.monto_ejecutado}/{debt.monto_total} - Type: {transaction_data['type']}")
+                self._recalculate_debt_execution(db, db_transaction.debt_id)
+                db.commit()
+                logger.info(f"✅ Recalculated budget item {db_transaction.debt_id} after creating transaction {db_transaction.id}")
             
             logger.info(f"✅ Transaction {db_transaction.id} saved to database")
             return db_transaction.id
@@ -146,13 +173,10 @@ class DatabaseService:
             
             db.bulk_save_objects(db_transactions)
             db.commit()
-            
-            for t_data in transactions:
-                if t_data.get('debt_id'):
-                    debt = db.query(DBDebt).filter(DBDebt.id == t_data['debt_id']).first()
-                    if debt:
-                        debt.monto_ejecutado = (debt.monto_ejecutado or 0) + float(t_data['amount'])
-                        debt.updated_at = datetime.utcnow()
+
+            affected_debt_ids = {t.get('debt_id') for t in transactions if t.get('debt_id')}
+            for debt_id in affected_debt_ids:
+                self._recalculate_debt_execution(db, debt_id)
             
             db.commit()
             
@@ -213,37 +237,7 @@ class DatabaseService:
             
             old_debt_id = db_transaction.debt_id
             old_amount = db_transaction.amount
-            new_debt_id = transaction_data.get('debt_id', db_transaction.debt_id)
             new_amount = float(transaction_data.get('amount', old_amount))
-            
-            if old_debt_id != new_debt_id or old_amount != new_amount:
-                if old_debt_id:
-                    old_debt = db.query(DBDebt).filter(DBDebt.id == old_debt_id).first()
-                    if old_debt:
-                        old_debt.monto_ejecutado = max(0, (old_debt.monto_ejecutado or 0) - old_amount)
-                        if db_transaction.type == 'Gasto':
-                            if old_debt.monto_ejecutado >= old_debt.monto_total:
-                                old_debt.status = 'PAGADA'
-                            elif old_debt.monto_ejecutado > 0:
-                                old_debt.status = 'Pago parcial'
-                            else:
-                                old_debt.status = 'PENDIENTE'
-                        old_debt.updated_at = datetime.utcnow()
-                        logger.info(f"✅ Removed {old_amount} from budget {old_debt_id} - Executed: {old_debt.monto_ejecutado}")
-                
-                if new_debt_id:
-                    new_debt = db.query(DBDebt).filter(DBDebt.id == new_debt_id).first()
-                    if new_debt:
-                        new_debt.monto_ejecutado = (new_debt.monto_ejecutado or 0) + new_amount
-                        if db_transaction.type == 'Gasto':
-                            if new_debt.monto_ejecutado >= new_debt.monto_total:
-                                new_debt.status = 'PAGADA'
-                            elif new_debt.monto_ejecutado > 0:
-                                new_debt.status = 'Pago parcial'
-                            else:
-                                new_debt.status = 'PENDIENTE'
-                        new_debt.updated_at = datetime.utcnow()
-                        logger.info(f"✅ Added {new_amount} to budget {new_debt_id} - Executed: {new_debt.monto_ejecutado}")
             
             # Update fields
             if 'date' in transaction_data:
@@ -262,6 +256,12 @@ class DatabaseService:
                 db_transaction.detail = transaction_data['detail']
             if 'debt_id' in transaction_data:
                 db_transaction.debt_id = transaction_data['debt_id']
+
+            db.flush()
+
+            affected_debt_ids = {d_id for d_id in [old_debt_id, db_transaction.debt_id] if d_id}
+            for debt_id in affected_debt_ids:
+                self._recalculate_debt_execution(db, debt_id)
             
             db.commit()
             logger.info(f"✅ Transaction {transaction_id} updated in database")
@@ -286,22 +286,14 @@ class DatabaseService:
                 logger.warning(f"⚠️ Transaction {transaction_id} not found")
                 return False
             
-            if db_transaction.debt_id:
-                debt = db.query(DBDebt).filter(DBDebt.id == db_transaction.debt_id).first()
-                if debt:
-                    debt.monto_ejecutado = max(0, (debt.monto_ejecutado or 0) - float(db_transaction.amount))
-                    if db_transaction.type == 'Gasto':
-                        if debt.monto_ejecutado >= debt.monto_total:
-                            debt.status = 'PAGADA'
-                        elif debt.monto_ejecutado > 0:
-                            debt.status = 'Pago parcial'
-                        else:
-                            debt.status = 'PENDIENTE'
-                    debt.updated_at = datetime.utcnow()
-                    db.commit()
-                    logger.info(f"✅ Updated budget {debt.id} after deletion: Executed={debt.monto_ejecutado}/{debt.monto_total}")
-            
+            debt_id = db_transaction.debt_id
             db.delete(db_transaction)
+            db.flush()
+
+            if debt_id:
+                self._recalculate_debt_execution(db, debt_id)
+                logger.info(f"✅ Recalculated budget item {debt_id} after deleting transaction {transaction_id}")
+
             db.commit()
             logger.info(f"✅ Transaction {transaction_id} deleted from database")
             return True
