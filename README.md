@@ -1,4 +1,4 @@
-# 💰 Finly - Gestión de Finanzas Personales
+# 💰 SmartFI - Gestión de Finanzas Personales
 
 > Aplicación web full-stack para gestionar tus finanzas personales de forma simple y eficiente
 
