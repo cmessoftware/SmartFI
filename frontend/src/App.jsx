@@ -166,13 +166,9 @@ function App() {
       // Update in PostgreSQL
       await transactionsAPI.updateTransaction(id, updatedTransaction);
       console.log(`✅ Transaction ${id} updated in PostgreSQL`);
-      
-      // Update local state and cache
-      const updatedTransactions = transactions.map(t => 
-        t.id === id ? { ...t, ...updatedTransaction } : t
-      );
-      setTransactions(updatedTransactions);
-      localStorage.setItem('transactions_cache', JSON.stringify(updatedTransactions));
+
+      // Reload from source of truth to avoid front-only state drift.
+      await loadTransactionsFromDB();
     } catch (error) {
       console.error('❌ Error updating transaction:', error);
       throw error;

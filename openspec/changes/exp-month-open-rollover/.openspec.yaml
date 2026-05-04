@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-04-30
+status: backlog
+gitea_milestone: exp-month-open-rollover
+gitea_issue: 86
+branch: feature/exp-month-open-rollover

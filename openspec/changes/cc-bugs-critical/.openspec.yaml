@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-04-28
+status: proposed
+gitea_milestone: cc-bugs-critical
+gitea_issue: 19
+branch: bugfix/cc-bugs-critical

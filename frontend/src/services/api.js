@@ -141,6 +141,13 @@ export const monthClosingAPI = {
   reopenMonth: (year, month) => api.delete(`/api/month-closings/${year}/${month}`),
 };
 
+export const monthsAPI = {
+  getStatus: (yearMonth) => api.get(`/api/months/${yearMonth}/status`),
+  closeMonth: (yearMonth) => api.post(`/api/months/${yearMonth}/close`),
+  reopenMonth: (yearMonth, reason) => api.post(`/api/months/${yearMonth}/reopen`, { reason }),
+  getMonths: () => api.get('/api/months?include_status=true'),
+};
+
 export const debtsAPI = {
   getDebts: () => api.get('/api/budget-items'),
   getDebtSummary: (month, year) => {

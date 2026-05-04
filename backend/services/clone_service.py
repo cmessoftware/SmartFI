@@ -66,7 +66,7 @@ def clone_user_data(
         plan_id_map = {}  # old_plan_id -> new_plan_id
         transaction_id_map = {}  # old_transaction_id -> new_transaction_id
 
-        # ── 1. Clone budget items first (transactions reference them via debt_id) ──
+        # ── 1. Clone budget items first (transactions reference them via budget_item_id) ──
         if "budget_items" in modules:
             items = db.query(DBBudgetItem).filter(DBBudgetItem.user_id == source_user_id).all()
             for item in items:
@@ -113,7 +113,7 @@ def clone_user_data(
                     necessity=txn.necessity,
                     payment_method=txn.payment_method,
                     detail=txn.detail,
-                    debt_id=budget_item_id_map.get(txn.debt_id) if txn.debt_id else None,
+                    budget_item_id=budget_item_id_map.get(txn.budget_item_id) if txn.budget_item_id else None,
                     assignment_status=txn.assignment_status,
                 )
                 db.add(new_txn)
@@ -206,7 +206,7 @@ def clone_user_data(
                     if plan:
                         new_plan = DBInstallmentPlan(
                             purchase_id=new_purchase.id,
-                            debt_id=budget_item_id_map.get(plan.debt_id) if plan.debt_id else None,
+                            budget_item_id=budget_item_id_map.get(plan.budget_item_id) if plan.budget_item_id else None,
                             total_amount=plan.total_amount,
                             number_of_installments=plan.number_of_installments,
                             interest_rate=plan.interest_rate,

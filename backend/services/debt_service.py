@@ -4,7 +4,7 @@ from database.database import (
     InstallmentPlan, InstallmentScheduleItem, InstallmentStatus
 )
 from datetime import datetime
-from sqlalchemy import func, case
+from sqlalchemy import func, case, or_
 
 
 class DebtService:
@@ -16,6 +16,12 @@ class DebtService:
         if self.db is None:
             self.db = SessionLocal()
         return self.db
+
+    def _apply_user_scope(self, query, model, user_id=None):
+        """Include legacy rows without owner to avoid hiding pre-auth budget items."""
+        if user_id is None:
+            return query
+        return query.filter(or_(model.user_id == user_id, model.user_id.is_(None)))
 
     def is_connected(self):
         """Check if database is connected"""
@@ -47,26 +53,26 @@ class DebtService:
         return DebtStatus.PENDIENTE
 
     def _sync_budget_items_with_transactions(self, db, budget_items, user_id=None):
-        """Recompute monto_ejecutado from transactions linked via debt_id."""
+        """Recompute monto_ejecutado from transactions linked via budget_item_id."""
         if not budget_items:
             return
 
         budget_item_ids = [bi.id for bi in budget_items]
 
-        # One query: sum per debt_id for all items at once
+        # One query: sum per budget_item_id for all items at once
         flujo_by_id = {}
         for bi in budget_items:
             flujo = bi.tipo_flujo.value if hasattr(bi.tipo_flujo, 'value') else str(bi.tipo_flujo)
             flujo_by_id[bi.id] = TransactionType.GASTO if flujo == 'Gasto' else TransactionType.INGRESO
 
         rows = db.query(
-            Transaction.debt_id,
+            Transaction.budget_item_id,
             func.sum(Transaction.amount)
         ).filter(
-            Transaction.debt_id.in_(budget_item_ids)
-        ).group_by(Transaction.debt_id).all()
+            Transaction.budget_item_id.in_(budget_item_ids)
+        ).group_by(Transaction.budget_item_id).all()
 
-        totals = {debt_id: float(total or 0) for debt_id, total in rows}
+        totals = {budget_item_id: float(total or 0) for budget_item_id, total in rows}
 
         updated = False
         for budget_item in budget_items:
@@ -157,8 +163,7 @@ class DebtService:
         try:
             db = self._get_db()
             query = db.query(BudgetItem)
-            if user_id is not None:
-                query = query.filter(BudgetItem.user_id == user_id)
+            query = self._apply_user_scope(query, BudgetItem, user_id)
             budget_items = query.order_by(BudgetItem.fecha_vencimiento.desc()).all()
             self._sync_budget_items_with_transactions(db, budget_items, user_id=user_id)
             
@@ -189,7 +194,7 @@ class DebtService:
                 })
 
                 # Check for linked installment plan
-                plan = db.query(InstallmentPlan).filter(InstallmentPlan.debt_id == budget_item.id).first()
+                plan = db.query(InstallmentPlan).filter(InstallmentPlan.budget_item_id == budget_item.id).first()
                 if plan:
                     paid_count = db.query(InstallmentScheduleItem).filter(
                         InstallmentScheduleItem.plan_id == plan.id,
@@ -208,8 +213,7 @@ class DebtService:
         try:
             db = self._get_db()
             query = db.query(BudgetItem).filter(BudgetItem.id == debt_id)
-            if user_id is not None:
-                query = query.filter(BudgetItem.user_id == user_id)
+            query = self._apply_user_scope(query, BudgetItem, user_id)
             budget_item = query.first()
             
             if not budget_item:
@@ -247,8 +251,7 @@ class DebtService:
         try:
             db = self._get_db()
             query = db.query(BudgetItem).filter(BudgetItem.id == debt_id)
-            if user_id is not None:
-                query = query.filter(BudgetItem.user_id == user_id)
+            query = self._apply_user_scope(query, BudgetItem, user_id)
             debt = query.first()
             
             if not debt:
@@ -311,15 +314,14 @@ class DebtService:
         try:
             db = self._get_db()
             query = db.query(BudgetItem).filter(BudgetItem.id == debt_id)
-            if user_id is not None:
-                query = query.filter(BudgetItem.user_id == user_id)
+            query = self._apply_user_scope(query, BudgetItem, user_id)
             debt = query.first()
             
             if not debt:
                 return False
             
             # Check if there are transactions linked to this debt
-            linked_transactions = db.query(Transaction).filter(Transaction.debt_id == debt_id).count()
+            linked_transactions = db.query(Transaction).filter(Transaction.budget_item_id == debt_id).count()
             if linked_transactions > 0:
                 print(f"Cannot delete debt {debt_id}: {linked_transactions} transactions linked")
                 return False
@@ -411,7 +413,7 @@ class DebtService:
             
             # User filter
             if user_id is not None:
-                month_filter.append(Debt.user_id == user_id)
+                month_filter.append(or_(Debt.user_id == user_id, Debt.user_id.is_(None)))
 
             budget_items = db.query(Debt).filter(*month_filter).all()
             self._sync_budget_items_with_transactions(db, budget_items, user_id=user_id)

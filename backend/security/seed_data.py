@@ -38,6 +38,14 @@ DEFAULT_PERMISSIONS = [
     # Settings
     ("settings.read",  "Configuración", "Ver configuración"),
     ("settings.write", "Configuración", "Editar configuración"),
+    # Bank Accounts
+    ("accounts.read",   "Cuentas", "Ver cuentas bancarias"),
+    ("accounts.write",  "Cuentas", "Crear/editar cuentas bancarias"),
+    ("accounts.delete", "Cuentas", "Eliminar cuentas bancarias"),
+    # Debt Records
+    ("debt_records.read",   "Deudas", "Ver registros de deuda"),
+    ("debt_records.write",  "Deudas", "Crear/editar registros de deuda"),
+    ("debt_records.delete", "Deudas", "Eliminar registros de deuda"),
 ]
 
 
@@ -56,6 +64,8 @@ DEFAULT_ROLES = {
             "creditcards.read", "creditcards.write",
             "categories.read",
             "settings.read",
+            "accounts.read", "accounts.write",
+            "debt_records.read", "debt_records.write",
         ],
     },
     "READER": {
@@ -66,6 +76,8 @@ DEFAULT_ROLES = {
             "creditcards.read",
             "categories.read",
             "settings.read",
+            "accounts.read",
+            "debt_records.read",
         ],
     },
 }

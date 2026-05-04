@@ -2,6 +2,18 @@ import { useState, useEffect } from 'react';
 import { toISODate } from '../utils/dateUtils';
 
 function EditTransactionModal({ transaction, onSave, onClose, categories, necessityTypes, debts = [] }) {
+  const normalizeFlowType = (value) => {
+    const normalized = String(value || '').trim().toUpperCase();
+    if (normalized === 'GASTO') return 'Gasto';
+    if (normalized === 'INGRESO') return 'Ingreso';
+    return value || '';
+  };
+
+  const toYearMonth = (value) => {
+    const iso = toISODate(value || '');
+    return iso ? iso.substring(0, 7) : '';
+  };
+
   const [formData, setFormData] = useState({
     date: '',
     type: 'Gasto',
@@ -16,12 +28,12 @@ function EditTransactionModal({ transaction, onSave, onClose, categories, necess
     if (transaction) {
       setFormData({
         date: toISODate(transaction.date) || '',
-        type: transaction.type || 'Gasto',
+        type: normalizeFlowType(transaction.type) || 'Gasto',
         category: transaction.category || '',
         amount: transaction.amount || '',
         necessity: transaction.necessity || '',
         detail: transaction.detail || '',
-        debt_id: transaction.debt_id ?? ''
+        debt_id: transaction.debt_id ?? transaction.budget_item_id ?? ''
       });
     }
   }, [transaction]);
@@ -37,23 +49,28 @@ function EditTransactionModal({ transaction, onSave, onClose, categories, necess
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    const selectedBudgetItemId = formData.debt_id ? parseInt(formData.debt_id, 10) : null;
     onSave({
       ...transaction,
       ...formData,
       amount: parseFloat(formData.amount),
-      debt_id: formData.debt_id ? parseInt(formData.debt_id, 10) : null
+      debt_id: selectedBudgetItemId,
+      budget_item_id: selectedBudgetItemId
     });
   };
 
   // Filtrar debts por el mes de la transacción (Mejora 4)
   const txMonth = formData.date ? formData.date.substring(0, 7) : ''; // YYYY-MM
   const debtsForMonth = txMonth
-    ? debts.filter(d => d.fecha_vencimiento && d.fecha_vencimiento.substring(0, 7) === txMonth)
+    ? debts.filter((d) => {
+      const debtMonth = toYearMonth(d.fecha_vencimiento || d.fecha);
+      return debtMonth === txMonth;
+    })
     : debts;
 
   // Filtrar debts por tipo de flujo coincidente
   const suggestedDebts = debtsForMonth
-    .filter((debt) => debt.tipo_flujo === formData.type)
+    .filter((debt) => normalizeFlowType(debt.tipo_flujo) === normalizeFlowType(formData.type))
     .sort((a, b) => {
       const labelA = (a.detalle || `Presupuesto ${a.tipo || ''}`).trim().toLowerCase();
       const labelB = (b.detalle || `Presupuesto ${b.tipo || ''}`).trim().toLowerCase();
@@ -61,7 +78,7 @@ function EditTransactionModal({ transaction, onSave, onClose, categories, necess
     });
 
   const otherDebts = debtsForMonth
-    .filter((debt) => debt.tipo_flujo !== formData.type)
+    .filter((debt) => normalizeFlowType(debt.tipo_flujo) !== normalizeFlowType(formData.type))
     .sort((a, b) => {
       const labelA = (a.detalle || `Presupuesto ${a.tipo || ''}`).trim().toLowerCase();
       const labelB = (b.detalle || `Presupuesto ${b.tipo || ''}`).trim().toLowerCase();

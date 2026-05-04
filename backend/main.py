@@ -15,8 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List
 from datetime import datetime, timedelta
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 from database.database import SessionLocal, get_db, Transaction as DBTransaction, Debt as DBDebt, AppSetting, User as DBUser
-from security.auth_dependencies import get_current_user, require_role
+from security.auth_dependencies import get_current_user, require_role, require_permission
 
 # Configuration
 app = FastAPI(title="Finly API", version="1.0.0")
@@ -130,8 +131,10 @@ class Transaction(BaseModel):
     necessity: str
     payment_method: str = "Débito"
     detail: str = ""
+    budget_item_id: Optional[int] = None
     debt_id: Optional[int] = None
     assignment_status: Optional[str] = "ASIGNADA_MANUAL"
+    origin: Optional[str] = "MANUAL"
 
 class CloneMonthRequest(BaseModel):
     source_month: int  # 1-12
@@ -284,6 +287,15 @@ async def create_transaction(
     background_tasks: BackgroundTasks,
     current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
+    db = SessionLocal()
+    try:
+        from services.month_service import validate_period_for_mutation
+        is_admin = any((getattr(role, "name", "").upper() == "ADMIN") for role in (current_user.roles or []))
+        year_month = transaction.date[:7]
+        validate_period_for_mutation(year_month, is_admin, (transaction.origin or "MANUAL"), db, user_id=current_user.id)
+    finally:
+        db.close()
+
     # Save to PostgreSQL (primary storage)
     transaction_id = None
     error_detail = None
@@ -702,6 +714,23 @@ async def update_transaction(
     """Update an existing transaction"""
     if not database_service:
         raise HTTPException(status_code=503, detail="Database not configured")
+
+    db = SessionLocal()
+    try:
+        from services.month_service import validate_period_for_mutation
+        is_admin = any((getattr(role, "name", "").upper() == "ADMIN") for role in (current_user.roles or []))
+
+        existing_tx = (
+            db.query(DBTransaction)
+            .filter(DBTransaction.id == transaction_id, DBTransaction.user_id == current_user.id)
+            .first()
+        )
+        if existing_tx and existing_tx.date:
+            validate_period_for_mutation(existing_tx.date[:7], is_admin, (existing_tx.origin or "MANUAL"), db, user_id=current_user.id)
+
+        validate_period_for_mutation(transaction.date[:7], is_admin, (transaction.origin or "MANUAL"), db, user_id=current_user.id)
+    finally:
+        db.close()
     
     try:
         success = database_service.update_transaction(transaction_id, transaction.dict(), user_id=current_user.id)
@@ -735,6 +764,20 @@ async def delete_transaction(
     """Delete a transaction"""
     if not database_service:
         raise HTTPException(status_code=503, detail="Database not configured")
+
+    db = SessionLocal()
+    try:
+        from services.month_service import validate_period_for_mutation
+        is_admin = any((getattr(role, "name", "").upper() == "ADMIN") for role in (current_user.roles or []))
+        existing_tx = (
+            db.query(DBTransaction)
+            .filter(DBTransaction.id == transaction_id, DBTransaction.user_id == current_user.id)
+            .first()
+        )
+        if existing_tx and existing_tx.date:
+            validate_period_for_mutation(existing_tx.date[:7], is_admin, (existing_tx.origin or "MANUAL"), db, user_id=current_user.id)
+    finally:
+        db.close()
     
     try:
         success = database_service.delete_transaction(transaction_id, user_id=current_user.id)
@@ -993,7 +1036,7 @@ async def delete_debt(
     try:
         # Check if there are linked transactions first
         db = SessionLocal()
-        linked_count = db.query(DBTransaction).filter(DBTransaction.debt_id == debt_id, DBTransaction.user_id == current_user.id).count()
+        linked_count = db.query(DBTransaction).filter(DBTransaction.budget_item_id == debt_id, DBTransaction.user_id == current_user.id).count()
         db.close()
         
         if linked_count > 0:
@@ -1158,7 +1201,7 @@ async def delete_budget_item(
     try:
         # Check if there are linked transactions first
         db = SessionLocal()
-        linked_count = db.query(DBTransaction).filter(DBTransaction.debt_id == item_id, DBTransaction.user_id == current_user.id).count()
+        linked_count = db.query(DBTransaction).filter(DBTransaction.budget_item_id == item_id, DBTransaction.user_id == current_user.id).count()
         db.close()
         
         if linked_count > 0:
@@ -1805,6 +1848,305 @@ async def clone_user_data_endpoint(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al clonar datos: {str(e)}")
+
+# ============================================================
+# BANK ACCOUNTS API
+# ============================================================
+
+try:
+    from services.bank_account_service import BankAccountService
+    bank_account_service = BankAccountService()
+    print("✅ Bank Account service initialized successfully")
+except Exception as e:
+    print(f"⚠️ Bank Account service not available: {e}")
+    bank_account_service = None
+
+
+def _is_admin(user: DBUser) -> bool:
+    return any(r.name.upper() == "ADMIN" for r in user.roles)
+
+
+@app.get("/api/accounts")
+async def get_accounts(
+    active_only: bool = True,
+    current_user: DBUser = Depends(require_permission("accounts.read"))
+):
+    """List bank accounts. Admins see all; writers see only their own."""
+    if not bank_account_service:
+        raise HTTPException(status_code=503, detail="Bank Account service not configured")
+    return bank_account_service.get_accounts(
+        user_id=current_user.id,
+        is_admin=_is_admin(current_user),
+        active_only=active_only
+    )
+
+
+@app.get("/api/accounts/{account_id}")
+async def get_account(
+    account_id: int,
+    current_user: DBUser = Depends(require_permission("accounts.read"))
+):
+    """Get a single bank account."""
+    if not bank_account_service:
+        raise HTTPException(status_code=503, detail="Bank Account service not configured")
+    account = bank_account_service.get_account(
+        account_id=account_id,
+        user_id=current_user.id,
+        is_admin=_is_admin(current_user)
+    )
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return account
+
+
+@app.post("/api/accounts", status_code=201)
+async def create_account(
+    data: dict,
+    current_user: DBUser = Depends(require_permission("accounts.write"))
+):
+    """Create a new bank account."""
+    if not bank_account_service:
+        raise HTTPException(status_code=503, detail="Bank Account service not configured")
+    try:
+        return bank_account_service.create_account(data=data, user_id=current_user.id)
+    except (KeyError, ValueError) as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/accounts/{account_id}")
+async def update_account(
+    account_id: int,
+    data: dict,
+    current_user: DBUser = Depends(require_permission("accounts.write"))
+):
+    """Update a bank account."""
+    if not bank_account_service:
+        raise HTTPException(status_code=503, detail="Bank Account service not configured")
+    result = bank_account_service.update_account(
+        account_id=account_id,
+        data=data,
+        user_id=current_user.id,
+        is_admin=_is_admin(current_user)
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return result
+
+
+@app.delete("/api/accounts/{account_id}")
+async def delete_account(
+    account_id: int,
+    current_user: DBUser = Depends(require_permission("accounts.delete"))
+):
+    """Deactivate (soft-delete) a bank account."""
+    if not bank_account_service:
+        raise HTTPException(status_code=503, detail="Bank Account service not configured")
+    ok = bank_account_service.delete_account(
+        account_id=account_id,
+        user_id=current_user.id,
+        is_admin=_is_admin(current_user)
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return {"message": "Account deactivated successfully"}
+
+
+# ============================================================
+# DEBT RECORDS API
+# ============================================================
+
+try:
+    from services.debt_record_service import DebtRecordService
+    debt_record_service = DebtRecordService()
+    print("✅ Debt Record service initialized successfully")
+except Exception as e:
+    print(f"⚠️ Debt Record service not available: {e}")
+    debt_record_service = None
+
+
+@app.get("/api/debt-records")
+async def get_debt_records(
+    status: Optional[str] = None,
+    current_user: DBUser = Depends(require_permission("debt_records.read"))
+):
+    """List all debt records for the current user."""
+    if not debt_record_service:
+        raise HTTPException(status_code=503, detail="Debt Record service not configured")
+    return debt_record_service.get_debt_records(user_id=current_user.id, status=status)
+
+
+@app.get("/api/debt-records/{record_id}")
+async def get_debt_record(
+    record_id: int,
+    current_user: DBUser = Depends(require_permission("debt_records.read"))
+):
+    """Get a single debt record."""
+    if not debt_record_service:
+        raise HTTPException(status_code=503, detail="Debt Record service not configured")
+    record = debt_record_service.get_debt_record(record_id=record_id, user_id=current_user.id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Debt record not found")
+    return record
+
+
+@app.post("/api/debt-records", status_code=201)
+async def create_debt_record(
+    data: dict,
+    current_user: DBUser = Depends(require_permission("debt_records.write"))
+):
+    """Create a new debt record."""
+    if not debt_record_service:
+        raise HTTPException(status_code=503, detail="Debt Record service not configured")
+    try:
+        return debt_record_service.create_debt_record(data=data, user_id=current_user.id)
+    except (KeyError, ValueError) as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/debt-records/{record_id}")
+async def update_debt_record(
+    record_id: int,
+    data: dict,
+    current_user: DBUser = Depends(require_permission("debt_records.write"))
+):
+    """Update a debt record."""
+    if not debt_record_service:
+        raise HTTPException(status_code=503, detail="Debt Record service not configured")
+    result = debt_record_service.update_debt_record(
+        record_id=record_id, data=data, user_id=current_user.id
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Debt record not found")
+    return result
+
+
+@app.delete("/api/debt-records/{record_id}")
+async def delete_debt_record(
+    record_id: int,
+    current_user: DBUser = Depends(require_permission("debt_records.delete"))
+):
+    """Delete a debt record and all its payments."""
+    if not debt_record_service:
+        raise HTTPException(status_code=503, detail="Debt Record service not configured")
+    ok = debt_record_service.delete_debt_record(record_id=record_id, user_id=current_user.id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Debt record not found")
+    return {"message": "Debt record deleted successfully"}
+
+
+@app.get("/api/debt-records/{record_id}/payments")
+async def get_debt_payments(
+    record_id: int,
+    current_user: DBUser = Depends(require_permission("debt_records.read"))
+):
+    """List all payments for a debt record."""
+    if not debt_record_service:
+        raise HTTPException(status_code=503, detail="Debt Record service not configured")
+    payments = debt_record_service.get_payments(debt_record_id=record_id, user_id=current_user.id)
+    if payments is None:
+        raise HTTPException(status_code=404, detail="Debt record not found")
+    return payments
+
+
+@app.post("/api/debt-records/{record_id}/payments", status_code=201)
+async def add_debt_payment(
+    record_id: int,
+    data: dict,
+    current_user: DBUser = Depends(require_permission("debt_records.write"))
+):
+    """Register a payment against a debt record."""
+    if not debt_record_service:
+        raise HTTPException(status_code=503, detail="Debt Record service not configured")
+    try:
+        result = debt_record_service.add_payment(
+            debt_record_id=record_id, data=data, user_id=current_user.id
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="Debt record not found")
+        return result
+    except (KeyError, ValueError) as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/debt-records/payments/{payment_id}")
+async def delete_debt_payment(
+    payment_id: int,
+    current_user: DBUser = Depends(require_permission("debt_records.delete"))
+):
+    """Delete a debt payment (restores outstanding amount)."""
+    if not debt_record_service:
+        raise HTTPException(status_code=503, detail="Debt Record service not configured")
+    ok = debt_record_service.delete_payment(payment_id=payment_id, user_id=current_user.id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    return {"message": "Payment deleted successfully"}
+
+
+# ============================================================
+# MONTHLY PERIOD API (exp-month-close)
+# ============================================================
+
+class ReopenMonthRequest(BaseModel):
+    reason: str
+
+
+@app.post("/api/months/{year_month}/close")
+async def close_month_endpoint(
+    year_month: str,
+    db: Session = Depends(get_db),
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
+):
+    """Close a monthly period and create a snapshot (admin or writer)"""
+    from services.month_service import close_month as svc_close_month
+    return svc_close_month(year_month, current_user.id, current_user.username, db)
+
+
+@app.post("/api/months/{year_month}/reopen")
+async def reopen_month_endpoint(
+    year_month: str,
+    request: ReopenMonthRequest,
+    db: Session = Depends(get_db),
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
+):
+    """Reopen a closed monthly period with a required reason (admin or writer who closed it)"""
+    from services.month_service import reopen_month as svc_reopen_month
+    is_admin = any((getattr(role, "name", "").upper() == "ADMIN") for role in (current_user.roles or []))
+    return svc_reopen_month(year_month, current_user.id, current_user.username, request.reason, db, is_admin=is_admin)
+
+
+@app.get("/api/months/{year_month}/status")
+async def get_month_status_endpoint(
+    year_month: str,
+    db: Session = Depends(get_db),
+    current_user: DBUser = Depends(get_current_user)
+):
+    """Get the status and latest snapshot of a monthly period"""
+    from services.month_service import get_month_status, get_latest_snapshot
+    result = get_month_status(year_month, db, current_user.id)
+    snapshot = get_latest_snapshot(year_month, db, current_user.id)
+    if snapshot:
+        result["snapshot"] = snapshot
+    return result
+
+
+@app.get("/api/months")
+async def get_months_endpoint(
+    include_status: bool = False,
+    db: Session = Depends(get_db),
+    current_user: DBUser = Depends(get_current_user)
+):
+    """List monthly periods with optional status details"""
+    from services.month_service import get_months_with_status
+    if include_status:
+        return get_months_with_status(db, current_user.id)
+    return []
+
 
 if __name__ == "__main__":
     import uvicorn

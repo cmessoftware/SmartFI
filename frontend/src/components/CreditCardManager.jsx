@@ -1214,8 +1214,9 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
               itemId = result.data.budget_item_id;
             }
 
-            // Ensure debt_id is set to link payment to budget item
-            if (itemId && !transaction.debt_id) {
+            // Always link payment to the selected card/period budget item when available.
+            // This prevents mis-linking to another card period from the dropdown.
+            if (itemId) {
               transaction.debt_id = itemId;
             }
 

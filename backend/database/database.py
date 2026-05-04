@@ -61,6 +61,35 @@ class InstallmentPlanType(str, enum.Enum):
     PROMOTIONAL = "PROMOTIONAL"
     ZERO_INTEREST = "ZERO_INTEREST"
 
+class DebtType(str, enum.Enum):
+    TARJETA = "TARJETA"
+    PRESTAMO = "PRESTAMO"
+    HIPOTECA = "HIPOTECA"
+    PERSONAL = "PERSONAL"
+    OTRO = "OTRO"
+
+class DebtRecordStatus(str, enum.Enum):
+    ACTIVA = "ACTIVA"
+    CANCELADA = "CANCELADA"
+    VENCIDA = "VENCIDA"
+
+class AccountType(str, enum.Enum):
+    CUENTA_CORRIENTE  = "CUENTA_CORRIENTE"
+    CAJA_AHORRO       = "CAJA_AHORRO"
+    BILLETERA_VIRTUAL = "BILLETERA_VIRTUAL"
+    INVERSION         = "INVERSION"
+    OTRO              = "OTRO"
+
+class MonthPeriodStatus(str, enum.Enum):
+    OPEN     = "OPEN"
+    CLOSED   = "CLOSED"
+    REOPENED = "REOPENED"
+
+class MonthPeriodEventType(str, enum.Enum):
+    OPEN    = "OPEN"
+    CLOSE   = "CLOSE"
+    REOPEN  = "REOPEN"
+
 # Models
 class BudgetItem(Base):
     """
@@ -110,8 +139,10 @@ class Transaction(Base):
     necessity = Column(SQLEnum(NecessityType), nullable=False)
     payment_method = Column(String, default="Débito", nullable=False)
     detail = Column(Text, nullable=True)
-    debt_id = Column(Integer, ForeignKey('budget_items.id'), nullable=True)
+    budget_item_id = Column(Integer, ForeignKey('budget_items.id'), nullable=True)
     assignment_status = Column(SQLEnum(AssignmentStatus, values_callable=lambda x: [e.value for e in x]), default=AssignmentStatus.ASIGNADA_MANUAL, nullable=False)
+    origin = Column(String(50), default='MANUAL', nullable=False)
+    monthly_period_id = Column(Integer, ForeignKey('monthly_periods.id', ondelete='SET NULL'), nullable=True)
     
     created_at = Column(DateTime, default=datetime.utcnow)
     
@@ -245,6 +276,7 @@ class CreditCardPurchase(Base):
     card_id = Column(Integer, ForeignKey('credit_cards.id', ondelete='CASCADE'), nullable=False)
     transaction_id = Column(Integer, ForeignKey('transactions.id', ondelete='SET NULL'), nullable=True)
     purchase_date = Column(Date, nullable=False)
+    billing_date = Column(Date, nullable=True)
     total_amount = Column(Float, nullable=False)
     category = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
@@ -261,7 +293,7 @@ class InstallmentPlan(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     purchase_id = Column(Integer, ForeignKey('credit_card_purchases.id', ondelete='CASCADE'), nullable=False, unique=True)
-    debt_id = Column(Integer, ForeignKey('budget_items.id', ondelete='SET NULL'), nullable=True)
+    budget_item_id = Column(Integer, ForeignKey('budget_items.id', ondelete='SET NULL'), nullable=True)
     total_amount = Column(Float, nullable=False)
     number_of_installments = Column(Integer, nullable=False)
     interest_rate = Column(Float, default=0.0)
@@ -360,7 +392,55 @@ class AppSetting(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 # ============================================================================
-# MONTHLY CLOSING
+# MONTHLY PERIOD MODULE
+# ============================================================================
+
+class MonthlyPeriod(Base):
+    __tablename__ = "monthly_periods"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    year_month    = Column(String(7), nullable=False, index=True)  # "YYYY-MM"
+    user_id       = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=True, index=True)
+    status        = Column(SQLEnum(MonthPeriodStatus, values_callable=lambda x: [e.value for e in x]), default=MonthPeriodStatus.OPEN, nullable=False)
+    closed_at     = Column(DateTime, nullable=True)
+    closed_by     = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    reopened_at   = Column(DateTime, nullable=True)
+    reopened_by   = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    reopen_reason = Column(Text, nullable=True)
+    created_at    = Column(DateTime, default=datetime.utcnow)
+    updated_at    = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint('year_month', 'user_id', name='uq_monthly_periods_year_month_user'),
+    )
+
+class MonthlyPeriodSnapshot(Base):
+    __tablename__ = "monthly_period_snapshots"
+
+    id                = Column(Integer, primary_key=True, index=True)
+    monthly_period_id = Column(Integer, ForeignKey('monthly_periods.id', ondelete='CASCADE'), nullable=False)
+    snapshot_at       = Column(DateTime, nullable=False)
+    total_expenses    = Column(Float, nullable=False, default=0.0)
+    total_income      = Column(Float, nullable=False, default=0.0)
+    net_balance       = Column(Float, nullable=False, default=0.0)
+    transaction_count = Column(Integer, nullable=False, default=0)
+    created_by        = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    created_at        = Column(DateTime, default=datetime.utcnow)
+
+class MonthlyPeriodEvent(Base):
+    __tablename__ = "monthly_period_events"
+
+    id                = Column(Integer, primary_key=True, index=True)
+    monthly_period_id = Column(Integer, ForeignKey('monthly_periods.id', ondelete='CASCADE'), nullable=False, index=True)
+    user_id           = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    username          = Column(String(100), nullable=True)
+    event_type        = Column(SQLEnum(MonthPeriodEventType, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    occurred_at       = Column(DateTime, nullable=False, default=datetime.utcnow)
+    reason            = Column(Text, nullable=True)
+    created_at        = Column(DateTime, default=datetime.utcnow)
+
+# ============================================================================
+# MONTHLY CLOSING (legacy)
 # ============================================================================
 
 class MonthClosing(Base):
@@ -381,9 +461,64 @@ class MonthClosing(Base):
         UniqueConstraint('year', 'month', 'user_id', name='uq_month_closings_year_month_user'),
     )
 
+# ============================================================================
+# DEBT MODULE (REAL DEBT, SEPARATE FROM BUDGET)
+# ============================================================================
+
+class DebtRecord(Base):
+    __tablename__ = "debt_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    debt_name = Column(String(120), nullable=False)
+    debt_type = Column(SQLEnum(DebtType, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    creditor = Column(String(120), nullable=True)
+    currency = Column(String(3), default="ARS", nullable=False)
+    principal_amount = Column(Float, nullable=False)
+    outstanding_amount = Column(Float, nullable=False)
+    annual_interest_rate = Column(Float, nullable=True)
+    start_date = Column(Date, nullable=True)
+    due_date = Column(Date, nullable=True)
+    status = Column(SQLEnum(DebtRecordStatus, values_callable=lambda x: [e.value for e in x]), default=DebtRecordStatus.ACTIVA, nullable=False)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class DebtPayment(Base):
+    __tablename__ = "debt_payments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    debt_record_id = Column(Integer, ForeignKey('debt_records.id', ondelete='CASCADE'), nullable=False, index=True)
+    transaction_id = Column(Integer, ForeignKey('transactions.id', ondelete='SET NULL'), nullable=True)
+    payment_date = Column(Date, nullable=False)
+    amount = Column(Float, nullable=False)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 def init_db():
     """Initialize database tables"""
     Base.metadata.create_all(bind=engine)
+
+# ============================================================================
+# BANK ACCOUNTS MODULE
+# ============================================================================
+
+class BankAccount(Base):
+    __tablename__ = "bank_accounts"
+
+    id               = Column(Integer, primary_key=True, index=True)
+    user_id          = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    account_name     = Column(String(100), nullable=False)
+    institution_name = Column(String(100), nullable=False)
+    account_type     = Column(SQLEnum(AccountType, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    currency         = Column(String(3), default="ARS", nullable=False)
+    balance          = Column(Float, default=0.0, nullable=False)
+    is_active        = Column(Boolean, default=True, nullable=False)
+    cbu_cvu          = Column(String(22), nullable=True)
+    alias            = Column(String(50), nullable=True)
+    notes            = Column(Text, nullable=True)
+    created_at       = Column(DateTime, default=datetime.utcnow)
+    updated_at       = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 def get_db():
     """Dependency for getting database session"""

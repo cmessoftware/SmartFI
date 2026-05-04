@@ -33,7 +33,7 @@ def recalculate_executed_amounts():
         for debt in debts:
             # Calcular el total de transacciones vinculadas a este debt
             total_executed = db.query(text("COALESCE(SUM(monto), 0)")).select_from(Transaction).filter(
-                Transaction.debt_id == debt.id
+                Transaction.budget_item_id == debt.id
             ).scalar()
             
             old_value = debt.monto_ejecutado or 0

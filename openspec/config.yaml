@@ -1,0 +1,19 @@
+schema: spec-driven
+
+context: |
+	Tech stack: FastAPI + SQLAlchemy (backend, Python, conda env "finly"), React + Vite (frontend), PostgreSQL in Docker (port 5433).
+	Migrations: Alembic only. Models in backend/database/database.py. Run from backend/ with `alembic upgrade head`.
+	Currency: ARS, formatted with Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).
+	Backend services use singleton pattern. API endpoints in backend/main.py. Frontend API in frontend/src/services/api.js.
+	Task management: Gitea (issues, milestones, PRs). GitHub = hosting only.
+	Branch naming: feature/<change-name>, bugfix/<gitea-issue-id>, hotfix/<gitea-issue-id>.
+	Commit format: [SPEC:<change-name>] description\n\ncloses #<gitea-issue-id>
+
+rules:
+	tasks:
+		- Each task must reference a Gitea issue ID (format [#id]), not a markdown checkbox
+		- Group tasks by: Backend, Frontend, Testing
+	proposal:
+		- Include Why, What Changes, Capabilities (new/modified), Impact sections
+	design:
+		- Include affected modules, data model changes, API contract, security considerations

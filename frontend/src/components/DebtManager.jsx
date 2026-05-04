@@ -17,6 +17,18 @@ const MONTH_NAMES = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
 ];
 
+const getYearMonthKey = (value) => {
+  if (!value) return '';
+  const raw = String(value);
+
+  // Prefer YYYY-MM from ISO-like values to avoid timezone shifts.
+  const isoLike = raw.match(/^(\d{4})-(\d{2})/);
+  if (isoLike) return `${isoLike[1]}-${isoLike[2]}`;
+
+  const iso = toISODate(raw);
+  return iso ? iso.slice(0, 7) : '';
+};
+
 export default function DebtManager({ canEdit, isAdmin = false }) {
   const now = new Date();
   const chartColors = ['#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#22C55E', '#3B82F6', '#EF4444'];
@@ -258,7 +270,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
   };
 
   const handleExportDebtsCsv = () => {
-    const rows = debts.map((debt) => {
+    const rows = displayedDebts.map((debt) => {
       const montoEjecutado = Number(debt.monto_ejecutado ?? debt.monto_pagado ?? 0);
       const percentage = debt.monto_total > 0
         ? (montoEjecutado / Number(debt.monto_total || 0)) * 100
@@ -315,16 +327,22 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
     }
   };
 
-  const displayedDebts = useMemo(() => {
-    let filtered = [...debts];
-
-    // Filtrar por mes/año seleccionado
-    filtered = filtered.filter((debt) => {
-      const iso = toISODate(debt.fecha_vencimiento || debt.fecha);
-      if (!iso) return false;
-      const [year, month] = iso.split('-').map(Number);
-      return year === filterYear && month === filterMonth;
+  const monthScopedDebts = useMemo(() => {
+    const selectedKey = `${filterYear}-${String(filterMonth).padStart(2, '0')}`;
+    return debts.filter((debt) => {
+      const key = getYearMonthKey(debt.fecha_vencimiento || debt.fecha);
+      return key === selectedKey;
     });
+  }, [debts, filterMonth, filterYear]);
+
+  const monthIncomeTotal = useMemo(() => {
+    return monthScopedDebts
+      .filter((debt) => debt.tipo_flujo === 'Ingreso')
+      .reduce((sum, debt) => sum + Number(debt.monto_total || 0), 0);
+  }, [monthScopedDebts]);
+
+  const displayedDebts = useMemo(() => {
+    let filtered = [...monthScopedDebts];
 
     if (filterFechaDesde) {
       filtered = filtered.filter((debt) => toISODate(debt.fecha) >= filterFechaDesde);
@@ -380,11 +398,9 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
 
     return filtered;
   }, [
-    debts,
+    monthScopedDebts,
     selectedDebtIds,
     showSelectedOnly,
-    filterMonth,
-    filterYear,
     filterFechaDesde,
     filterFechaHasta,
     filterTipo,
@@ -612,7 +628,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
           </div>
           <div className="bg-white p-4 rounded-lg shadow-sm border">
             <p className="text-sm text-gray-600">Ingresos Presupuestados</p>
-            <p className="text-2xl font-bold text-green-600">{formatCurrency(summary.total_ingresos || 0)}</p>
+            <p className="text-2xl font-bold text-green-600">{formatCurrency(monthIncomeTotal)}</p>
           </div>
           <div className="bg-white p-4 rounded-lg shadow-sm border">
             <p className="text-sm text-gray-600">Total Estimado a Pagar</p>

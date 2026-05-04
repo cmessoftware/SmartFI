@@ -16,7 +16,11 @@ SmaartFI V1 es un asistente inteligene para gestión de finanzas peronales. Te p
  SmartFi V2. Nuevas funcionalidades:
   
  - Chatbot con IA usando base de conocmimiento para soporte a usuarios.
- - Dahsboards mas elaborados, interactivo y personalizable desde el fornt end.
+ - Dahsboards mas elaborados, interactivo y personalizable desde el front end.
  - Alertas que se envien a wathsap y telegram
  - Extensíón de motor de LLM para para sugerencias y mejoras de los gastos en base un objetivo de ahorro , inversión, reducción de gastos hormiga etc. En ese caso se puede extender con sugerencias de documentación, videos y canales afines.
+
+26-04-2026
+-NOTA: Primero implementar spec_engine (el mismo a usar en otro proyectos).
+
   

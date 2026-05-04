@@ -16,6 +16,11 @@ logger = logging.getLogger(__name__)
 class CreditCardService:
     def __init__(self):
         self.db = SessionLocal()
+
+    def _calculate_billing_date(self, purchase_date: date, currency: str) -> date:
+        if currency == 'USD':
+            return purchase_date + relativedelta(months=1)
+        return purchase_date
     
     def close(self):
         """Close database session"""
@@ -82,6 +87,7 @@ class CreditCardService:
             } for card in cards]
             
         except Exception as e:
+            self.db.rollback()
             logger.error(f"❌ Error fetching credit cards: {e}")
             raise
     
@@ -110,6 +116,7 @@ class CreditCardService:
             }
             
         except Exception as e:
+            self.db.rollback()
             logger.error(f"❌ Error fetching credit card {card_id}: {e}")
             raise
     
@@ -223,12 +230,16 @@ class CreditCardService:
                 setting = self.db.query(AppSetting).filter(AppSetting.key == 'dollar_exchange_rate').first()
                 exchange_rate = float(setting.value) if setting else 1.0
                 amount_in_pesos = amount * exchange_rate
+
+            purchase_date = datetime.strptime(purchase_data['purchase_date'], '%Y-%m-%d').date()
+            billing_date = self._calculate_billing_date(purchase_date, currency)
             
             # 1. Create purchase record
             purchase = CreditCardPurchase(
                 card_id=purchase_data['card_id'],
                 transaction_id=purchase_data.get('transaction_id'),
-                purchase_date=datetime.strptime(purchase_data['purchase_date'], '%Y-%m-%d').date(),
+                purchase_date=purchase_date,
+                billing_date=billing_date,
                 total_amount=amount,
                 category=category,
                 description=purchase_data.get('description', ''),
@@ -280,7 +291,7 @@ class CreditCardService:
             # Create installment plan (budget item created per card period via register_card_period_budget)
             plan = InstallmentPlan(
                 purchase_id=purchase.id,
-                debt_id=None,
+                budget_item_id=None,
                 total_amount=total_with_interest,
                 number_of_installments=installments,
                 interest_rate=interest_rate,
@@ -383,7 +394,8 @@ class CreditCardService:
                     'has_financing': purchase.has_financing,
                     'installment_plan': plan_data,
                     'plan_id': plan.id if plan else None,
-                    'debt_id': plan.debt_id if plan else None,
+                    'budget_item_id': plan.budget_item_id if plan else None,
+                    'debt_id': plan.budget_item_id if plan else None,
                     'interest_rate': plan.interest_rate if plan else 0.0,
                     'currency': purchase.currency or 'ARS',
                     'exchange_rate': purchase.exchange_rate,
@@ -394,6 +406,7 @@ class CreditCardService:
             return result
             
         except Exception as e:
+            self.db.rollback()
             logger.error(f"❌ Error fetching purchases: {e}")
             raise
     
@@ -418,6 +431,7 @@ class CreditCardService:
             } for item in schedule]
             
         except Exception as e:
+            self.db.rollback()
             logger.error(f"❌ Error fetching installment schedule: {e}")
             raise
     
@@ -450,8 +464,8 @@ class CreditCardService:
             
             # Legacy: update per-purchase budget item if exists
             plan = self.db.query(InstallmentPlan).filter(InstallmentPlan.id == installment.plan_id).first()
-            if plan and plan.debt_id:
-                budget_item = self.db.query(BudgetItem).filter(BudgetItem.id == plan.debt_id).first()
+            if plan and plan.budget_item_id:
+                budget_item = self.db.query(BudgetItem).filter(BudgetItem.id == plan.budget_item_id).first()
                 if budget_item:
                     budget_item.monto_pagado += installment.total_installment_amount
                     if budget_item.monto_pagado >= budget_item.monto_total:
@@ -504,8 +518,8 @@ class CreditCardService:
             
             # Legacy: update per-purchase budget item if exists (subtract the payment)
             plan = self.db.query(InstallmentPlan).filter(InstallmentPlan.id == installment.plan_id).first()
-            if plan and plan.debt_id:
-                budget_item = self.db.query(BudgetItem).filter(BudgetItem.id == plan.debt_id).first()
+            if plan and plan.budget_item_id:
+                budget_item = self.db.query(BudgetItem).filter(BudgetItem.id == plan.budget_item_id).first()
                 if budget_item:
                     budget_item.monto_pagado -= payment_amount
                     if budget_item.monto_pagado <= 0:
@@ -567,6 +581,12 @@ class CreditCardService:
                 else:
                     purchase.exchange_rate = None
                     purchase.amount_in_pesos = None
+
+            if 'purchase_date' in purchase_data or 'currency' in purchase_data:
+                purchase.billing_date = self._calculate_billing_date(
+                    purchase.purchase_date,
+                    purchase.currency,
+                )
             
             purchase.updated_at = datetime.utcnow()
             
@@ -634,8 +654,8 @@ class CreditCardService:
                     affected_periods.add((due_date.year, due_date.month))
                 
                 # Legacy: update per-purchase budget item if exists
-                if plan.debt_id:
-                    budget_item = self.db.query(BudgetItem).filter(BudgetItem.id == plan.debt_id).first()
+                if plan.budget_item_id:
+                    budget_item = self.db.query(BudgetItem).filter(BudgetItem.id == plan.budget_item_id).first()
                     if budget_item:
                         budget_item.monto_total = total_with_interest
                         budget_item.monto_pagado = 0
@@ -648,8 +668,8 @@ class CreditCardService:
                     self._update_period_budget(purchase.card_id, year, month)
             elif plan and 'description' in purchase_data:
                 # Update budget detalle even if only description changed
-                if plan.debt_id:
-                    budget_item = self.db.query(BudgetItem).filter(BudgetItem.id == plan.debt_id).first()
+                if plan.budget_item_id:
+                    budget_item = self.db.query(BudgetItem).filter(BudgetItem.id == plan.budget_item_id).first()
                     if budget_item:
                         budget_item.detalle = f"{purchase.description} ({purchase.installments} cuotas)"
                         budget_item.updated_at = datetime.utcnow()
@@ -694,9 +714,9 @@ class CreditCardService:
                     .filter(InstallmentScheduleItem.plan_id == plan.id).delete()
                 
                 # Delete legacy budget item if linked
-                if plan.debt_id:
+                if plan.budget_item_id:
                     self.db.query(BudgetItem)\
-                        .filter(BudgetItem.id == plan.debt_id).delete()
+                        .filter(BudgetItem.id == plan.budget_item_id).delete()
                 
                 # Delete plan
                 self.db.delete(plan)
@@ -734,14 +754,27 @@ class CreditCardService:
     
     def _get_gastos_paid_for_period(self, card_id: int, year: int, month: int) -> float:
         """Sum expense transactions linked to this card's period BudgetItem.
-        Only counts transactions whose debt_id matches the period budget item for this specific card."""
+        Only counts transactions whose budget_item_id matches the period budget item for this specific card."""
         from sqlalchemy import func
         period_budget = self._find_period_budget_item(card_id, year, month)
         if not period_budget:
             return 0.0
         total = self.db.query(func.coalesce(func.sum(Transaction.amount), 0)).filter(
-            Transaction.debt_id == period_budget.id,
+            Transaction.budget_item_id == period_budget.id,
             Transaction.type == TransactionType.GASTO,
+        ).scalar()
+        return float(total or 0)
+
+    def _get_gastos_paid_for_card(self, card_id: int) -> float:
+        """Sum all expense transactions linked to budget items belonging to this card."""
+        from sqlalchemy import func
+        tag_prefix = f"%[tc:{card_id}:%"
+        total = self.db.query(func.coalesce(func.sum(Transaction.amount), 0)).join(
+            BudgetItem,
+            Transaction.budget_item_id == BudgetItem.id
+        ).filter(
+            Transaction.type == TransactionType.GASTO,
+            BudgetItem.detalle.like(tag_prefix)
         ).scalar()
         return float(total or 0)
 
@@ -751,7 +784,7 @@ class CreditCardService:
         if not period_budget:
             return []
         transactions = self.db.query(Transaction).filter(
-            Transaction.debt_id == period_budget.id,
+            Transaction.budget_item_id == period_budget.id,
             Transaction.type == TransactionType.GASTO,
         ).order_by(Transaction.date.desc()).all()
         return [
@@ -867,6 +900,8 @@ class CreditCardService:
     def _get_standalone_purchases_for_period(self, card_id: int, year: int, month: int):
         """Get 1-cuota purchases for a given billing period.
         Uses period-specific closing_day (with card default fallback) for the date range."""
+        from sqlalchemy import func
+
         closing_day, _ = self._get_period_config(card_id, year, month)
         prev_closing = self._get_prev_period_closing_day(card_id, year, month)
 
@@ -875,8 +910,8 @@ class CreditCardService:
         return self.db.query(CreditCardPurchase).filter(
             CreditCardPurchase.card_id == card_id,
             CreditCardPurchase.installments == 1,
-            CreditCardPurchase.purchase_date >= start_date,
-            CreditCardPurchase.purchase_date <= end_date,
+            func.coalesce(CreditCardPurchase.billing_date, CreditCardPurchase.purchase_date) >= start_date,
+            func.coalesce(CreditCardPurchase.billing_date, CreditCardPurchase.purchase_date) <= end_date,
         ).all()
 
     def _get_purchase_amount_in_ars(self, purchase: CreditCardPurchase) -> float:
@@ -1054,6 +1089,7 @@ class CreditCardService:
                 'budget_item_id': period_budget.id if period_budget else None,
             }
         except Exception as e:
+            self.db.rollback()
             logger.error(f"❌ Error fetching period installments: {e}")
             raise
     
@@ -1195,7 +1231,12 @@ class CreditCardService:
             
             total_pending += standalone_total
             total_items = len(pending_installments) + len(current_standalone)
-            
+
+            # Subtract all payments linked to this card across periods.
+            # Payments are recorded in Gastos and linked via budget_item_id.
+            total_paid_card = self._get_gastos_paid_for_card(card_id)
+            total_pending = max(0.0, total_pending - total_paid_card)
+
             # Next due amount = Total(prev month) - Paid(prev month) + Total(current month)
             # Formula: unpaid balance from previous period + current period charges
             prev_date = now - relativedelta(months=1)
@@ -1223,6 +1264,7 @@ class CreditCardService:
             }
             
         except Exception as e:
+            self.db.rollback()
             logger.error(f"❌ Error generating card summary: {e}")
             raise
     
@@ -1273,6 +1315,7 @@ class CreditCardService:
                 'purchase_count': purchase_count
             }
         except Exception as e:
+            self.db.rollback()
             logger.error(f"❌ Error fetching monthly purchases total: {e}")
             raise
 
@@ -1312,5 +1355,6 @@ class CreditCardService:
                 'purchase_count': len(purchases)
             }
         except Exception as e:
+            self.db.rollback()
             logger.error(f"❌ Error generating purchases summary: {e}")
             raise

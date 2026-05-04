@@ -48,44 +48,44 @@ class DatabaseService:
             return new_cat.id
         raise ValueError("category_id or category name is required")
 
-    def _recalculate_debt_execution(self, db: Session, debt_id: int) -> None:
-        """Recalculate monto_ejecutado from transactions linked via debt_id."""
-        debt = db.query(DBDebt).filter(DBDebt.id == debt_id).first()
-        if not debt:
+    def _recalculate_budget_execution(self, db: Session, budget_item_id: int) -> None:
+        """Recalculate monto_ejecutado from transactions linked via budget_item_id."""
+        budget_item = db.query(DBDebt).filter(DBDebt.id == budget_item_id).first()
+        if not budget_item:
             return
 
-        debt_flow = debt.tipo_flujo.value if hasattr(debt.tipo_flujo, 'value') else debt.tipo_flujo
-        tx_type = TransactionType.INGRESO if debt_flow == FlowType.INGRESO.value else TransactionType.GASTO
+        budget_flow = budget_item.tipo_flujo.value if hasattr(budget_item.tipo_flujo, 'value') else budget_item.tipo_flujo
+        tx_type = TransactionType.INGRESO if budget_flow == FlowType.INGRESO.value else TransactionType.GASTO
 
         executed_amount = db.query(
             func.coalesce(func.sum(DBTransaction.amount), 0.0)
         ).filter(
-            DBTransaction.debt_id == debt_id,
+            DBTransaction.budget_item_id == budget_item_id,
             DBTransaction.type == tx_type
         ).scalar() or 0.0
 
         executed_amount = float(executed_amount)
-        debt.monto_ejecutado = executed_amount
+        budget_item.monto_ejecutado = executed_amount
         # Keep legacy field aligned while migration remains in progress.
-        debt.monto_pagado = executed_amount
+        budget_item.monto_pagado = executed_amount
 
         due_date = None
-        if debt.fecha_vencimiento:
+        if budget_item.fecha_vencimiento:
             try:
-                due_date = datetime.strptime(str(debt.fecha_vencimiento)[:10], "%Y-%m-%d").date()
+                due_date = datetime.strptime(str(budget_item.fecha_vencimiento)[:10], "%Y-%m-%d").date()
             except ValueError:
                 due_date = None
 
-        if executed_amount >= float(debt.monto_total or 0):
-            debt.status = 'PAGADA'
+        if executed_amount >= float(budget_item.monto_total or 0):
+            budget_item.status = 'PAGADA'
         elif executed_amount > 0:
-            debt.status = 'Pago parcial'
+            budget_item.status = 'Pago parcial'
         elif due_date and due_date < datetime.utcnow().date():
-            debt.status = 'VENCIDA'
+            budget_item.status = 'VENCIDA'
         else:
-            debt.status = 'PENDIENTE'
+            budget_item.status = 'PENDIENTE'
 
-        debt.updated_at = datetime.utcnow()
+        budget_item.updated_at = datetime.utcnow()
 
     def add_transaction(self, transaction_data: Dict, user_id: int = None) -> Optional[int]:
         """Add a single transaction to the database"""
@@ -103,6 +103,8 @@ class DatabaseService:
 
             category_id = self._resolve_category_id(db, transaction_data)
 
+            budget_item_id = transaction_data.get('budget_item_id', transaction_data.get('debt_id'))
+
             db_transaction = DBTransaction(
                 timestamp=ts,
                 date=transaction_data['date'],
@@ -112,7 +114,7 @@ class DatabaseService:
                 necessity=transaction_data['necessity'],
                 payment_method=transaction_data.get('payment_method', 'Débito'),
                 detail=transaction_data.get('detail', ''),
-                debt_id=transaction_data.get('debt_id'),
+                budget_item_id=budget_item_id,
                 assignment_status=transaction_data.get('assignment_status', 'ASIGNADA_MANUAL'),
                 user_id=user_id
             )
@@ -122,10 +124,10 @@ class DatabaseService:
             db.refresh(db_transaction)
             
             # Recalculate linked budget item from transactions to avoid drift.
-            if db_transaction.debt_id:
-                self._recalculate_debt_execution(db, db_transaction.debt_id)
+            if db_transaction.budget_item_id:
+                self._recalculate_budget_execution(db, db_transaction.budget_item_id)
                 db.commit()
-                logger.info(f"✅ Recalculated budget item {db_transaction.debt_id} after creating transaction {db_transaction.id}")
+                logger.info(f"✅ Recalculated budget item {db_transaction.budget_item_id} after creating transaction {db_transaction.id}")
             
             logger.info(f"✅ Transaction {db_transaction.id} saved to database")
             return db_transaction.id
@@ -156,6 +158,8 @@ class DatabaseService:
 
                 category_id = self._resolve_category_id(db, t_data)
 
+                budget_item_id = t_data.get('budget_item_id', t_data.get('debt_id'))
+
                 db_transaction = DBTransaction(
                     timestamp=ts,
                     date=t_data['date'],
@@ -165,7 +169,7 @@ class DatabaseService:
                     necessity=t_data['necessity'],
                     payment_method=t_data.get('payment_method', 'Débito'),
                     detail=t_data.get('detail', ''),
-                    debt_id=t_data.get('debt_id'),
+                    budget_item_id=budget_item_id,
                     assignment_status=t_data.get('assignment_status', 'ASIGNADA_MANUAL'),
                     user_id=user_id
                 )
@@ -174,9 +178,13 @@ class DatabaseService:
             db.bulk_save_objects(db_transactions)
             db.commit()
 
-            affected_debt_ids = {t.get('debt_id') for t in transactions if t.get('debt_id')}
-            for debt_id in affected_debt_ids:
-                self._recalculate_debt_execution(db, debt_id)
+            affected_budget_ids = {
+                t.get('budget_item_id', t.get('debt_id'))
+                for t in transactions
+                if t.get('budget_item_id', t.get('debt_id'))
+            }
+            for budget_item_id in affected_budget_ids:
+                self._recalculate_budget_execution(db, budget_item_id)
             
             db.commit()
             
@@ -211,7 +219,8 @@ class DatabaseService:
                     'necessity': t.necessity.value if hasattr(t.necessity, 'value') else t.necessity,
                     'payment_method': t.payment_method,
                     'detail': t.detail or '',
-                    'debt_id': t.debt_id
+                    'budget_item_id': t.budget_item_id,
+                    'debt_id': t.budget_item_id
                 })
             
             logger.info(f"✅ Retrieved {len(result)} transactions from database")
@@ -235,7 +244,7 @@ class DatabaseService:
                 logger.warning(f"⚠️ Transaction {transaction_id} not found")
                 return False
             
-            old_debt_id = db_transaction.debt_id
+            old_budget_item_id = db_transaction.budget_item_id
             old_amount = db_transaction.amount
             new_amount = float(transaction_data.get('amount', old_amount))
             
@@ -254,14 +263,14 @@ class DatabaseService:
                 db_transaction.payment_method = transaction_data['payment_method']
             if 'detail' in transaction_data:
                 db_transaction.detail = transaction_data['detail']
-            if 'debt_id' in transaction_data:
-                db_transaction.debt_id = transaction_data['debt_id']
+            if 'budget_item_id' in transaction_data or 'debt_id' in transaction_data:
+                db_transaction.budget_item_id = transaction_data.get('budget_item_id', transaction_data.get('debt_id'))
 
             db.flush()
 
-            affected_debt_ids = {d_id for d_id in [old_debt_id, db_transaction.debt_id] if d_id}
-            for debt_id in affected_debt_ids:
-                self._recalculate_debt_execution(db, debt_id)
+            affected_budget_ids = {d_id for d_id in [old_budget_item_id, db_transaction.budget_item_id] if d_id}
+            for budget_item_id in affected_budget_ids:
+                self._recalculate_budget_execution(db, budget_item_id)
             
             db.commit()
             logger.info(f"✅ Transaction {transaction_id} updated in database")
@@ -286,13 +295,13 @@ class DatabaseService:
                 logger.warning(f"⚠️ Transaction {transaction_id} not found")
                 return False
             
-            debt_id = db_transaction.debt_id
+            budget_item_id = db_transaction.budget_item_id
             db.delete(db_transaction)
             db.flush()
 
-            if debt_id:
-                self._recalculate_debt_execution(db, debt_id)
-                logger.info(f"✅ Recalculated budget item {debt_id} after deleting transaction {transaction_id}")
+            if budget_item_id:
+                self._recalculate_budget_execution(db, budget_item_id)
+                logger.info(f"✅ Recalculated budget item {budget_item_id} after deleting transaction {transaction_id}")
 
             db.commit()
             logger.info(f"✅ Transaction {transaction_id} deleted from database")

@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-04-30
+status: backlog
+gitea_milestone: exp-month-comparative-dashboard
+gitea_issue: 79
+branch: feature/exp-month-comparative-dashboard

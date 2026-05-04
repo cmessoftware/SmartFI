@@ -1,19 +1,33 @@
 Módulo de presupuesto
 
+## Tabla de Features y Bugs (IDs)
+
+| ID | Tipo | Estado | Resumen |
+|---|---|---|---|
+| BUD-FEAT-001 | Feature | ✅ IMPLEMENTADO | Paginación de 10 líneas en listado de presupuesto |
+| BUD-FEAT-002 | Feature | ✅ IMPLEMENTADO | Clonado de presupuesto al mes siguiente |
+| BUD-FEAT-003 | Feature | ✅ IMPLEMENTADO | Selector de mes/año en Panel Principal + summary por mes |
+| BUD-FEAT-004 | Feature | ✅ IMPLEMENTADO | Selector de mes/año en Reportes |
+| BUD-FEAT-005 | Feature | ✅ IMPLEMENTADO | Tarjeta Ingresos Presupuestados en encabezado |
+| BUD-FEAT-006 | Feature | ✅ IMPLEMENTADO | Filtro por detalle en DebtManager |
+| BUD-FEAT-007 | Feature | ✅ IMPLEMENTADO | Label Total Estimado a Pagar |
+| BUD-FEAT-008 | Feature | 📋 Backlog | Link desde item de presupuesto hacia gastos asociados |
+| BUD-BUG-001 | Bug | ✅ RESUELTO | Fix de keys duplicadas en categorías de edición/alta |
+
 Mejoras:
-1. ✅ IMPLEMENTADO — Páginas con tamaño de 10 lineas cada una. Paginación con controles Anterior/Siguiente y números de página en DebtManager.jsx.
-2. ✅ IMPLEMENTADO — Clonar Presupuesto al mes siguiente. Botón "Clonar Mes" con modal para seleccionar mes/año origen. Clona todos los items con fecha del mes siguiente, montos ejecutados en 0. Corregido formato de fecha a YYYY-MM-DD en backend.
-3. ✅ IMPLEMENTADO — Panel Principal con selector de mes/año. Muestra resumen filtrado del mes seleccionado (ingresos, gastos, balance, presupuesto pendiente obligatorio/variable, transacciones recientes). Controles ◀ ▶ para navegar meses, botón "Hoy" para volver al mes actual. Backend actualizado con filtro por mes en /api/budget-items/summary. Corregido import de Debt en debt_service.py.
-4. ✅ IMPLEMENTADO — Selector de mes/año con navegación ◀ ▶ y botón "Hoy" en página Reportes (TransactionReport.jsx). Replica la funcionalidad del punto 3 en TransactionReport.
+BUD-FEAT-001. ✅ IMPLEMENTADO — Páginas con tamaño de 10 lineas cada una. Paginación con controles Anterior/Siguiente y números de página en DebtManager.jsx.
+BUD-FEAT-002. ✅ IMPLEMENTADO — Clonar Presupuesto al mes siguiente. Botón "Clonar Mes" con modal para seleccionar mes/año origen. Clona todos los items con fecha del mes siguiente, montos ejecutados en 0. Corregido formato de fecha a YYYY-MM-DD en backend.
+BUD-FEAT-003. ✅ IMPLEMENTADO — Panel Principal con selector de mes/año. Muestra resumen filtrado del mes seleccionado (ingresos, gastos, balance, presupuesto pendiente obligatorio/variable, transacciones recientes). Controles ◀ ▶ para navegar meses, botón "Hoy" para volver al mes actual. Backend actualizado con filtro por mes en /api/budget-items/summary. Corregido import de Debt en debt_service.py.
+BUD-FEAT-004. ✅ IMPLEMENTADO — Selector de mes/año con navegación ◀ ▶ y botón "Hoy" en página Reportes (TransactionReport.jsx). Replica la funcionalidad del punto 3 en TransactionReport.
    Revisión punto 4: No se muestra como en Panel Principal ![alt text](image-18.png)
-5. ✅ IMPLEMENTADO — Tarjeta "Ingresos Presupuestados" agregada al encabezado del módulo Presupuesto (DebtManager.jsx). Usa el campo `total_ingresos` del summary del backend (agregado en fix Bug 5). Grid expandido de 4 a 5 columnas.
-6. ✅ IMPLEMENTADO — Filtro por detalle ya existía: estado `filterDetalle`, input de texto en la barra de filtros, y lógica de filtrado con `.includes()` en `displayedDebts`.
-7. ✅ IMPLEMENTADO — Label "Total por Pagar" cambiado a "Total Estimado a Pagar" en DebtManager.jsx.
-8. Agregar link en cada item del presuesta para que muetra en otra pantalla (no en popup) los itema de gastos asociados.
+BUD-FEAT-005. ✅ IMPLEMENTADO — Tarjeta "Ingresos Presupuestados" agregada al encabezado del módulo Presupuesto (DebtManager.jsx). Usa el campo `total_ingresos` del summary del backend (agregado en fix Bug 5). Grid expandido de 4 a 5 columnas.
+BUD-FEAT-006. ✅ IMPLEMENTADO — Filtro por detalle ya existía: estado `filterDetalle`, input de texto en la barra de filtros, y lógica de filtrado con `.includes()` en `displayedDebts`.
+BUD-FEAT-007. ✅ IMPLEMENTADO — Label "Total por Pagar" cambiado a "Total Estimado a Pagar" en DebtManager.jsx.
+BUD-FEAT-008. 📋 Backlog — Agregar link en cada item del presupuesto para que muestre en otra pantalla (no en popup) los items de gastos asociados.
    
    
 Bugs:
-1. ✅ RESUELTO — Error al editar un item de presupuesto. Las categorías (ahora objetos `{id, name}`) se usaban como key/value directamente en `<option>`, generando keys `[object Object]` duplicados. Fix: `key={cat.id || cat}` y `value={cat.name || cat}` en EditDebtModal.jsx y NewDebtModal.jsx.
+BUD-BUG-001. ✅ RESUELTO — Error al editar un item de presupuesto. Las categorías (ahora objetos `{id, name}`) se usaban como key/value directamente en `<option>`, generando keys `[object Object]` duplicados. Fix: `key={cat.id || cat}` y `value={cat.name || cat}` en EditDebtModal.jsx y NewDebtModal.jsx.
 
 <details>
 <summary>Ediciónd de presupuesto</summary>
@@ -947,3 +961,4 @@ installHook.js:1 The above error occurred in the <option> component:
 4. ✅ ~~Agregar el formulario de alta unitaria, masiva por csv y edición de item de presupuesto.~~ **Implementado**: Los tres formularios ya existían (NewDebtModal.jsx, EditDebtModal.jsx, BudgetCSVImport.jsx). Se actualizaron para incluir el campo `estimated_payment` (Monto a Pagar) con auto-sync desde monto_total y soporte en plantilla CSV.
 5. ✅ RESUELTO — Prioridad Alta - desalineación de montos entre Gastos vinculados y montos en Presupuesto.
     → Fix: se unificó la fuente de verdad en backend recalculando `monto_ejecutado` de cada item de presupuesto desde la suma real de transacciones vinculadas (`transactions.debt_id`) en altas, edición, bajas e importación masiva. Además se sincroniza `monto_pagado` para compatibilidad. Se actualizó `debt_service` para calcular `monto_restante` y summary usando `monto_ejecutado`, y en frontend (`DebtManager.jsx`) el "Resta" ahora usa `monto_ejecutado`.
+    Revisión: Sigue desalineado Item Alimentos, verificar en los otros casos. ![alt text](image-28.png) ✅ RESUELTO

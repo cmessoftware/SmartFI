@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-04-30
+status: proposed
+gitea_milestone: cc-period-close
+gitea_issue: 32
+branch: feature/cc-period-close

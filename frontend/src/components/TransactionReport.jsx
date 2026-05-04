@@ -5,7 +5,10 @@ import ConfirmDialog from './ConfirmDialog';
 import CSVImport from './CSVImport';
 import { formatDate, toISODate } from '../utils/dateUtils';
 import { exportToCsv } from '../utils/csvExport';
-import { debtsAPI } from '../services/api';
+import { debtsAPI, monthsAPI } from '../services/api';
+import MonthStatusBadge from './MonthStatusBadge';
+import ClosePeriodModal from './ClosePeriodModal';
+import ReopenPeriodModal from './ReopenPeriodModal';
 
 ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
@@ -39,6 +42,15 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 10;
 
+  // Period close state
+  const [monthStatus, setMonthStatus] = useState(null);
+  const [showCloseModal, setShowCloseModal] = useState(false);
+  const [showReopenModal, setShowReopenModal] = useState(false);
+
+  // Non-admins cannot modify transactions in a CLOSED month
+  const periodIsClosed = monthStatus?.status === 'CLOSED';
+  const canModify = canEdit && (isAdmin || !periodIsClosed);
+
   const handleSort = (field) => {
     if (sortBy === field) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -60,6 +72,14 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
     };
     loadDebts();
   }, []);
+
+  // Cargar estado del período mensual
+  useEffect(() => {
+    const yearMonth = `${filterYear}-${String(filterMonth).padStart(2, '0')}`;
+    monthsAPI.getStatus(yearMonth)
+      .then(res => setMonthStatus(res.data))
+      .catch(() => setMonthStatus(null));
+  }, [filterMonth, filterYear]);
 
   // Obtener categorías únicas
   const categories = useMemo(() => {
@@ -389,6 +409,31 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
           <span className="text-lg font-bold text-finly-text">
             📅 {MONTH_NAMES[filterMonth - 1]} {filterYear}
           </span>
+          {monthStatus && <MonthStatusBadge status={monthStatus.status} />}
+          {canEdit && monthStatus && (monthStatus.status === 'OPEN' || monthStatus.status === 'REOPENED') && (
+            <button
+              onClick={() => setShowCloseModal(true)}
+              className="text-xs px-3 py-1 bg-red-600 text-white rounded-full hover:bg-red-700 transition"
+            >
+              Cerrar mes
+            </button>
+          )}
+          {isAdmin && monthStatus && monthStatus.status === 'CLOSED' && (
+            <button
+              onClick={() => setShowReopenModal(true)}
+              className="text-xs px-3 py-1 bg-yellow-600 text-white rounded-full hover:bg-yellow-700 transition"
+            >
+              Reabrir mes
+            </button>
+          )}
+          {isAdmin && monthStatus && monthStatus.status === 'CLOSED' && onGoToNewTransaction && (
+            <button
+              onClick={() => onGoToNewTransaction({ origin: 'bank_adjustment' })}
+              className="text-xs px-3 py-1 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition"
+            >
+              + Ajuste bancario
+            </button>
+          )}
           {(filterMonth !== now.getMonth() + 1 || filterYear !== now.getFullYear()) && (
             <button
               onClick={() => { setFilterMonth(now.getMonth() + 1); setFilterYear(now.getFullYear()); }}
@@ -399,6 +444,46 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
           )}
         </div>
       </div>
+
+      {/* REOPENED banner */}
+      {monthStatus?.status === 'REOPENED' && (
+        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-sm text-yellow-800 flex items-start gap-2">
+          <span className="text-yellow-600 mt-0.5">⚠️</span>
+          <div>
+            <strong>Mes reabierto</strong>
+            {monthStatus.reopen_reason && (
+              <span> — Motivo: {monthStatus.reopen_reason}</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Post-close snapshot summary */}
+      {monthStatus?.status === 'CLOSED' && monthStatus.snapshot && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-sm font-semibold text-red-800 mb-2">Resumen del período cerrado</p>
+          <div className="grid grid-cols-3 gap-4 text-sm">
+            <div>
+              <p className="text-gray-500">Ingresos</p>
+              <p className="font-semibold text-green-700">
+                {new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(monthStatus.snapshot.total_income)}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500">Egresos</p>
+              <p className="font-semibold text-red-700">
+                {new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(monthStatus.snapshot.total_expenses)}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500">Balance neto</p>
+              <p className={`font-semibold ${monthStatus.snapshot.net_balance >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                {new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(monthStatus.snapshot.net_balance)}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -525,7 +610,7 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
         <div className="bg-white rounded-xl shadow-md p-6">
           <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
             <div className="flex flex-wrap items-center gap-3">
-              {canEdit && onGoToNewTransaction && (
+              {canModify && onGoToNewTransaction && (
                 <button
                   onClick={onGoToNewTransaction}
                   className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
@@ -533,7 +618,7 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
                   + Nuevo Item
                 </button>
               )}
-              {canEdit && addMultipleTransactions && (
+              {canModify && addMultipleTransactions && (
                 <button
                   onClick={() => setShowCSVImport(v => !v)}
                   className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
@@ -550,7 +635,8 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
                 <span>📤</span>
                 <span>Exportar CSV</span>
               </button>
-              {canEdit && (
+              {canModify && (
+
                 <label className="text-sm text-gray-600 inline-flex items-center gap-2 px-2">
                   <input
                     type="checkbox"
@@ -560,7 +646,8 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
                   Mostrar solo seleccionadas
                 </label>
               )}
-              {canEdit && (
+              {canModify && (
+
                 <button
                   onClick={() => setBulkConfirmDialogOpen(true)}
                   disabled={selectedTransactionIds.length === 0 || isBulkDeleting}
@@ -725,7 +812,8 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200">
-                  {canEdit && (
+                  {canModify && (
+
                     <th className="text-center py-3 px-4 text-sm font-semibold text-finly-text w-12">
                       <input
                         type="checkbox"
@@ -760,7 +848,8 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
               <tbody>
                 {displayedTransactions.map((t, idx) => (
                   <tr key={t.id || idx} className="border-b border-gray-100 hover:bg-gray-50">
-                    {canEdit && (
+                    {canModify && (
+
                       <td className="py-3 px-4 text-center">
                         <input
                           type="checkbox"
@@ -796,7 +885,8 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
                         <span className="text-gray-400 text-xs">-</span>
                       )}
                     </td>
-                    {canEdit && (
+                    {canModify && (
+
                       <td className="py-3 px-4 text-center">
                         <div className="flex justify-center gap-2">
                           <button
@@ -900,6 +990,28 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
         type="danger"
         confirmText={isBulkDeleting ? 'Eliminando...' : 'Eliminar seleccionadas'}
       />
+
+      {showCloseModal && (
+        <ClosePeriodModal
+          yearMonth={`${filterYear}-${String(filterMonth).padStart(2, '0')}`}
+          onClose={() => setShowCloseModal(false)}
+          onClosed={(data) => {
+            setMonthStatus(data);
+            setShowCloseModal(false);
+          }}
+        />
+      )}
+
+      {showReopenModal && (
+        <ReopenPeriodModal
+          yearMonth={`${filterYear}-${String(filterMonth).padStart(2, '0')}`}
+          onClose={() => setShowReopenModal(false)}
+          onReopened={(data) => {
+            setMonthStatus(data);
+            setShowReopenModal(false);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -95,11 +95,16 @@ export default function CreditCardPaymentModal({
     (d) => d.fecha_vencimiento && d.fecha_vencimiento.substring(0, 7) === periodKey
   );
 
+  // When period is already registered, lock the selector to that budget item.
+  const selectableDebts = budgetItemId
+    ? debtsForMonth.filter((d) => d.id === budgetItemId)
+    : debtsForMonth;
+
   // Separate: suggested (Tarjeta de Crédito category) vs others
-  const suggestedDebts = debtsForMonth.filter(
+  const suggestedDebts = selectableDebts.filter(
     (d) => d.categoria === 'Tarjeta de Crédito' && d.tipo_flujo === 'Gasto'
   );
-  const otherDebts = debtsForMonth.filter(
+  const otherDebts = selectableDebts.filter(
     (d) => !(d.categoria === 'Tarjeta de Crédito' && d.tipo_flujo === 'Gasto')
   );
 
@@ -204,6 +209,7 @@ export default function CreditCardPaymentModal({
             <select
               value={debtId}
               onChange={(e) => setDebtId(e.target.value)}
+              disabled={!!budgetItemId}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
             >
               <option value="">-- Sin asignar --</option>

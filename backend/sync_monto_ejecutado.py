@@ -16,7 +16,7 @@ def sync_monto_ejecutado():
         for debt in debts:
             # Sumar todas las transacciones de tipo Gasto vinculadas a esta deuda
             total_executed = db.query(func.sum(DBTransaction.monto)).filter(
-                DBTransaction.debt_id == debt.id,
+                DBTransaction.budget_item_id == debt.id,
                 DBTransaction.tipo == 'Gasto'
             ).scalar() or 0.0
             

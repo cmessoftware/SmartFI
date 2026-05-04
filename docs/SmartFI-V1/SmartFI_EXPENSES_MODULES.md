@@ -1,22 +1,112 @@
-Módulo de gastos
+# Módulo de Gastos
 
-Mejoras:
-1. ✅ IMPLEMENTADO — Páginas con tamaño de 25 lineas cada una. Paginación con controles Anterior/Siguiente y números de página en TransactionReport.jsx.
-2. ✅ IMPLEMENTADO — Tanto en carga individual como masiva desde csv, la categoria debe ser un campo requerido. Backend (Pydantic) y CSVImport ahora exigen categoría.
-3. ✅ IMPLEMENTADO — Filtro para mostrar por mes. Por defecto mostrar los gastos del mes actual. Selector de mes/año en la barra de filtros de TransactionReport.jsx.
-4. ✅ IMPLEMENTADO — En asignación de presupuesto, mostrar solo los items de presupuesto del mes del gasto. TransactionForm.jsx y EditTransactionModal.jsx filtran por YYYY-MM de la fecha.
-5. ✅ IMPLEMENTADO — Selector de mes/año con navegación ◀ ▶ y botón "Hoy" en página Reportes (TransactionReport.jsx). Misma funcionalidad que el Panel Principal: barra visual prominente, dropdown de mes y año, navegación con wrapping mes/año.
-6. ✅ IMPLEMENTADO — Normalización de categorías: tabla categories poblada con datos existentes + hardcoded, campo category_id (FK) en transactions, API /api/categories retorna [{id, name}], frontend usa objetos categoría. Migración Alembic b5e8f2a1c3d7.
-7. ✅ IMPLEMENTADO — Campos de transactions renombrados a inglés: marca_temporal→timestamp, fecha→date, tipo→type, categoria→category_id, monto→amount, necesidad→necessity, forma_pago→payment_method, detalle→detail, estado_asignacion→assignment_status. Backend (main.py, database_service.py, google_sheets.py) y frontend (6 componentes) actualizados.
-8. ✅ IMPLEMENTADO — Filtro por Detalle en pantalla de Reportes, similar al de Presupuesto. Campo de texto en la barra de filtros que busca coincidencias parciales (case-insensitive) en el campo `detail` de las transacciones.
-9. ✅ IMPLEMENTADO — Opción de Importar CSV integrada dentro de la pantalla de Reportes. Botón "Importar CSV" junto a "Exportar CSV" que despliega el componente CSVImport inline (mismo layout que Presupuesto con BudgetCSVImport). Se pasa `addMultipleTransactions` desde Dashboard → TransactionReport.
-10. ✅ IMPLEMENTADO — Se eliminó la opción "Importar CSV" del sidebar para evitar confusión. La importación masiva se mantiene dentro de Reportes.
-11. ✅ IMPLEMENTADO — Se ajustó el layout de acciones en Reportes con estilo de Presupuesto: `Nuevo Item | Importar CSV | Exportar CSV | Mostrar solo seleccionadas | Eliminar seleccionadas`, con barra de botones alineada a la izquierda y label de transacciones alineado a la derecha.
-    Revisión 11: ✅ IMPLEMENTADO.
+## Mejoras Implementadas
+
+| ID | Estado | Resumen | Objetivo |
+|---|---|---|---|
+| EXP-FEAT-001 | ✅ Implementado | Páginas con tamaño de 25 lineas cada una. Paginación con controles Anterior/Siguiente y números de página | Mejorar navegabilidad de transacciones |
+| EXP-FEAT-002 | ✅ Implementado | Tanto en carga individual como masiva, categoria es campo obligatorio | Garantizar data quality |
+| EXP-FEAT-003 | ✅ Implementado | Filtro por mes. Por defecto mostrar gastos del mes actual | Agrupar transactions por período |
+| EXP-FEAT-004 | ✅ Implementado | En asignación de presupuesto, mostrar solo items del mes del gasto | Mantener consistencia temporal |
+| EXP-FEAT-005 | ✅ Implementado | Selector de mes/año con navegación ◀ ▶ y botón "Hoy" en Reportes | UX consistente entre vistas |
+| EXP-FEAT-006 | ✅ Implementado | Normalización de categorías: tabla categories con FK en transactions | Estructura relacional limpia |
+| EXP-FEAT-007 | ✅ Implementado | Campos de transactions renombrados a inglés (date, type, amount, etc.) | Estandarizar nomenclatura |
+| EXP-FEAT-008 | ✅ Implementado | Filtro por Detalle en pantalla de Reportes (búsqueda partial) | Facilitar búsqueda de transacciones |
+| EXP-FEAT-009 | ✅ Implementado | Opción de Importar CSV integrada en pantalla de Reportes | Consolidar acciones en un lugar |
+| EXP-FEAT-010 | ✅ Implementado | Se eliminó opción "Importar CSV" del sidebar | Evitar confusión y duplicación |
+| EXP-FEAT-011 | ✅ Implementado | Layout de acciones en Reportes: Nuevo Item \| Importar CSV \| Exportar CSV \| Mostrar solo seleccionadas \| Eliminar | Interfaz limpia y consistente |
+| EXP-FEAT-012 | 🔄 In Progress | **Cierre de mes contable:** congelar mes para evitar cambios accidentales | Mantener integridad de períodos cerrados |
+| EXP-FEAT-013 | 📋 Backlog | **Apertura de nuevo mes:** carryover de saldo e ítems de presupuesto clonables | Facilitar transición entre períodos |
+| EXP-FEAT-014 | 📋 Backlog | **Panel comparativo de cierres:** gráficos multi-mes con alertas de desvío | Visualizar tendencias y tomar decisiones |
+
+## Bugs (Resumen)
+
+| ID | Prioridad | Estado | Resumen |
+|---|---|---|---|
+| EXP-BUG-001 | Alta | ✅ Resuelto | Error al editar asignación de item de presupuesto por uso de id temporal (`Date.now()`) en vez de id real de DB |
+| EXP-BUG-002 | Alta | ✅ Resuelto | Error 422 por desalineación de campos entre frontend (inglés) y modelo Pydantic (español) |
+| EXP-BUG-003 | Media | ✅ Resuelto | No aparecía selector para asignar gasto a item de presupuesto por filtro de mes incorrecto |
+| EXP-BUG-004 | Media | ✅ Resuelto | Al editar gasto no se veían items nuevos por falta de recarga de datos en modal |
+| EXP-BUG-005 | Alta | ✅ Resuelto | Cálculo de total a pagar incluía ingresos por falta de filtro `tipo_flujo = GASTO` |
+| EXP-BUG-006 | Alta | ✅ Resuelto | Error 500 al editar transacción por longitud de `detail` (`VARCHAR(50)`), migrado a `TEXT` |
+| EXP-BUG-007 | Alta | ✅ Resuelto | Error al borrar gasto (500 intermitente en `DELETE /api/transactions/{id}`) |
+| EXP-BUG-008 | Alta | ✅ Resuelto | Error al importar desde CSV |
+| EXP-BUG-009 | Alta | ✅ Resuelto | Error en alta masiva desde CSV (incluye respuestas 401 intermitentes) |
+| EXP-BUG-010 | Alta | ✅ Resuelto | Al editar un gasto no persistía la vinculación a item de presupuesto tras recargar/cambiar de vista |
+| EXP-BUG-011 | Alta | ✅ Resuelto | Inconsistencia en abril 2026: total de ingresos en panel no coincidía con suma de ingresos en tabla/CSV |
+| EXP-BUG-012 | 📋 Backlog | **Datos sucios en combo categorias** | Limpiar categorias mal cargadas, en altas masivas considerar solo las categorias cargadas en modulo admin, sino usar categoria (sin clasificar), crearla sino existe.|
+| EXP-BUG-013 | ✅ Resuelto| **No coincide el reporte post cierre con el reporte de mes** |parece que esta sumando gastos y presupuesto de cuotas a vencern el futuro, o hay un calculo mas de fechas, o ambos. |
+
+
+**Resumen:** 14 mejoras totales, 11 implementadas (79%), 1 en progreso (7%), 2 en backlog (14%)
+
+## OpenSpec Changes
+
+| Change | Descripción | Mejoras | Estado |
+|--------|-------------|---------|--------|
+| `exp-month-close` | Cierre de mes contable con lifecycle y snapshot | EXP-FEAT-012 | 🔄 In Progress |
+| `exp-month-open-rollover` | Apertura de mes con carryover de saldo y clonado de presupuesto | EXP-FEAT-013 | 📋 Backlog |
+| `exp-month-comparative-dashboard` | Panel comparativo multi-mes con alertas de desvío | EXP-FEAT-014 | 📋 Backlog |
+
+EXP-FEAT-012. 🆕 PROPUESTA — Cierre de mes contable en Gastos.
+    Objetivo: congelar un mes para evitar cambios accidentales, manteniendo control de excepciones y trazabilidad.
+
+    Alcance:
+    12a- Cerrar mes actual deshabilitando altas/ediciones/eliminaciones para usuarios estándar.
+    12b- Permitir reapertura solo a admin, solicitando motivo obligatorio y guardando auditoría (usuario, fecha, motivo).
+    12c- Al cerrar, generar snapshot de cierre del mes: total gastos, total ingresos, balance neto, cantidad de movimientos.
+    12d- En mes cerrado, permitir solo ajustes bancarios (`origin = bank_adjustment`) con permisos restringidos.
+    12e- Mostrar estado del período en UI: `Abierto` / `Cerrado` / `Reabierto`.
+
+    Extención EXP-FEAT-012
+    El cierre de mes debe ser por usuario, entro como admin y me aparece el reporte del cierre del usuario sergio, pero mezclando con carga de gastos cargado con usuario admin. Cada usuario debe poder gestionar por separado el cierre de periodos, Cambio provisorio: Que el write tambien pueda reabrir el periodo que cerró (solo el que cerró ese usuario). Registrar en un los eventos de apertura, cierra y reapertura.
+    Vista de usuario sergio
+    ![alt text](image-34.png)
+    Vista de usuario admin
+    ![alt text](image-35.png)
+    
+
+    Criterios de aceptación:
+    - CA12.1: usuario no-admin recibe 403 al intentar crear/editar/borrar en mes cerrado.
+    - CA12.2: reapertura requiere motivo; la operación queda auditada.
+    - CA12.3: reportes muestran diferencia entre snapshot de cierre y estado actual tras reapertura.
+    - CA12.4: no se generan 500 por operaciones bloqueadas; se retornan errores de negocio controlados.
+    - CA12.5: el sistema NO cierra meses automáticamente al cambiar el mes calendario; el cierre es exclusivamente manual por admin (Req-7 spec). Al pasar de abril a mayo sin acción del admin, abril permanece en su estado anterior.
+
+EXP-FEAT-013. 🆕 PROPUESTA — Apertura de nuevo mes con arrastres controlados.
+    Objetivo: iniciar el nuevo mes sin recarga manual completa, preservando consistencia contable.
+
+    Alcance:
+    13a- Arrastrar saldo final del mes anterior como saldo inicial del nuevo mes (débito o crédito).
+    13b- Clonar estructura de presupuesto del mes anterior (categoría, descripción, monto base) en estado editable.
+    13c- Mantener versiones: `presupuesto_base_clonado` y `presupuesto_ajustado` para trazabilidad.
+    13d- Permitir ABM completo sobre ítems clonados sin afectar histórico del mes anterior.
+
+    Criterios de aceptación:
+    - CA13.1: apertura de mes crea saldo inicial consistente con cierre del mes previo.
+    - CA13.2: ítems de presupuesto quedan disponibles para edición inmediata.
+    - CA13.3: cambios en mes nuevo no alteran registros del mes anterior.
+
+EXP-FEAT-014. 🆕 PROPUESTA — Panel comparativo de cierres mensuales.
+    Objetivo: visualizar tendencia y desvíos entre meses para tomar decisiones rápidas.
+
+    Alcance:
+    14a- Panel dedicado con gráficos de barras para comparar `gastos`, `ingresos`, `balance` y `% ahorro` por mes.
+    14b- Selector de rango temporal (últimos 3, 6, 12 meses y rango personalizado).
+    14c- Tooltip por barra con detalle: total, variación vs mes previo y top 3 categorías.
+    14d- Indicadores de alerta (color) para meses con desvío superior a umbral configurable.
+
+    Criterios de aceptación:
+    - CA14.1: panel responde en menos de 2 segundos para 12 meses de datos.
+    - CA14.2: cada barra muestra datos consistentes con reportes de transacciones.
+    - CA14.3: variaciones mensuales se calculan correctamente y son visibles en tooltip.
+
+EXP-FEAT-014. 🆕 PROPUESTA — Graficos de barras para categorias.
+    Objetivo: Mostrar gráficos de categrorias en formato barras. Opciond elegir mostrar graficos de torta o de barra en el mismo widget.
 
 
 Bugs:
-1. ~~Prioridad: Alta~~ ✅ RESUELTO — El frontend usaba `id: Date.now()` como id de transacción en lugar del id real de la DB. Al editar, enviaba PUT con un timestamp (ej: 1775000505766) que no existía en PostgreSQL → 500. Fix: se eliminó `Date.now()` de TransactionForm.jsx y CSVImport.jsx, y `addTransaction` en App.jsx ahora usa el `id` real devuelto por la API.
+EXP-BUG-001. ~~Prioridad: Alta~~ ✅ RESUELTO — El frontend usaba `id: Date.now()` como id de transacción en lugar del id real de la DB. Al editar, enviaba PUT con un timestamp (ej: 1775000505766) que no existía en PostgreSQL → 500. Fix: se eliminó `Date.now()` de TransactionForm.jsx y CSVImport.jsx, y `addTransaction` en App.jsx ahora usa el `id` real devuelto por la API.
 
  <details>
     <summary>Error al editar asignación de item de presupuesto
@@ -177,7 +267,8 @@ usage-monitoring.js:71 Uncaught (in promise) InvalidStateError: Failed to execut
     at async chrome-extension://elfaihghhjjoknimpccccmkioofjjfkf/background.js:68:16371
 </details>
 
-7. Prioridad Alta - Error al borrar gasto.
+7. ✅ RESUELTO — Prioridad Alta - Error al borrar gasto.
+    → Validado por testing funcional: la eliminación de gastos ya no reproduce el error intermitente reportado.
  
  <details>
     App.jsx:47 ⚡ Loaded from cache
@@ -202,7 +293,8 @@ usage-monitoring.js:71 Uncaught (in promise) InvalidStateError: Failed to execut
     App.jsx:57 ✅ Loaded 121 transactions from PostgreSQL
 </details>
 
-8. Prioridad Alta - Error al importar desde csv
+8. ✅ RESUELTO — Prioridad Alta - Error al importar desde csv.
+    → Validado por testing funcional: la importación vuelve a completarse correctamente.
 
 <details>
 App.jsx:47 ⚡ Loaded from cache
@@ -212,7 +304,8 @@ App.jsx:57 ✅ Loaded 94 transactions from PostgreSQL
 (index):1 Uncaught (in promise) Error: A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received
 </details>
 
-9. Prioridad Alta - Error en alta masiva desde un csv.
+9. ✅ RESUELTO — Prioridad Alta - Error en alta masiva desde un csv.
+    → Validado por testing funcional: el flujo de alta masiva ya no presenta la falla reportada.
 
 <details>
     App.jsx:47 ⚡ Loaded from cache
@@ -232,3 +325,20 @@ App.jsx:57 ✅ Loaded 94 transactions from PostgreSQL
     App.jsx:47 ⚡ Loaded from cache
     App.jsx:57 ✅ Loaded 178 transactions from PostgreSQL
 </details>
+
+10. ✅ RESUELTO — Prioridad Alta - Al editar un item de gasto parecía vincularse, pero al recargar/cambiar de vista la vinculación desaparecía.
+    → Causa detectada: en edición se enviaba `debt_id` nuevo junto a `budget_item_id` viejo/null; el backend priorizaba `budget_item_id` y no persistía el nuevo vínculo.
+    → Fix aplicado: payload de edición ahora envía `debt_id` y `budget_item_id` sincronizados; además, tras actualizar se recargan transacciones desde backend para evitar estado solo-frontend.
+
+11. ✅ RESUELTO — Prioridad Alta - Inconsistencia en abril 2026 entre ingresos del panel y suma de ingresos en tabla/CSV.
+    → Fix: En Presupuesto se unificó la base mensual entre panel y tabla (mismo criterio de mes/año sin desfase por parsing de fechas) y la exportación CSV ahora usa los ítems visibles/filtrados en tabla. Con esto, panel, tabla y CSV quedan alineados para el período seleccionado.
+    ![alt text](image-31.png) 
+    $9.791.646,24 en panel vs $8478079,00 en suam de ingresos en tabla.
+
+12. Prioridad Baja - ![alt text](image-32.png) Datos sucios en combo categorias (00,34,75,Comid). Verificar si 
+    alta masiva de items de gastos/ingresos valida categorias configuradsa en modulo admin, sino crear un nuevo feat: Validar categorias en carga masiva via csv, si no existe asignar a categoria "Sin Clasificar" (Agregarla si no existe usando usuario admin).
+
+13. ✅ RESUELTO —Prioridad ALta - ![alt text](image-33.png) No coincide el reporte post cierre con el reporte de mes, parece que esta sumando gastos y presupuesto de cuotas a vencern el futuro, o hay un calculo mas de fechas, o ambos.
+
+
+
