@@ -16,7 +16,7 @@ from typing import Optional, List
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from database.database import SessionLocal, get_db, Transaction as DBTransaction, Debt as DBDebt, AppSetting, User as DBUser
+from database.database import SessionLocal, get_db, Transaction as DBTransaction, Debt as DBDebt, AppSetting, User as DBUser, MonthlyBalance as DBMonthlyBalance
 from security.auth_dependencies import get_current_user, require_role, require_permission
 
 # Configuration
@@ -135,6 +135,13 @@ class Transaction(BaseModel):
     debt_id: Optional[int] = None
     assignment_status: Optional[str] = "ASIGNADA_MANUAL"
     origin: Optional[str] = "MANUAL"
+    source_month: Optional[str] = None
+
+
+class OpenMonthRequest(BaseModel):
+    year_month: str
+    include_carryover: bool = True
+    include_budget_clone: bool = True
 
 class CloneMonthRequest(BaseModel):
     source_month: int  # 1-12
@@ -285,16 +292,13 @@ def _sync_transactions_batch_to_sheets(transactions: list):
 async def create_transaction(
     transaction: Transaction,
     background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
     current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
-    db = SessionLocal()
-    try:
-        from services.month_service import validate_period_for_mutation
-        is_admin = any((getattr(role, "name", "").upper() == "ADMIN") for role in (current_user.roles or []))
-        year_month = transaction.date[:7]
-        validate_period_for_mutation(year_month, is_admin, (transaction.origin or "MANUAL"), db, user_id=current_user.id)
-    finally:
-        db.close()
+    from services.month_service import validate_period_for_mutation
+    is_admin = any((getattr(role, "name", "").upper() == "ADMIN") for role in (current_user.roles or []))
+    year_month = transaction.date[:7]
+    validate_period_for_mutation(year_month, is_admin, (transaction.origin or "MANUAL"), db, user_id=current_user.id)
 
     # Save to PostgreSQL (primary storage)
     transaction_id = None
@@ -2096,11 +2100,29 @@ class ReopenMonthRequest(BaseModel):
     reason: str
 
 
+@app.post("/api/months")
+async def open_month_endpoint(
+    request: OpenMonthRequest,
+    db: Session = Depends(get_db),
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
+):
+    """Open a month with optional carryover creation and budget cloning."""
+    from services.month_service import open_month as svc_open_month
+    return svc_open_month(
+        year_month=request.year_month,
+        user_id=current_user.id,
+        username=current_user.username,
+        db=db,
+        skip_carryover=not request.include_carryover,
+        skip_clone=not request.include_budget_clone,
+    )
+
+
 @app.post("/api/months/{year_month}/close")
 async def close_month_endpoint(
     year_month: str,
     db: Session = Depends(get_db),
-    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
+    current_user: DBUser = Depends(require_role(["ADMIN"]))
 ):
     """Close a monthly period and create a snapshot (admin or writer)"""
     from services.month_service import close_month as svc_close_month
@@ -2112,7 +2134,7 @@ async def reopen_month_endpoint(
     year_month: str,
     request: ReopenMonthRequest,
     db: Session = Depends(get_db),
-    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
+    current_user: DBUser = Depends(require_role(["ADMIN"]))
 ):
     """Reopen a closed monthly period with a required reason (admin or writer who closed it)"""
     from services.month_service import reopen_month as svc_reopen_month
@@ -2146,6 +2168,122 @@ async def get_months_endpoint(
     if include_status:
         return get_months_with_status(db, current_user.id)
     return []
+
+
+@app.get("/api/months/{year_month}/carryover")
+async def get_month_carryover_endpoint(
+    year_month: str,
+    db: Session = Depends(get_db),
+    current_user: DBUser = Depends(get_current_user)
+):
+    """Get carryover details for a specific month."""
+    row = (
+        db.query(DBMonthlyBalance)
+        .filter(
+            DBMonthlyBalance.user_id == current_user.id,
+            DBMonthlyBalance.target_month == year_month,
+        )
+        .order_by(DBMonthlyBalance.carryover_date.desc())
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="No hay carryover registrado para este mes")
+
+    return {
+        "id": row.id,
+        "source_month": row.source_month,
+        "target_month": row.target_month,
+        "balance_amount": row.balance_amount,
+        "balance_type": row.balance_type,
+        "carryover_date": row.carryover_date.isoformat() if row.carryover_date else None,
+        "transaction_id": row.transaction_id,
+    }
+
+
+@app.get("/api/months/{year_month}/budget-items")
+async def get_month_budget_items_endpoint(
+    year_month: str,
+    include_clone_info: bool = False,
+    db: Session = Depends(get_db),
+    current_user: DBUser = Depends(get_current_user)
+):
+    """List budget items for a month, optionally including clone metadata."""
+    items = (
+        db.query(DBDebt)
+        .filter(
+            DBDebt.user_id == current_user.id,
+            DBDebt.fecha.like(f"{year_month}%"),
+        )
+        .order_by(DBDebt.fecha.asc(), DBDebt.id.asc())
+        .all()
+    )
+
+    result = []
+    for item in items:
+        data = {
+            "id": item.id,
+            "fecha": item.fecha,
+            "tipo": item.tipo,
+            "categoria": item.categoria,
+            "monto_total": item.monto_total,
+            "monto_pagado": item.monto_pagado,
+            "detalle": item.detalle,
+            "fecha_vencimiento": item.fecha_vencimiento,
+            "status": item.status.value if hasattr(item.status, "value") else item.status,
+        }
+        if include_clone_info:
+            data["clone_info"] = {
+                "cloned_from_item_id": item.cloned_from_item_id,
+                "base_cloned": item.base_cloned,
+                "version_source_month": item.version_source_month,
+            }
+        result.append(data)
+
+    return result
+
+
+@app.get("/api/budget-items/{item_id}/clone-lineage")
+async def get_budget_item_clone_lineage(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: DBUser = Depends(get_current_user)
+):
+    """Return clone lineage chain for a budget item (from current to original source)."""
+    current = (
+        db.query(DBDebt)
+        .filter(DBDebt.id == item_id, DBDebt.user_id == current_user.id)
+        .first()
+    )
+    if not current:
+        raise HTTPException(status_code=404, detail="Budget item not found")
+
+    lineage = []
+    visited = set()
+    node = current
+    while node and node.id not in visited:
+        visited.add(node.id)
+        lineage.append({
+            "id": node.id,
+            "fecha": node.fecha,
+            "categoria": node.categoria,
+            "monto_total": node.monto_total,
+            "base_cloned": node.base_cloned,
+            "version_source_month": node.version_source_month,
+            "cloned_from_item_id": node.cloned_from_item_id,
+        })
+
+        if not node.cloned_from_item_id:
+            break
+        node = (
+            db.query(DBDebt)
+            .filter(DBDebt.id == node.cloned_from_item_id, DBDebt.user_id == current_user.id)
+            .first()
+        )
+
+    return {
+        "item_id": item_id,
+        "lineage": lineage,
+    }
 
 
 if __name__ == "__main__":

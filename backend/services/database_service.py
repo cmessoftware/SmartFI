@@ -116,6 +116,8 @@ class DatabaseService:
                 detail=transaction_data.get('detail', ''),
                 budget_item_id=budget_item_id,
                 assignment_status=transaction_data.get('assignment_status', 'ASIGNADA_MANUAL'),
+                origin=transaction_data.get('origin', 'MANUAL'),
+                source_month=transaction_data.get('source_month'),
                 user_id=user_id
             )
             
@@ -171,6 +173,8 @@ class DatabaseService:
                     detail=t_data.get('detail', ''),
                     budget_item_id=budget_item_id,
                     assignment_status=t_data.get('assignment_status', 'ASIGNADA_MANUAL'),
+                    origin=t_data.get('origin', 'MANUAL'),
+                    source_month=t_data.get('source_month'),
                     user_id=user_id
                 )
                 db_transactions.append(db_transaction)
@@ -220,7 +224,9 @@ class DatabaseService:
                     'payment_method': t.payment_method,
                     'detail': t.detail or '',
                     'budget_item_id': t.budget_item_id,
-                    'debt_id': t.budget_item_id
+                    'debt_id': t.budget_item_id,
+                    'origin': t.origin,
+                    'source_month': t.source_month,
                 })
             
             logger.info(f"✅ Retrieved {len(result)} transactions from database")
@@ -265,6 +271,10 @@ class DatabaseService:
                 db_transaction.detail = transaction_data['detail']
             if 'budget_item_id' in transaction_data or 'debt_id' in transaction_data:
                 db_transaction.budget_item_id = transaction_data.get('budget_item_id', transaction_data.get('debt_id'))
+            if 'origin' in transaction_data:
+                db_transaction.origin = transaction_data.get('origin')
+            if 'source_month' in transaction_data:
+                db_transaction.source_month = transaction_data.get('source_month')
 
             db.flush()
 

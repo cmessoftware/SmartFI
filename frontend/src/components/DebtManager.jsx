@@ -61,6 +61,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
   const [sortField, setSortField] = useState('fecha');
   const [sortDirection, setSortDirection] = useState('desc');
   const [currentPage, setCurrentPage] = useState(1);
+  const [lineageModal, setLineageModal] = useState({ open: false, loading: false, data: null, error: null });
   const PAGE_SIZE = 10;
   const toast = useToast();
 
@@ -324,6 +325,17 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
       toast.error(`Error al clonar: ${detail}`);
     } finally {
       setIsCloning(false);
+    }
+  };
+
+  const openLineageModal = async (itemId) => {
+    setLineageModal({ open: true, loading: true, data: null, error: null });
+    try {
+      const res = await debtsAPI.getCloneLineage(itemId);
+      setLineageModal({ open: true, loading: false, data: res.data, error: null });
+    } catch (error) {
+      const detail = error?.response?.data?.detail || 'No se pudo cargar el linaje';
+      setLineageModal({ open: true, loading: false, data: null, error: detail });
     }
   };
 
@@ -1175,7 +1187,20 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">{debt.categoria}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{debt.detalle || '-'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        <div className="flex items-center gap-2">
+                          <span>{debt.detalle || '-'}</span>
+                          {debt.cloned_from_item_id && (
+                            <button
+                              onClick={() => openLineageModal(debt.id)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-full bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
+                              title={`Clonado desde #${debt.cloned_from_item_id}`}
+                            >
+                              🧬 Clonado
+                            </button>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
                         {formatCurrency(debt.monto_total)}
                       </td>
@@ -1326,6 +1351,50 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
           loadSummary();
         }}
       />
+
+      {lineageModal.open && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-gray-900">Linaje de clonación</h3>
+              <button
+                onClick={() => setLineageModal({ open: false, loading: false, data: null, error: null })}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            {lineageModal.loading && <p className="text-sm text-gray-500">Cargando linaje...</p>}
+
+            {!lineageModal.loading && lineageModal.error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+                {lineageModal.error}
+              </div>
+            )}
+
+            {!lineageModal.loading && lineageModal.data && (
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {lineageModal.data.lineage.map((node, idx) => (
+                  <div key={node.id} className="p-3 border border-gray-200 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-gray-900">Item #{node.id}</p>
+                      <span className="text-xs text-gray-500">Paso {idx + 1}</span>
+                    </div>
+                    <p className="text-sm text-gray-700">Categoría: {node.categoria || '-'}</p>
+                    <p className="text-sm text-gray-700">
+                      Monto: {formatCurrency(Number(node.monto_total || 0))}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Mes origen: {node.version_source_month || '-'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

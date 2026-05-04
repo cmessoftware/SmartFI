@@ -345,3 +345,129 @@ class TestListMonthsEndpoint:
     def test_writer_can_list_months(self, as_writer):
         resp = as_writer.get("/api/months?include_status=true")
         assert resp.status_code == 200
+
+
+# ===========================================================================
+# POST /api/months + carryover and lineage endpoints
+# ===========================================================================
+
+class TestOpenMonthAndCarryoverEndpoints:
+    def _seed_tx_direct(self, TestingSessionLocal, admin_user_obj, year_month, amount, tx_type="INGRESO"):
+        """Insert a transaction directly into the test DB (bypasses API service singletons)."""
+        from database.database import (
+            Transaction as DBTx, TransactionType, NecessityType, Category,
+        )
+        db = TestingSessionLocal()
+        cat = db.query(Category).filter(Category.name == "Test").first()
+        if not cat:
+            cat = Category(name="Test")
+            db.add(cat)
+            db.flush()
+        t = DBTx(
+            date=f"{year_month}-10",
+            amount=float(amount),
+            type=TransactionType.INGRESO if tx_type == "INGRESO" else TransactionType.GASTO,
+            category_id=cat.id,
+            necessity=NecessityType.NECESARIO,
+            payment_method="Débito",
+            detail=f"Seed {year_month}",
+            origin="MANUAL",
+            user_id=admin_user_obj.id,
+        )
+        db.add(t)
+        db.commit()
+        db.close()
+
+    def test_open_month_creates_carryover_when_prior_closed(
+        self, as_admin, TestingSessionLocal, admin_user_obj
+    ):
+        # Build prior month snapshot directly in test DB: +1000 -300 = +700
+        self._seed_tx_direct(TestingSessionLocal, admin_user_obj, "2025-10", 1000, "INGRESO")
+        self._seed_tx_direct(TestingSessionLocal, admin_user_obj, "2025-10", 300, "GASTO")
+        close_resp = as_admin.post("/api/months/2025-10/close")
+        assert close_resp.status_code == 200
+
+        open_resp = as_admin.post("/api/months", json={
+            "year_month": "2025-11",
+            "include_carryover": True,
+            "include_budget_clone": False,
+        })
+        assert open_resp.status_code == 200
+        data = open_resp.json()
+        assert data["status"] == "OPEN"
+        assert data["carryover"] is not None
+        assert data["carryover"]["net_balance"] == pytest.approx(700.0)
+
+        carry_resp = as_admin.get("/api/months/2025-11/carryover")
+        assert carry_resp.status_code == 200
+        carry = carry_resp.json()
+        assert carry["source_month"] == "2025-10"
+        assert carry["target_month"] == "2025-11"
+        assert carry["balance_amount"] == pytest.approx(700.0)
+
+    def test_open_month_fails_if_prior_not_closed(self, as_admin):
+        # create open prior period (2031-04) by opening it directly
+        open_prior = as_admin.post("/api/months", json={
+            "year_month": "2031-04",
+            "include_carryover": False,
+            "include_budget_clone": False,
+        })
+        assert open_prior.status_code == 200
+
+        resp = as_admin.post("/api/months", json={
+            "year_month": "2031-05",
+            "include_carryover": True,
+            "include_budget_clone": False,
+        })
+        assert resp.status_code == 400
+        assert resp.json()["detail"]["code"] == "PRIOR_MONTH_NOT_CLOSED"
+
+    def test_budget_items_endpoint_supports_clone_info_and_lineage(
+        self, as_admin, TestingSessionLocal, admin_user_obj
+    ):
+        # Create one budget item directly in test DB
+        from database.database import BudgetItem, BudgetType, FlowType, DebtStatus
+        db = TestingSessionLocal()
+        item = BudgetItem(
+            user_id=admin_user_obj.id,
+            fecha="2032-01-10",
+            tipo="Servicio",
+            categoria="Hogar",
+            monto_total=500.0,
+            monto_pagado=0.0,
+            detalle="Internet",
+            fecha_vencimiento="2032-01-20",
+            status=DebtStatus.PENDIENTE,
+            tipo_presupuesto=BudgetType.OBLIGATION,
+            tipo_flujo=FlowType.GASTO,
+            monto_ejecutado=0.0,
+            estimated_payment=500.0,
+        )
+        db.add(item)
+        db.commit()
+        db.close()
+
+        # Force close prior and open target with clone
+        as_admin.post("/api/months/2032-01/close")
+        opened = as_admin.post("/api/months", json={
+            "year_month": "2032-02",
+            "include_carryover": False,
+            "include_budget_clone": True,
+        })
+        assert opened.status_code == 200
+
+        list_resp = as_admin.get("/api/months/2032-02/budget-items?include_clone_info=true")
+        assert list_resp.status_code == 200
+        items = list_resp.json()
+        assert isinstance(items, list)
+        assert len(items) >= 1
+        assert "clone_info" in items[0]
+
+        cloned_item = next((x for x in items if x.get("clone_info", {}).get("cloned_from_item_id")), None)
+        assert cloned_item is not None
+
+        lineage_resp = as_admin.get(f"/api/budget-items/{cloned_item['id']}/clone-lineage")
+        assert lineage_resp.status_code == 200
+        lineage_data = lineage_resp.json()
+        assert lineage_data["item_id"] == cloned_item["id"]
+        assert len(lineage_data["lineage"]) >= 1

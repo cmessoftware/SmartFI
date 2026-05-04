@@ -122,6 +122,10 @@ class BudgetItem(Base):
     
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Rollover / clone traceability
+    cloned_from_item_id = Column(Integer, ForeignKey('budget_items.id', ondelete='SET NULL'), nullable=True)
+    base_cloned = Column(Float, nullable=True)
+    version_source_month = Column(String(7), nullable=True)  # "YYYY-MM"
 
 # Backward compatibility alias
 Debt = BudgetItem
@@ -145,7 +149,8 @@ class Transaction(Base):
     monthly_period_id = Column(Integer, ForeignKey('monthly_periods.id', ondelete='SET NULL'), nullable=True)
     
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+    source_month = Column(String(7), nullable=True)  # "YYYY-MM" — populated for CARRYOVER transactions
+
     # Relationships
     category = relationship("Category")
 
@@ -441,6 +446,22 @@ class MonthlyPeriodEvent(Base):
 
 # ============================================================================
 # MONTHLY CLOSING (legacy)
+# ============================================================================
+
+class MonthlyBalance(Base):
+    """Records the calculated carryover balance when a new month is opened."""
+    __tablename__ = "monthly_balances"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    user_id        = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    source_month   = Column(String(7), nullable=False)   # "YYYY-MM" — month that was closed
+    target_month   = Column(String(7), nullable=False)   # "YYYY-MM" — month being opened
+    balance_amount = Column(Float, nullable=False)        # net balance (positive or negative)
+    balance_type   = Column(String(20), nullable=False, default='NET')  # NET | INCOME | EXPENSE
+    carryover_date = Column(DateTime, nullable=False, default=datetime.utcnow)
+    transaction_id = Column(Integer, ForeignKey('transactions.id', ondelete='SET NULL'), nullable=True)
+    created_at     = Column(DateTime, default=datetime.utcnow)
+
 # ============================================================================
 
 class MonthClosing(Base):
