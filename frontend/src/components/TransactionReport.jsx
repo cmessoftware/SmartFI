@@ -3,14 +3,17 @@ import { Pie, Bar } from 'react-chartjs-2';
 import { useMemo, useState, useEffect } from 'react';
 import ConfirmDialog from './ConfirmDialog';
 import CSVImport from './CSVImport';
+import BudgetCSVImport from './BudgetCSVImport';
 import { formatDate, toISODate } from '../utils/dateUtils';
 import { exportToCsv } from '../utils/csvExport';
 import { debtsAPI, monthsAPI } from '../services/api';
+import { useToast } from './ToastContainer';
 import MonthStatusBadge from './MonthStatusBadge';
 import ClosePeriodModal from './ClosePeriodModal';
 import ReopenPeriodModal from './ReopenPeriodModal';
 import OpenMonthModal from './OpenMonthModal';
 import CarryoverDetailsModal from './CarryoverDetailsModal';
+import NewDebtModal from './NewDebtModal';
 
 ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
@@ -21,6 +24,7 @@ const parseComparableDate = (value) => {
 };
 
 function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMultipleTransactions, onGoToNewTransaction, canEdit = false, isAdmin = false }) {
+  const toast = useToast();
   const chartColors = ['#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#22C55E', '#3B82F6', '#EF4444'];
   const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   const now = new Date();
@@ -41,6 +45,7 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
   const [debts, setDebts] = useState([]);
   const [filterDetail, setFilterDetail] = useState('');
   const [showCSVImport, setShowCSVImport] = useState(false);
+  const [showBudgetCSVImport, setShowBudgetCSVImport] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 10;
 
@@ -50,7 +55,10 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
   const [showReopenModal, setShowReopenModal] = useState(false);
   const [showOpenModal, setShowOpenModal] = useState(false);
   const [showCarryoverDetails, setShowCarryoverDetails] = useState(false);
+  const [showNewDebtModal, setShowNewDebtModal] = useState(false);
   const [carryover, setCarryover] = useState(null);
+  const [isCloningFixed, setIsCloningFixed] = useState(false);
+  const monthBadgeStatus = monthStatus ? (monthStatus.id ? monthStatus.status : 'NOT_OPENED') : null;
 
   // Non-admins cannot modify transactions in a CLOSED month
   const periodIsClosed = monthStatus?.status === 'CLOSED';
@@ -65,18 +73,33 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
     }
   };
 
+  const loadDebts = async () => {
+    try {
+      const response = await debtsAPI.getDebts();
+      setDebts(response.data || []);
+    } catch (error) {
+      console.error('Error al cargar presupuestos:', error);
+    }
+  };
+
   // Cargar presupuestos
   useEffect(() => {
-    const loadDebts = async () => {
-      try {
-        const response = await debtsAPI.getDebts();
-        setDebts(response.data || []);
-      } catch (error) {
-        console.error('Error al cargar presupuestos:', error);
-      }
-    };
     loadDebts();
   }, []);
+
+  const handleCloneFixedItems = async () => {
+    const yearMonth = `${filterYear}-${String(filterMonth).padStart(2, '0')}`;
+    setIsCloningFixed(true);
+    try {
+      const response = await monthsAPI.cloneFixedItems(yearMonth);
+      toast.success(`${response.data.cloned_count} gastos fijos clonados en ${yearMonth}`);
+      await loadDebts();
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || 'Error al clonar gastos fijos');
+    } finally {
+      setIsCloningFixed(false);
+    }
+  };
 
   // Cargar estado del período mensual
   useEffect(() => {
@@ -425,7 +448,7 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
           <span className="text-lg font-bold text-finly-text">
             📅 {MONTH_NAMES[filterMonth - 1]} {filterYear}
           </span>
-          {monthStatus && <MonthStatusBadge status={monthStatus.status} />}
+          {monthBadgeStatus && <MonthStatusBadge status={monthBadgeStatus} />}
 
           {carryover && (
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 border border-slate-200 text-xs">
@@ -459,7 +482,7 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
               Cerrar mes
             </button>
           )}
-          {isAdmin && monthStatus && monthStatus.status === 'CLOSED' && (
+          {canEdit && monthStatus && monthStatus.status === 'CLOSED' && (
             <button
               onClick={() => setShowReopenModal(true)}
               className="text-xs px-3 py-1 bg-yellow-600 text-white rounded-full hover:bg-yellow-700 transition"
@@ -646,8 +669,8 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
         </div>
       )}
 
-      {/* Transaction List */}
-      {transactions.length > 0 && (
+      {/* Transaction List / Actions */}
+      {(transactions.length > 0 || canModify) && (
         <div className="bg-white rounded-xl shadow-md p-6">
           <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
             <div className="flex flex-wrap items-center gap-3">
@@ -656,16 +679,53 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
                   onClick={onGoToNewTransaction}
                   className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
                 >
-                  + Nuevo Item
+                  + Nueva Transaccion
+                </button>
+              )}
+              {canModify && (
+                <button
+                  onClick={() => {
+                    setShowCSVImport(false);
+                    setShowBudgetCSVImport(false);
+                    setShowNewDebtModal(true);
+                  }}
+                  className="bg-violet-600 text-white px-4 py-2 rounded-lg hover:bg-violet-700 transition-colors"
+                >
+                  + Nuevo Presupuesto
                 </button>
               )}
               {canModify && addMultipleTransactions && (
                 <button
-                  onClick={() => setShowCSVImport(v => !v)}
+                  onClick={() => {
+                    setShowBudgetCSVImport(false);
+                    setShowCSVImport(v => !v);
+                  }}
                   className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
                 >
                   <span>📥</span>
-                  <span>{showCSVImport ? 'Cerrar Importar' : 'Importar CSV'}</span>
+                  <span>{showCSVImport ? 'Cerrar Importacion Transacciones' : 'Importar CSV Transacciones'}</span>
+                </button>
+              )}
+              {canModify && (
+                <button
+                  onClick={() => {
+                    setShowCSVImport(false);
+                    setShowBudgetCSVImport(v => !v);
+                  }}
+                  className="bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 transition-colors flex items-center space-x-2"
+                >
+                  <span>🧾</span>
+                  <span>{showBudgetCSVImport ? 'Cerrar Importacion Presupuesto' : 'Importar CSV Presupuesto'}</span>
+                </button>
+              )}
+              {canModify && (
+                <button
+                  onClick={handleCloneFixedItems}
+                  disabled={isCloningFixed}
+                  className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 transition-colors flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span>📌</span>
+                  <span>{isCloningFixed ? 'Clonando Fijos...' : 'Clonar Gastos Fijos'}</span>
                 </button>
               )}
               <button
@@ -731,6 +791,26 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
                 </button>
               </div>
               <CSVImport addMultipleTransactions={addMultipleTransactions} />
+            </div>
+          )}
+
+          {showBudgetCSVImport && (
+            <div className="bg-gray-50 rounded-lg p-4 mb-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold">Importar Presupuestos desde CSV</h3>
+                <button
+                  onClick={() => setShowBudgetCSVImport(false)}
+                  className="text-gray-600 hover:text-gray-800"
+                >
+                  ✕ Cerrar
+                </button>
+              </div>
+              <BudgetCSVImport
+                onImportSuccess={() => {
+                  loadDebts();
+                  setShowBudgetCSVImport(false);
+                }}
+              />
             </div>
           )}
 
@@ -1103,6 +1183,16 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
           onClose={() => setShowCarryoverDetails(false)}
         />
       )}
+
+      <NewDebtModal
+        isOpen={showNewDebtModal}
+        onClose={() => setShowNewDebtModal(false)}
+        yearMonth={`${filterYear}-${String(filterMonth).padStart(2, '0')}`}
+        onSuccess={() => {
+          loadDebts();
+          setShowNewDebtModal(false);
+        }}
+      />
     </div>
   );
 }
