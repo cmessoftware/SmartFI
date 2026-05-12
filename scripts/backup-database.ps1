@@ -2,11 +2,13 @@
 # Genera un archivo SQL dump para migrar a otra base de datos PostgreSQL
 
 param(
-    [string]$OutputPath = ".\backups",
-    [string]$DbName = "finly_db",
+    [string]$OutputPath = "$HOME\source\repos\Smartfi_Backups",
+    [string]$DbName = "fin_per_db",
     [string]$DbHost = "localhost",
-    [string]$DbPort = "5432",
-    [string]$DbUser = "postgres",
+    [string]$DbPort = "5433",
+    [string]$DbUser = "admin",
+    [string]$DbPassword = "admin123",
+    [string]$ContainerName = "finly-postgres",
     [switch]$IncludeData = $true,
     [switch]$CompressOutput = $false
 )
@@ -16,13 +18,27 @@ function Write-Success { param($msg) Write-Host "✓ $msg" -ForegroundColor Gree
 function Write-Info { param($msg) Write-Host "ℹ $msg" -ForegroundColor Cyan }
 function Write-Error { param($msg) Write-Host "✗ $msg" -ForegroundColor Red }
 
-# Verificar que pg_dump esté instalado
+# Verificar que pg_dump esté instalado, o que Docker esté disponible como fallback
 $pgDumpPath = Get-Command pg_dump -ErrorAction SilentlyContinue
+$dockerPath = Get-Command docker -ErrorAction SilentlyContinue
+$useDocker = $false
 
 if (-not $pgDumpPath) {
-    Write-Error "pg_dump no está instalado o no está en el PATH"
-    Write-Info "Instale PostgreSQL client tools o agregue pg_dump al PATH"
-    exit 1
+    if ($dockerPath) {
+        $containerRunning = docker ps --filter "name=$ContainerName" --format "{{.Names}}" 2>$null
+        if ($containerRunning -eq $ContainerName) {
+            Write-Info "pg_dump no encontrado localmente. Usando docker exec con el contenedor '$ContainerName'..."
+            $useDocker = $true
+        } else {
+            Write-Error "pg_dump no está en el PATH y el contenedor '$ContainerName' no está corriendo."
+            Write-Info "Inicie los contenedores con: docker-compose up -d"
+            exit 1
+        }
+    } else {
+        Write-Error "pg_dump no está instalado o no está en el PATH"
+        Write-Info "Instale PostgreSQL client tools o agregue pg_dump al PATH"
+        exit 1
+    }
 }
 
 # Crear directorio de backups si no existe
@@ -42,13 +58,13 @@ Write-Info "Usuario: $DbUser"
 Write-Info "Archivo de salida: $backupFile"
 Write-Info ""
 
-# Construir comando pg_dump
+# Construir argumentos de pg_dump
 $pgDumpArgs = @(
-    "-h", $DbHost,
-    "-p", $DbPort,
+    "-h", $(if ($useDocker) { "localhost" } else { $DbHost }),
+    "-p", $(if ($useDocker) { "5432" } else { $DbPort }),
     "-U", $DbUser,
     "-d", $DbName,
-    "-f", $backupFile,
+    "-f", $(if ($useDocker) { "/tmp/backup_tmp.sql" } else { $backupFile }),
     "--clean",              # Incluir comandos DROP antes de CREATE
     "--if-exists",          # Usar IF EXISTS en comandos DROP
     "--create",             # Incluir comando CREATE DATABASE
@@ -67,13 +83,18 @@ Write-Info "Ejecutando backup..."
 Write-Info ""
 
 try {
-    # Ejecutar pg_dump
-    $env:PGPASSWORD = Read-Host "Ingrese la contraseña de PostgreSQL" -AsSecureString
-    $env:PGPASSWORD = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
-        [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($env:PGPASSWORD)
-    )
-    
-    & pg_dump @pgDumpArgs 2>&1 | Out-Null
+    if ($useDocker) {
+        # Ejecutar pg_dump dentro del contenedor, luego copiar el archivo al host
+        docker exec -e "PGPASSWORD=$DbPassword" $ContainerName pg_dump @pgDumpArgs
+        if ($LASTEXITCODE -eq 0) {
+            docker cp "${ContainerName}:/tmp/backup_tmp.sql" $backupFile
+            docker exec $ContainerName rm /tmp/backup_tmp.sql 2>$null
+        }
+    } else {
+        # Ejecutar pg_dump local
+        $env:PGPASSWORD = $DbPassword
+        & pg_dump @pgDumpArgs
+    }
     
     if ($LASTEXITCODE -eq 0) {
         Write-Success "Backup completado exitosamente"
@@ -94,6 +115,18 @@ try {
             Write-Info "Tamaño comprimido: $([math]::Round($zipSize, 2)) KB"
         }
         
+        # Guardar en repo local seguro con git commit
+        $backupRepoPath = Split-Path $backupFile -Parent
+        if (Test-Path (Join-Path $backupRepoPath ".git")) {
+            Push-Location $backupRepoPath
+            git add (Split-Path $backupFile -Leaf) 2>$null
+            git commit -m "backup: $(Get-Date -Format 'yyyy-MM-dd HH:mm') - $DbName" 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Success "Backup registrado en repositorio local seguro"
+            }
+            Pop-Location
+        }
+
         Write-Info ""
         Write-Success "=== Backup Finalizado ==="
         Write-Info "Para restaurar este backup en otra base de datos, ejecute:"
