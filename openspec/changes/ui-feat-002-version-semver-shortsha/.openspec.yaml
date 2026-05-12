@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-05-10
+status: proposed
+gitea_milestone: ui-feat-002-version-semver-shortsha
+gitea_issue: 103
+branch: feature/ui-feat-002-version-semver-shortsha

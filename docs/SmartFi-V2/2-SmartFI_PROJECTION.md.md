@@ -1,42 +1,42 @@
-2. Módulo: Proyección Probabilística de Finanzas
-2.1. Función
+2. Module: Probabilistic Financial Projection
+2.1. Function
 
-- Generar proyecciones mensuales de:
+- Generate monthly projections of:
 
-  - Ingresos
-  - Gastos
-  - Ahorro neto
-  - Déficit/superávit
+  - Income
+  - Expenses
+  - Net savings
+  - Deficit/surplus
 
-Para 6–12 meses.
+For 6–12 months.
 
 2.2. Inputs
 
-  - Historial de transacciones (mín. 3 meses)
-  - Deudas y compromisos futuros
+  - Transaction history (min. 3 months)
+  - Debts and future commitments
 
-- Supuestos:
-  - Inflación mensual esperada
-  - Incrementos salariales (porcentaje y frecuencia)
-  - Crecimiento esperado de ingresos variables
+- Assumptions:
+  - Expected monthly inflation
+  - Salary increases (percentage and frequency)
+  - Expected growth of variable income
 
-2.3. Procesamiento
+2.3. Processing
 
-- Separación:
-  - Gastos fijos (determinísticos)
-  - Gastos variables (probabilísticos)
+- Separation:
+  - Fixed expenses (deterministic)
+  - Variable expenses (probabilistic)
 
-- Modelado:
-  - Distribuciones simples (normal / triangular)
-  - Simulación Monte Carlo (N iteraciones)
-  - Ajuste por inflación: gasto(t)=gasto(t−1)*(1+inflacion)
+- Modeling:
+  - Simple distributions (normal / triangular)
+  - Monte Carlo simulation (N iterations)
+  - Inflation adjustment: expense(t)=expense(t−1)*(1+inflation)
 
 3.4. Outputs
 
-- Por mes:
-  - Valor esperado (mean)
-  - Intervalo de confianza (p10, p50, p90)
-  - Probabilidad de: déficit cumplir objetivo de ahorro
+- Per month:
+  - Expected value (mean)
+  - Confidence interval (p10, p50, p90)
+  - Probability of: deficit meeting savings goal
 
 - 3.5. KPIs
   - prob_deficit

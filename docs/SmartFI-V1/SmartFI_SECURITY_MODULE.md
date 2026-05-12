@@ -1,11 +1,18 @@
-## Mejoras y bugs modulo de seguridad
+## Security module features ang bugs
 
-## Tabla de Features y Bugs (IDs)
+## Features (IDs)
 
 | ID | Tipo | Estado | Resumen |
 |---|---|---|---|
 | SEC-FEAT-001 | Feature | ✅ Completada | Visualizador de password (ojito) |
 | SEC-FEAT-002 | Feature | ✅ Completada | Clonado de datos entre usuarios por admin |
+| SEC-FEAT-004 | Feature | 📋 Backlog  | ADMIN pueda resetar passwords de todos los usuarios |
+| SEC-FEAT-005 | Feature | 📋 Backlog  | Sugerir diseño de módulo de reseteo de password |
+
+
+
+## Bug
+
 | SEC-BUG-001 | Bug | ✅ Corregido | Aislamiento de datos por usuario en módulos principales |
 
 Mejoras

@@ -29,6 +29,6 @@
 - [x] 3.1 Tests unitarios para `calculate_month_balance()`, `create_carryover_transaction()`, `clone_budget_items()`
 - [x] 3.2 Tests de integración para `POST /months` con carryover y clonado
 - [x] 3.3 Tests de integración para endpoints de carryover y linaje de ítems
-- [ ] 3.4 Tests de UI para transacción carryover, ícono de clonado, modal de carryover
+- [x] 3.4 Tests de UI para transacción carryover, ícono de clonado, modal de carryover _(cancelado: transacción CARRYOVER removida del flujo default — EXP-FEAT-13 correction)_
 - [x] 3.5 Validar escenarios de error (tabla de 5 errores del spec)
-- [ ] 3.6 Test end-to-end: Cerrar mes → Abrir nuevo → Verificar carryover creado → Inspeccionar drill-down → Editar ítem clonado → Verificar trazabilidad preservada
+- [x] 3.6 Test end-to-end: Cerrar mes → Abrir nuevo → Verificar ítems clonados → Editar ítem clonado → Verificar trazabilidad preservada _(carryover removido del scope — ver EXP-FEAT-17 para mejora futura)_

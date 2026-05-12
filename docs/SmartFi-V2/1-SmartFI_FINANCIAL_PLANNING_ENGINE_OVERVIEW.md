@@ -12,7 +12,8 @@ Plan to achieve USD 3000/month sustainable income in 6 months, considering infla
 
 Includes:
 
-(1-SmartFI_FINANCIAL_PLANNING_ENGINE_OVERVIEW)[Probabilistic cashflow projection module.]
-Scenario simulation module.
-Savings and investment module.
-Probability-based recommendations engine.*
+[Probabilistic cashflow projection module.](1-SmartFI_FINANCIAL_PLANNING_ENGINE_OVERVIEW)
+
+- Scenario simulation module.
+- Savings and investment module.
+- Probability-based recommendations engine.*

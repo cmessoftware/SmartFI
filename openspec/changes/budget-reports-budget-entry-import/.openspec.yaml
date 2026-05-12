@@ -1,0 +1,7 @@
+schema: spec-driven
+created: 2026-05-06
+status: in-progress
+branch: feature/budget-reports-budget-entry-import
+why: La pantalla de Reportes no expone un flujo completo para alta e importación de items de presupuesto con atributo FIJO/VARIABLE, bloqueando la validación funcional de EXP-FEAT-017 y EXP-FEAT-018.
+gitea_milestone: budget-reports-budget-entry-import
+gitea_issue: 95

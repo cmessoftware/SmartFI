@@ -1,0 +1,7 @@
+schema: spec-driven
+created: 2026-05-05
+status: backlog
+gitea_milestone: exp-feat-019-net-balance-carryover
+gitea_issue: 94
+branch: feature/exp-feat-019-net-balance-carryover
+depends_on: exp-month-open-rollover
