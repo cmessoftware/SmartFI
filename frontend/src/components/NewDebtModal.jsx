@@ -2,7 +2,40 @@ import { useState, useEffect } from 'react';
 import { debtsAPI, transactionsAPI } from '../services/api';
 import { useToast } from './ToastContainer';
 
-export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
+const getCategoryOption = (category) => {
+  if (typeof category === 'string') {
+    return { key: category, value: category, label: category };
+  }
+
+  const value = category?.name || category?.label || category?.value || category?.id;
+  return {
+    key: category?.id || value,
+    value,
+    label: category?.name || category?.label || category?.value || String(category?.id || ''),
+  };
+};
+
+const buildInitialFormData = (yearMonth) => {
+  const today = new Date().toISOString().split('T')[0];
+  const defaultMonthDate = yearMonth ? `${yearMonth}-01` : today;
+
+  return {
+    fecha: defaultMonthDate,
+    tipo: 'Servicios',
+    categoria: 'Personal',
+    monto_total: '',
+    monto_pagado: '0',
+    detalle: '',
+    fecha_vencimiento: defaultMonthDate,
+    tipo_presupuesto: 'OBLIGATION',
+    tipo_flujo: 'Gasto',
+    monto_ejecutado: '0',
+    estimated_payment: '',
+    expense_type: 'VARIABLE'
+  };
+};
+
+export default function NewDebtModal({ isOpen, onClose, onSuccess, yearMonth }) {
   const toast = useToast();
   
   // Opciones de Tipo según Tipo de Flujo
@@ -31,19 +64,7 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
     'Otro'
   ];
   
-  const [formData, setFormData] = useState({
-    fecha: new Date().toISOString().split('T')[0],
-    tipo: 'Servicios',
-    categoria: 'Personal',
-    monto_total: '',
-    monto_pagado: '0',
-    detalle: '',
-    fecha_vencimiento: '',
-    tipo_presupuesto: 'OBLIGATION',
-    tipo_flujo: 'Gasto',
-    monto_ejecutado: '0',
-    estimated_payment: ''
-  });
+  const [formData, setFormData] = useState(() => buildInitialFormData(yearMonth));
 
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -51,8 +72,9 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
   useEffect(() => {
     if (isOpen) {
       loadCategories();
+      setFormData(buildInitialFormData(yearMonth));
     }
-  }, [isOpen]);
+  }, [isOpen, yearMonth]);
 
   const loadCategories = async () => {
     try {
@@ -104,19 +126,7 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
       toast.success('Item de presupuesto creado correctamente');
       
       // Reset form
-      setFormData({
-        fecha: new Date().toISOString().split('T')[0],
-        tipo: 'Servicios',
-        categoria: 'Personal',
-        monto_total: '',
-        monto_pagado: '0',
-        detalle: '',
-        fecha_vencimiento: '',
-        tipo_presupuesto: 'OBLIGATION',
-        tipo_flujo: 'Gasto',
-        monto_ejecutado: '0',
-        estimated_payment: ''
-      });
+      setFormData(buildInitialFormData(yearMonth));
       
       onSuccess();
       onClose();
@@ -130,19 +140,7 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
 
   const handleClose = () => {
     if (loading) return;
-    setFormData({
-      fecha: new Date().toISOString().split('T')[0],
-      tipo: 'Servicios',
-      categoria: 'Personal',
-      monto_total: '',
-      monto_pagado: '0',
-      detalle: '',
-      fecha_vencimiento: '',
-      tipo_presupuesto: 'OBLIGATION',
-      tipo_flujo: 'Gasto',
-      monto_ejecutado: '0',
-      estimated_payment: ''
-    });
+    setFormData(buildInitialFormData(yearMonth));
     onClose();
   };
 
@@ -204,7 +202,7 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
 
             <div>
               <label className="block text-sm font-medium text-finly-text mb-2">
-                Tipo de Presupuesto *
+                Naturaleza del Presupuesto *
               </label>
               <select
                 name="tipo_presupuesto"
@@ -213,9 +211,10 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
                 required
               >
-                <option value="OBLIGATION">Obligación (Deuda/Compromiso)</option>
-                <option value="VARIABLE">Variable (Flexible)</option>
+                <option value="OBLIGATION">Compromiso (deuda/pago comprometido)</option>
+                <option value="VARIABLE">Flexible (planificable)</option>
               </select>
+              <p className="text-xs text-gray-500 mt-1">Define la naturaleza financiera del item</p>
             </div>
 
             <div>
@@ -236,6 +235,22 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
 
             <div>
               <label className="block text-sm font-medium text-finly-text mb-2">
+                Recurrencia
+              </label>
+              <select
+                name="expense_type"
+                value={formData.expense_type}
+                onChange={handleChange}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
+              >
+                <option value="VARIABLE">No recurrente</option>
+                <option value="FIJO">Recurrente mensual</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">Define si el item se repite automaticamente cada mes</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">
                 Categoría *
               </label>
               <select
@@ -246,9 +261,12 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
                 required
               >
                 {categories.length > 0 ? (
-                  categories.map((category) => (
-                    <option key={category.id || category} value={category.name || category}>{category.name || category}</option>
-                  ))
+                  categories
+                    .map(getCategoryOption)
+                    .filter((category) => category.value)
+                    .map((category) => (
+                      <option key={category.key} value={category.value}>{category.label}</option>
+                    ))
                 ) : (
                   <option value="Otro">Otro</option>
                 )}

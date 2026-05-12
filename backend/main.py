@@ -46,6 +46,30 @@ except Exception as e:
     print(f"⚠️ Debt service not available: {e}")
     debt_service = None
 
+
+def ensure_backend_services():
+    """Best-effort lazy recovery when services were unavailable at startup."""
+    global database_service, debt_service
+
+    if database_service is None:
+        try:
+            from services.database_service import database_service as recovered_database_service
+            if recovered_database_service.is_connected():
+                database_service = recovered_database_service
+                print("✅ PostgreSQL database recovered at runtime")
+        except Exception:
+            database_service = None
+
+    if debt_service is None and database_service is not None:
+        try:
+            from services.debt_service import debt_service as recovered_debt_service
+            debt_service = recovered_debt_service
+            print("✅ Debt service recovered at runtime")
+        except Exception:
+            debt_service = None
+
+    return database_service, debt_service
+
 # Initialize Credit Card Service
 try:
     from services.credit_card_service import CreditCardService
@@ -96,6 +120,7 @@ app.add_middleware(
 # Health check endpoint
 @app.get("/api/health")
 async def health_check():
+    ensure_backend_services()
     return {
         "status": "ok",
         "database_connected": database_service is not None and database_service.is_connected(),
@@ -120,6 +145,7 @@ class Debt(BaseModel):
     tipo_flujo: Optional[str] = "Gasto"
     monto_ejecutado: Optional[float] = 0.0
     estimated_payment: Optional[float] = None
+    expense_type: Optional[str] = "VARIABLE"  # EXP-FEAT-016: FIJO / VARIABLE
 
 class Transaction(BaseModel):
     id: Optional[int] = None
@@ -140,8 +166,10 @@ class Transaction(BaseModel):
 
 class OpenMonthRequest(BaseModel):
     year_month: str
-    include_carryover: bool = True
+    include_carryover: bool = False  # EXP-FEAT-13 fix: carryover disabled by default
     include_budget_clone: bool = True
+    include_fixed_clone: bool = True
+    only_fixed_clone: bool = True  # EXP-FEAT-017: clone only FIJO items
 
 class CloneMonthRequest(BaseModel):
     source_month: int  # 1-12
@@ -1069,6 +1097,7 @@ async def delete_debt(
 @app.get("/api/budget-items")
 async def get_budget_items(current_user: DBUser = Depends(get_current_user)):
     """Alias for GET /api/debts - Get all budget items"""
+    ensure_backend_services()
     if not debt_service:
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
@@ -1086,6 +1115,7 @@ async def get_budget_items_summary(
     current_user: DBUser = Depends(get_current_user)
 ):
     """Get budget items summary, optionally filtered by month/year"""
+    ensure_backend_services()
     if not debt_service:
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
@@ -1102,6 +1132,7 @@ async def import_budget_items_csv(
     current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Alias for POST /api/debts/import-csv - Import budget items from CSV"""
+    ensure_backend_services()
     if not debt_service:
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
@@ -1136,6 +1167,7 @@ async def get_budget_item(
     current_user: DBUser = Depends(get_current_user)
 ):
     """Alias for GET /api/debts/{id} - Get a specific budget item"""
+    ensure_backend_services()
     if not debt_service:
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
@@ -1154,6 +1186,7 @@ async def create_budget_item(
     current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Alias for POST /api/debts - Create a new budget item"""
+    ensure_backend_services()
     if not debt_service:
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
@@ -1713,11 +1746,17 @@ async def bulk_import_credit_card_purchases(
 @app.get("/api/month-closings")
 async def get_all_closings(current_user: DBUser = Depends(get_current_user)):
     """Get all month closings"""
+    ensure_backend_services()
+    if not database_service:
+        raise HTTPException(status_code=503, detail="Database service not configured")
     return database_service.get_all_closings(user_id=current_user.id)
 
 @app.get("/api/month-closings/{year}/{month}")
 async def get_month_closing(year: int, month: int, current_user: DBUser = Depends(get_current_user)):
     """Check if a specific month is closed, with stale detection"""
+    ensure_backend_services()
+    if not database_service:
+        raise HTTPException(status_code=503, detail="Database service not configured")
     closing = database_service.get_month_closing(year, month, user_id=current_user.id)
     if not closing:
         return {"closed": False, "year": year, "month": month}
@@ -1734,8 +1773,11 @@ async def get_month_closing(year: int, month: int, current_user: DBUser = Depend
     return {"closed": True, "is_stale": is_stale, "current_balance": current['balance'], **closing}
 
 @app.post("/api/month-closings/{year}/{month}")
-async def close_month(year: int, month: int, current_user: DBUser = Depends(require_role(["ADMIN"]))):
+async def close_month(year: int, month: int, current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))):
     """Close (or re-close) a month: calculate balance and create carry-over transaction"""
+    ensure_backend_services()
+    if not database_service:
+        raise HTTPException(status_code=503, detail="Database service not configured")
     if month < 1 or month > 12:
         raise HTTPException(status_code=400, detail="Mes inválido")
     # Get CC purchases total for this month
@@ -1753,8 +1795,11 @@ async def close_month(year: int, month: int, current_user: DBUser = Depends(requ
         raise HTTPException(status_code=409, detail=str(e))
 
 @app.delete("/api/month-closings/{year}/{month}")
-async def reopen_month(year: int, month: int, current_user: DBUser = Depends(require_role(["ADMIN"]))):
+async def reopen_month(year: int, month: int, current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))):
     """Reopen a closed month (delete closing record and carry-over transaction)"""
+    ensure_backend_services()
+    if not database_service:
+        raise HTTPException(status_code=503, detail="Database service not configured")
     try:
         database_service.reopen_month(year, month, user_id=current_user.id)
         return {"message": f"Mes {month}/{year} reabierto"}
@@ -2098,6 +2143,7 @@ async def delete_debt_payment(
 
 class ReopenMonthRequest(BaseModel):
     reason: str
+    include_carryover: bool = True
 
 
 @app.post("/api/months")
@@ -2115,14 +2161,34 @@ async def open_month_endpoint(
         db=db,
         skip_carryover=not request.include_carryover,
         skip_clone=not request.include_budget_clone,
+        only_fixed=request.only_fixed_clone,
     )
 
+
+@app.post("/api/months/{year_month}/clone-fixed-items")
+async def clone_fixed_items_endpoint(
+    year_month: str,
+    db: Session = Depends(get_db),
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
+):
+    """EXP-FEAT-018: Manually clone only FIJO budget items from the previous month."""
+    from services.month_service import clone_budget_items, _prev_year_month
+    source_month = _prev_year_month(year_month)
+    cloned = clone_budget_items(
+        source_month=source_month,
+        target_month=year_month,
+        user_id=current_user.id,
+        db=db,
+        only_fixed=True,
+    )
+    db.commit()
+    return {"cloned_count": len(cloned), "source_month": source_month, "target_month": year_month}
 
 @app.post("/api/months/{year_month}/close")
 async def close_month_endpoint(
     year_month: str,
     db: Session = Depends(get_db),
-    current_user: DBUser = Depends(require_role(["ADMIN"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Close a monthly period and create a snapshot (admin or writer)"""
     from services.month_service import close_month as svc_close_month
@@ -2134,12 +2200,12 @@ async def reopen_month_endpoint(
     year_month: str,
     request: ReopenMonthRequest,
     db: Session = Depends(get_db),
-    current_user: DBUser = Depends(require_role(["ADMIN"]))
+    current_user: DBUser = Depends(require_role(["ADMIN", "WRITER"]))
 ):
     """Reopen a closed monthly period with a required reason (admin or writer who closed it)"""
     from services.month_service import reopen_month as svc_reopen_month
     is_admin = any((getattr(role, "name", "").upper() == "ADMIN") for role in (current_user.roles or []))
-    return svc_reopen_month(year_month, current_user.id, current_user.username, request.reason, db, is_admin=is_admin)
+    return svc_reopen_month(year_month, current_user.id, current_user.username, request.reason, db, is_admin=is_admin, include_carryover=request.include_carryover)
 
 
 @app.get("/api/months/{year_month}/status")

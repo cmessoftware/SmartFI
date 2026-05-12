@@ -90,6 +90,10 @@ class MonthPeriodEventType(str, enum.Enum):
     CLOSE   = "CLOSE"
     REOPEN  = "REOPEN"
 
+class ExpenseType(str, enum.Enum):
+    FIJO     = "FIJO"
+    VARIABLE = "VARIABLE"
+
 # Models
 class BudgetItem(Base):
     """
@@ -126,6 +130,8 @@ class BudgetItem(Base):
     cloned_from_item_id = Column(Integer, ForeignKey('budget_items.id', ondelete='SET NULL'), nullable=True)
     base_cloned = Column(Float, nullable=True)
     version_source_month = Column(String(7), nullable=True)  # "YYYY-MM"
+    # EXP-FEAT-016: expense type (FIJO / VARIABLE)
+    expense_type = Column(SQLEnum(ExpenseType, values_callable=lambda x: [e.value for e in x]), default=ExpenseType.VARIABLE, nullable=False)
 
 # Backward compatibility alias
 Debt = BudgetItem

@@ -11,22 +11,23 @@ function BudgetCSVImport({ onImportSuccess }) {
     tipo: '', 
     categoria: '', 
     fecha_vencimiento: '',
-    estimated_payment: ''
+    estimated_payment: '',
+    tipo_gasto: ''
   });
   const [previewData, setPreviewData] = useState([]);
   const [message, setMessage] = useState(null);
   const [isImporting, setIsImporting] = useState(false);
 
   const requiredFields = ['detalle', 'monto_total', 'fecha_vencimiento'];
-  const optionalFields = ['tipo', 'categoria', 'estimated_payment'];
+  const optionalFields = ['tipo', 'categoria', 'estimated_payment', 'tipo_gasto'];
 
   const downloadTemplate = () => {
-    const headers = ['detalle', 'monto_total', 'tipo', 'categoria', 'fecha_vencimiento', 'monto_a_pagar'];
+    const headers = ['detalle', 'monto_total', 'tipo', 'categoria', 'fecha_vencimiento', 'monto_a_pagar', 'tipo_gasto'];
     const exampleRows = [
-      ['Alquiler', '50000', 'Vivienda', 'Alquiler', '2024-04-05', '50000'],
-      ['Tarjeta Visa', '120000', 'Tarjeta', 'Crédito', '2024-04-10', '80000'],
-      ['Internet', '4000', 'Servicio', 'Servicios', '2024-04-15', '4000'],
-      ['Salario', '250000', 'Ingreso', 'Trabajo', '2024-04-30', '250000']
+      ['Alquiler', '50000', 'Vivienda', 'Alquiler', '2024-04-05', '50000', 'FIJO'],
+      ['Tarjeta Visa', '120000', 'Tarjeta', 'Crédito', '2024-04-10', '80000', 'FIJO'],
+      ['Internet', '4000', 'Servicio', 'Servicios', '2024-04-15', '4000', 'VARIABLE'],
+      ['Salario', '250000', 'Ingreso', 'Trabajo', '2024-04-30', '250000', 'VARIABLE']
     ];
     
     const csvContent = [
@@ -132,6 +133,9 @@ function BudgetCSVImport({ onImportSuccess }) {
           detalle: row[mapping.detalle] || '',
           fecha_vencimiento: row[mapping.fecha_vencimiento] || '',
           status: 'PENDIENTE',
+          expense_type: mapping.tipo_gasto && row[mapping.tipo_gasto]
+            ? (String(row[mapping.tipo_gasto]).toUpperCase() === 'FIJO' ? 'FIJO' : 'VARIABLE')
+            : 'VARIABLE',
           estimated_payment: mapping.estimated_payment && row[mapping.estimated_payment] 
             ? parseFloat(row[mapping.estimated_payment].toString().replace(/\./g, '').replace(',', '.')) || monto
             : monto
@@ -184,7 +188,7 @@ function BudgetCSVImport({ onImportSuccess }) {
       // Reset
       setCsvHeaders([]);
       setRawRows([]);
-      setMapping({ detalle: '', monto_total: '', tipo: '', categoria: '', fecha_vencimiento: '', estimated_payment: '' });
+      setMapping({ detalle: '', monto_total: '', tipo: '', categoria: '', fecha_vencimiento: '', estimated_payment: '', tipo_gasto: '' });
       setPreviewData([]);
       window.formattedBudgets = null;
 
@@ -205,7 +209,7 @@ function BudgetCSVImport({ onImportSuccess }) {
   const resetImport = () => {
     setCsvHeaders([]);
     setRawRows([]);
-    setMapping({ detalle: '', monto_total: '', tipo: '', categoria: '', fecha_vencimiento: '', estimated_payment: '' });
+    setMapping({ detalle: '', monto_total: '', tipo: '', categoria: '', fecha_vencimiento: '', estimated_payment: '', tipo_gasto: '' });
     setPreviewData([]);
     setMessage(null);
     window.formattedBudgets = null;
@@ -251,7 +255,7 @@ function BudgetCSVImport({ onImportSuccess }) {
               <ul className="text-sm text-finly-textSecondary space-y-1">
                 <li>• Primera fila debe contener los encabezados</li>
                 <li>• Columnas requeridas: Detalle, Monto Total, Fecha Vencimiento</li>
-                <li>• Columnas opcionales: Tipo, Categoría, Monto a Pagar</li>
+                <li>• Columnas opcionales: Tipo, Categoría, Monto a Pagar, Tipo Gasto (FIJO/VARIABLE)</li>
                 <li>• Formato de fecha: YYYY-MM-DD o DD/MM/YYYY</li>
                 <li>• Ejemplo de monto: 50000 o 50.000 o 50,000.00</li>
                 <li>• Si no se mapea "Monto a Pagar", se usa el Monto Total (100%)</li>
@@ -281,6 +285,7 @@ function BudgetCSVImport({ onImportSuccess }) {
                       {field === 'categoria' && 'Categoría'}
                       {field === 'fecha_vencimiento' && 'Fecha Vencimiento'}
                       {field === 'estimated_payment' && 'Monto a Pagar'}
+                      {field === 'tipo_gasto' && 'Tipo Gasto (FIJO/VARIABLE)'}
                       {requiredFields.includes(field) && <span className="text-red-500">*</span>}
                     </label>
                     <select
@@ -326,6 +331,7 @@ function BudgetCSVImport({ onImportSuccess }) {
                         <th className="px-4 py-2 text-left">Detalle</th>
                         <th className="px-4 py-2 text-left">Tipo</th>
                         <th className="px-4 py-2 text-left">Categoría</th>
+                        <th className="px-4 py-2 text-left">Tipo Gasto</th>
                         <th className="px-4 py-2 text-right">Monto Total</th>
                         <th className="px-4 py-2 text-right">Monto a Pagar</th>
                         <th className="px-4 py-2 text-left">Vencimiento</th>
@@ -337,6 +343,7 @@ function BudgetCSVImport({ onImportSuccess }) {
                           <td className="px-4 py-2">{item.detalle}</td>
                           <td className="px-4 py-2">{item.tipo}</td>
                           <td className="px-4 py-2">{item.categoria}</td>
+                          <td className="px-4 py-2">{item.expense_type || 'VARIABLE'}</td>
                           <td className="px-4 py-2 text-right">
                             ${item.monto_total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                           </td>

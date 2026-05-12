@@ -5,6 +5,13 @@
  */
 export const formatDate = (dateString) => {
   if (!dateString) return '';
+
+  // Si está en formato DD-MM-YYYY, convertir explícitamente a DD/MM/YYYY
+  // para evitar interpretación ambigua por Date() (MM-DD-YYYY en algunos motores).
+  if (/^\d{2}-\d{2}-\d{4}$/.test(dateString)) {
+    const [day, month, year] = dateString.split('-');
+    return `${day}/${month}/${year}`;
+  }
   
   // Si ya está en formato DD/MM/YYYY, devolverlo tal cual
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateString)) {
@@ -53,6 +60,12 @@ export const toISODate = (dateString) => {
   // Si está en formato DD/MM/YYYY, convertir a YYYY-MM-DD
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateString)) {
     const [day, month, year] = dateString.split('/');
+    return `${year}-${month}-${day}`;
+  }
+
+  // Si está en formato DD-MM-YYYY, convertir a YYYY-MM-DD
+  if (/^\d{2}-\d{2}-\d{4}$/.test(dateString)) {
+    const [day, month, year] = dateString.split('-');
     return `${year}-${month}-${day}`;
   }
   

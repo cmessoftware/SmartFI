@@ -19,6 +19,7 @@ export default function OpenMonthModal({ yearMonth, onClose, onOpened }) {
   const [preview, setPreview] = useState(null);
   const [includeCarryover, setIncludeCarryover] = useState(true);
   const [includeBudgetClone, setIncludeBudgetClone] = useState(true);
+  const [includeFixedClone, setIncludeFixedClone] = useState(true);
 
   const [year, month] = yearMonth.split('-').map(Number);
   const monthName = MONTH_NAMES[month - 1];
@@ -37,12 +38,15 @@ export default function OpenMonthModal({ yearMonth, onClose, onOpened }) {
 
         const prevStatus = statusRes.data;
         const prevSnapshot = statusRes.data?.snapshot || null;
+        const budgetItems = Array.isArray(budgetRes.data) ? budgetRes.data : [];
+        const estimatedFixedCloneCount = budgetItems.filter((item) => (item.expense_type || 'VARIABLE') === 'FIJO').length;
         const previewData = {
           priorMonth,
           priorStatus: prevStatus?.status || 'OPEN',
           priorClosed: prevStatus?.status === 'CLOSED',
           estimatedCarryover: prevSnapshot?.net_balance ?? 0,
-          estimatedCloneCount: Array.isArray(budgetRes.data) ? budgetRes.data.length : 0,
+          estimatedCloneCount: budgetItems.length,
+          estimatedFixedCloneCount,
         };
 
         if (mounted) {
@@ -73,11 +77,25 @@ export default function OpenMonthModal({ yearMonth, onClose, onOpened }) {
         year_month: yearMonth,
         include_carryover: includeCarryover,
         include_budget_clone: includeBudgetClone,
+        only_fixed_clone: includeFixedClone,
       });
       onOpened(res.data);
     } catch (err) {
       const detail = err.response?.data?.detail;
-      setError(typeof detail === 'string' ? detail : detail?.message || 'Error al abrir el mes');
+      const message = typeof detail === 'string' ? detail : detail?.message || 'Error al abrir el mes';
+
+      // If month is already open, refresh status so parent can show "Cerrar mes" without page reload.
+      if (typeof message === 'string' && message.toLowerCase().includes('ya está abierto')) {
+        try {
+          const statusRes = await monthsAPI.getStatus(yearMonth);
+          onOpened(statusRes.data);
+          return;
+        } catch {
+          // Fall back to showing the original error if status refresh fails.
+        }
+      }
+
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -90,7 +108,7 @@ export default function OpenMonthModal({ yearMonth, onClose, onOpened }) {
           Abrir mes: {monthName} {year}
         </h2>
         <p className="text-sm text-gray-600 mb-4">
-          Podés crear el carryover desde el mes anterior y clonar los items de presupuesto para arrancar más rápido.
+          Cloná los items de presupuesto del mes anterior para arrancar más rápido.
         </p>
 
         <div className="space-y-3 mb-4">
@@ -100,7 +118,7 @@ export default function OpenMonthModal({ yearMonth, onClose, onOpened }) {
               checked={includeCarryover}
               onChange={(e) => setIncludeCarryover(e.target.checked)}
             />
-            Incluir carryover (Saldo Anterior)
+            Arrastrar saldo neto del mes anterior
           </label>
           <label className="flex items-center gap-2 text-sm text-gray-700">
             <input
@@ -109,6 +127,15 @@ export default function OpenMonthModal({ yearMonth, onClose, onOpened }) {
               onChange={(e) => setIncludeBudgetClone(e.target.checked)}
             />
             Clonar presupuesto del mes anterior
+          </label>
+          <label className={`flex items-center gap-2 text-sm ml-5 ${includeBudgetClone ? 'text-gray-700' : 'text-gray-400'}`}>
+            <input
+              type="checkbox"
+              checked={includeFixedClone && includeBudgetClone}
+              disabled={!includeBudgetClone}
+              onChange={(e) => setIncludeFixedClone(e.target.checked)}
+            />
+            Solo clonar gastos fijos (se marcan como Pendiente)
           </label>
         </div>
 
@@ -128,13 +155,14 @@ export default function OpenMonthModal({ yearMonth, onClose, onOpened }) {
                 </strong>
               </p>
               <p>
-                Carryover estimado:{' '}
-                <strong>
+                Saldo a arrastrar:{' '}
+                <strong className={preview.estimatedCarryover >= 0 ? 'text-green-700' : 'text-red-700'}>
                   {new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(preview.estimatedCarryover || 0)}
                 </strong>
               </p>
               <p>
-                Items a clonar: <strong>{preview.estimatedCloneCount}</strong>
+                {includeFixedClone ? 'Items fijos a clonar' : 'Items a clonar'}:{' '}
+                <strong>{includeFixedClone ? preview.estimatedFixedCloneCount : preview.estimatedCloneCount}</strong>
               </p>
             </div>
           ) : (

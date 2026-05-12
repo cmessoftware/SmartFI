@@ -1,6 +1,19 @@
 import { useState, useEffect } from 'react';
 import { toISODate } from '../utils/dateUtils';
 
+const getCategoryOption = (category) => {
+  if (typeof category === 'string') {
+    return { key: category, value: category, label: category };
+  }
+
+  const value = category?.name || category?.label || category?.value || category?.id;
+  return {
+    key: category?.id || value,
+    value,
+    label: category?.name || category?.label || category?.value || String(category?.id || ''),
+  };
+};
+
 function EditDebtModal({ debt, onSave, onClose, categories }) {
   // Opciones de Tipo según Tipo de Flujo
   const tiposGasto = [
@@ -39,7 +52,8 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
     tipo_presupuesto: 'OBLIGATION',
     tipo_flujo: 'Gasto',
     monto_ejecutado: '0',
-    estimated_payment: ''
+    estimated_payment: '',
+    expense_type: 'VARIABLE'
   });
 
   useEffect(() => {
@@ -54,7 +68,8 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
         tipo_presupuesto: debt.tipo_presupuesto || 'OBLIGATION',
         tipo_flujo: debt.tipo_flujo || 'Gasto',
         monto_ejecutado: (debt.monto_ejecutado || debt.monto_pagado || 0).toString(),
-        estimated_payment: (debt.estimated_payment != null ? debt.estimated_payment : debt.monto_total).toString()
+        estimated_payment: (debt.estimated_payment != null ? debt.estimated_payment : debt.monto_total).toString(),
+        expense_type: debt.expense_type || 'VARIABLE'
       });
     }
   }, [debt]);
@@ -168,9 +183,12 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
               >
                 {categories && categories.length > 0 ? (
-                  categories.map(cat => (
-                    <option key={cat.id || cat} value={cat.name || cat}>{cat.name || cat}</option>
-                  ))
+                  categories
+                    .map(getCategoryOption)
+                    .filter((category) => category.value)
+                    .map((category) => (
+                      <option key={category.key} value={category.value}>{category.label}</option>
+                    ))
                 ) : (
                   <>
                     <option value="Personal">Personal</option>
@@ -222,7 +240,7 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
             {/* Tipo de Presupuesto */}
             <div>
               <label className="block text-sm font-medium text-finly-text mb-2">
-                Tipo de Presupuesto *
+                Naturaleza del Presupuesto *
               </label>
               <select
                 name="tipo_presupuesto"
@@ -231,9 +249,10 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
                 required
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
               >
-                <option value="OBLIGATION">🔴 Obligación (Deuda/Compromiso)</option>
-                <option value="VARIABLE">🔵 Variable (Presupuesto Flexible)</option>
+                <option value="OBLIGATION">Compromiso (deuda/pago comprometido)</option>
+                <option value="VARIABLE">Flexible (planificable)</option>
               </select>
+              <p className="text-xs text-gray-500 mt-1">Define la naturaleza financiera del item</p>
             </div>
 
             {/* Tipo de Flujo */}
@@ -251,6 +270,22 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
                 <option value="Gasto">💸 Gasto</option>
                 <option value="Ingreso">💰 Ingreso</option>
               </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">
+                Recurrencia
+              </label>
+              <select
+                name="expense_type"
+                value={formData.expense_type}
+                onChange={handleChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
+              >
+                <option value="VARIABLE">No recurrente</option>
+                <option value="FIJO">Recurrente mensual</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">Define si el item se repite automaticamente cada mes</p>
             </div>
 
             {/* Fecha de Vencimiento */}

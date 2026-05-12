@@ -17,7 +17,13 @@ function Login({ onLogin }) {
       const response = await authAPI.login(username, password);
       onLogin(response.data.user, response.data.access_token, response.data.refresh_token);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Error al iniciar sesión');
+      if (err.code === 'ECONNABORTED') {
+        setError('El servidor tardó demasiado en responder. Reintentá en unos segundos.');
+      } else if (err.message === 'Network Error') {
+        setError('No se pudo conectar con el servidor. Verificá que backend y frontend estén levantados.');
+      } else {
+        setError(err.response?.data?.detail || 'Error al iniciar sesión');
+      }
     } finally {
       setLoading(false);
     }

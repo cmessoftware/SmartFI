@@ -2,6 +2,25 @@ import { useState, useEffect } from 'react';
 import { transactionsAPI, debtsAPI } from '../services/api';
 
 function TransactionForm({ addTransaction }) {
+  const dedupeDebtsByVisibleLabel = (items) => {
+    const byLabel = new Map();
+
+    items.forEach((debt) => {
+      const montoEjecutado = debt.monto_ejecutado ?? debt.monto_pagado ?? 0;
+      const remaining = Number(debt.monto_total || 0) - Number(montoEjecutado || 0);
+      const baseLabel = debt.detalle || `${debt.tipo} - ${debt.categoria}`;
+      const key = `${baseLabel} - Resta: ${remaining.toFixed(2)}`;
+      const existing = byLabel.get(key);
+
+      // Keep latest record when same label appears multiple times.
+      if (!existing || Number(debt.id) > Number(existing.id)) {
+        byLabel.set(key, debt);
+      }
+    });
+
+    return Array.from(byLabel.values());
+  };
+
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
     type: 'Gasto',
@@ -98,6 +117,22 @@ function TransactionForm({ addTransaction }) {
       [name]: value
     }));
   };
+
+  const txMonth = formData.date ? formData.date.substring(0, 7) : '';
+  const debtsForMonth = txMonth
+    ? debts.filter((debt) => {
+      const dueDate = debt.fecha_vencimiento || debt.fecha || '';
+      return String(dueDate).substring(0, 7) === txMonth;
+    })
+    : debts;
+
+  const suggestedDebts = dedupeDebtsByVisibleLabel(
+    debtsForMonth.filter((debt) => debt.categoria === formData.category && debt.tipo_flujo === formData.type)
+  );
+
+  const otherDebts = dedupeDebtsByVisibleLabel(
+    debtsForMonth.filter((debt) => !(debt.categoria === formData.category && debt.tipo_flujo === formData.type))
+  );
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -218,11 +253,6 @@ function TransactionForm({ addTransaction }) {
 
             {/* Selector de presupuesto para gastos e ingresos */}
             {debts.length > 0 && (() => {
-              // Filtrar deudas por el mes de la transacción (Mejora 4)
-              const txMonth = formData.date ? formData.date.substring(0, 7) : ''; // YYYY-MM
-              const debtsForMonth = txMonth
-                ? debts.filter(d => d.fecha_vencimiento && d.fecha_vencimiento.substring(0, 7) === txMonth)
-                : debts;
               return debtsForMonth.length > 0 && (
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-finly-text mb-2">
@@ -241,11 +271,7 @@ function TransactionForm({ addTransaction }) {
                 >
                   <option value="">-- Sin asignar (se asignará automáticamente) --</option>
                   <optgroup label="🎯 Sugeridos por categoría y tipo de flujo">
-                    {debtsForMonth
-                      .filter(debt => 
-                        debt.categoria === formData.category && 
-                        debt.tipo_flujo === formData.type
-                      )
+                    {suggestedDebts
                       .map(debt => {
                         const montoEjecutado = debt.monto_ejecutado ?? debt.monto_pagado ?? 0;
                         const remaining = debt.monto_total - montoEjecutado;
@@ -260,10 +286,7 @@ function TransactionForm({ addTransaction }) {
                       })}
                   </optgroup>
                   <optgroup label="📋 Otros items de presupuesto">
-                    {debtsForMonth
-                      .filter(debt => 
-                        !(debt.categoria === formData.category && debt.tipo_flujo === formData.type)
-                      )
+                    {otherDebts
                       .map(debt => {
                         const montoEjecutado = debt.monto_ejecutado ?? debt.monto_pagado ?? 0;
                         const remaining = debt.monto_total - montoEjecutado;
@@ -279,7 +302,7 @@ function TransactionForm({ addTransaction }) {
                   </optgroup>
                 </select>
                 <p className="text-xs text-finly-textSecondary mt-1">
-                  🔴 Obligación (Deuda/Compromiso) | 🔵 Variable (Flexible) | Si no selecciona, se asignará automáticamente
+                  🔴 Compromiso (deuda/pago comprometido) | 🔵 Flexible (planificable) | Si no selecciona, se asignará automáticamente
                 </p>
               </div>
             );})()}

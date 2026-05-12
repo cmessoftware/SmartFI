@@ -1124,6 +1124,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Presupuesto</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Flujo</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Recurrencia</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Categoría</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Detalle</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Monto Total</th>
@@ -1138,7 +1139,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
             <tbody className="divide-y divide-gray-200">
               {paginatedDebts.length === 0 ? (
                 <tr>
-                  <td colSpan={canEdit ? "14" : "13"} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={canEdit ? "15" : "14"} className="px-4 py-8 text-center text-gray-500">
                     {debts.length === 0 ? 'No hay items de presupuesto registrados' : 'No hay resultados para los filtros aplicados'}
                   </td>
                 </tr>
@@ -1153,6 +1154,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
                   const remaining = debt.monto_total - montoEjecutado;
                   const tipoPresupuesto = debt.tipo_presupuesto || 'OBLIGATION';
                   const tipoFlujo = debt.tipo_flujo || 'Gasto';
+                  const expenseType = debt.expense_type || 'VARIABLE';
 
                   return (
                     <tr key={debt.id} className="hover:bg-gray-50">
@@ -1184,6 +1186,13 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
                             : 'bg-green-100 text-green-800'
                         }`}>
                           {tipoFlujo === 'Gasto' ? '💸 Gasto' : '💰 Ingreso'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                          expenseType === 'FIJO' ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-700'
+                        }`} title={expenseType === 'FIJO' ? 'Recurrente mensual' : 'No recurrente'}>
+                          {expenseType === 'FIJO' ? 'Rec' : 'NoRec'}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">{debt.categoria}</td>

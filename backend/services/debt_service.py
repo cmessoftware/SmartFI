@@ -1,6 +1,6 @@
 from database.database import (
     SessionLocal, BudgetItem, Debt, DebtStatus, Transaction,
-    TransactionType, BudgetType, FlowType,
+    TransactionType, BudgetType, FlowType, ExpenseType,
     InstallmentPlan, InstallmentScheduleItem, InstallmentStatus
 )
 from datetime import datetime
@@ -110,6 +110,10 @@ class DebtService:
             # Convertir strings a enums
             tipo_presupuesto = BudgetType.OBLIGATION if tipo_presupuesto_str == 'OBLIGATION' else BudgetType.VARIABLE
             tipo_flujo = FlowType.GASTO if tipo_flujo_str == 'Gasto' else FlowType.INGRESO
+
+            # EXP-FEAT-016: expense_type
+            expense_type_str = debt_data.get('expense_type', 'VARIABLE')
+            expense_type = ExpenseType.FIJO if expense_type_str == 'FIJO' else ExpenseType.VARIABLE
             
             # monto_ejecutado: inicializar con monto_pagado para compatibilidad
             monto_ejecutado = monto_pagado
@@ -145,7 +149,8 @@ class DebtService:
                 tipo_flujo=tipo_flujo,
                 monto_ejecutado=monto_ejecutado,
                 estimated_payment=estimated_payment_val,
-                user_id=user_id
+                user_id=user_id,
+                expense_type=expense_type,
             )
             
             db.add(budget_item)
@@ -192,6 +197,7 @@ class DebtService:
                     'cloned_from_item_id': budget_item.cloned_from_item_id,
                     'base_cloned': budget_item.base_cloned,
                     'version_source_month': budget_item.version_source_month,
+                    'expense_type': budget_item.expense_type.value if hasattr(budget_item.expense_type, 'value') else (budget_item.expense_type or 'VARIABLE'),
                     'created_at': budget_item.created_at.isoformat() if budget_item.created_at else None,
                     'updated_at': budget_item.updated_at.isoformat() if budget_item.updated_at else None
                 })
@@ -245,6 +251,7 @@ class DebtService:
                 'cloned_from_item_id': budget_item.cloned_from_item_id,
                 'base_cloned': budget_item.base_cloned,
                 'version_source_month': budget_item.version_source_month,
+                'expense_type': budget_item.expense_type.value if hasattr(budget_item.expense_type, 'value') else (budget_item.expense_type or 'VARIABLE'),
                 'created_at': budget_item.created_at.isoformat() if budget_item.created_at else None,
                 'updated_at': budget_item.updated_at.isoformat() if budget_item.updated_at else None
             }
@@ -295,6 +302,9 @@ class DebtService:
                 debt.monto_ejecutado = float(debt_data['monto_ejecutado'])
             if 'estimated_payment' in debt_data:
                 debt.estimated_payment = float(debt_data['estimated_payment']) if debt_data['estimated_payment'] is not None else None
+            if 'expense_type' in debt_data:
+                expense_type_str = debt_data['expense_type'] or 'VARIABLE'
+                debt.expense_type = ExpenseType.FIJO if expense_type_str == 'FIJO' else ExpenseType.VARIABLE
             
             # Recalcular estado basado en monto ejecutado
             if debt.monto_ejecutado >= debt.monto_total:

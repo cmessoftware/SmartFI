@@ -5,6 +5,7 @@ const API_URL = window.ENV?.VITE_API_URL || import.meta.env.VITE_API_URL || 'htt
 
 const api = axios.create({
   baseURL: API_URL,
+  timeout: 12000,
 });
 
 // Add token to requests
@@ -145,11 +146,12 @@ export const monthsAPI = {
   getStatus: (yearMonth) => api.get(`/api/months/${yearMonth}/status`),
   openMonth: (payload) => api.post('/api/months', payload),
   closeMonth: (yearMonth) => api.post(`/api/months/${yearMonth}/close`),
-  reopenMonth: (yearMonth, reason) => api.post(`/api/months/${yearMonth}/reopen`, { reason }),
+  reopenMonth: (yearMonth, reason, includeCarryover = true) => api.post(`/api/months/${yearMonth}/reopen`, { reason, include_carryover: includeCarryover }),
   getCarryover: (yearMonth) => api.get(`/api/months/${yearMonth}/carryover`),
   getBudgetItems: (yearMonth, includeCloneInfo = false) =>
     api.get(`/api/months/${yearMonth}/budget-items?include_clone_info=${includeCloneInfo}`),
   getMonths: () => api.get('/api/months?include_status=true'),
+  cloneFixedItems: (yearMonth) => api.post(`/api/months/${yearMonth}/clone-fixed-items`),
 };
 
 export const debtsAPI = {

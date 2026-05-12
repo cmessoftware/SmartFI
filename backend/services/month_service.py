@@ -11,7 +11,7 @@ from sqlalchemy import func
 from fastapi import HTTPException, status
 
 from database.database import (
-    MonthlyPeriod, MonthlyPeriodSnapshot, MonthPeriodStatus,
+    MonthlyPeriod, MonthlyPeriodSnapshot, MonthPeriodStatus, ExpenseType,
     MonthlyPeriodEvent, MonthPeriodEventType,
     Transaction, TransactionType, get_db,
 )
@@ -200,6 +200,7 @@ def reopen_month(
     reason: str,
     db: Session,
     is_admin: bool = True,
+    include_carryover: bool = True,
 ) -> Dict[str, Any]:
     """Reopen a closed monthly period. Requires reason ≥ 10 chars.
     ADMIN can reopen any period. WRITER can only reopen their own (closed_by == their user_id).
@@ -240,6 +241,28 @@ def reopen_month(
     _log_period_event(db, period, admin_user_id, admin_username, MonthPeriodEventType.REOPEN, reason.strip())
     db.commit()
     db.refresh(period)
+
+    # Create carryover if requested
+    if include_carryover:
+        prev_month = _prev_year_month(year_month)
+        try:
+            balance = calculate_month_balance(prev_month, admin_user_id, db)
+            if balance['net_balance'] != 0:
+                create_carryover_transaction(year_month, prev_month, balance['net_balance'], admin_user_id, db)
+                # Also create the monthly_balance record
+                mb = MonthlyBalance(
+                    user_id=admin_user_id,
+                    source_month=prev_month,
+                    target_month=year_month,
+                    balance_amount=balance['net_balance'],
+                    balance_type='NET',
+                    carryover_date=now
+                )
+                db.add(mb)
+                db.commit()
+        except Exception as e:
+            # Silently skip carryover if previous month doesn't exist or has no balance
+            pass
 
     log_event(
         db,
@@ -405,8 +428,10 @@ def create_carryover_transaction(
     return txn
 
 
-def clone_budget_items(source_month: str, target_month: str, user_id: int, db: Session) -> list:
-    """Clone all budget items from source_month into target_month with traceability."""
+def clone_budget_items(source_month: str, target_month: str, user_id: int, db: Session, only_fixed: bool = False) -> list:
+    """Clone budget items from source_month into target_month with traceability.
+    EXP-FEAT-017: when only_fixed=True, only items with expense_type=FIJO are cloned.
+    """
     src_year, src_month_str = source_month.split("-")
 
     source_items = db.query(BudgetItem).filter(
@@ -414,9 +439,27 @@ def clone_budget_items(source_month: str, target_month: str, user_id: int, db: S
         BudgetItem.fecha.like(f"{src_year}-{src_month_str}%"),
     ).all()
 
+    if only_fixed:
+        source_items = [i for i in source_items if i.expense_type == ExpenseType.FIJO]
+
     tgt_year, tgt_month_str = target_month.split("-")
+
+    # Idempotency guard: if an item cloned from the same source already exists in target month,
+    # skip creating another duplicate clone.
+    existing_rows = db.query(BudgetItem.cloned_from_item_id).filter(
+        BudgetItem.user_id == user_id,
+        BudgetItem.fecha.like(f"{tgt_year}-{tgt_month_str}%"),
+        BudgetItem.cloned_from_item_id.isnot(None),
+    ).all()
+    existing_cloned_source_ids = {
+        row[0] for row in existing_rows if row and row[0] is not None
+    }
+
     cloned = []
     for item in source_items:
+        if item.id in existing_cloned_source_ids:
+            continue
+
         new_fecha = item.fecha.replace(f"{src_year}-{src_month_str}", f"{tgt_year}-{tgt_month_str}", 1)
         new_fecha_vto = item.fecha_vencimiento.replace(
             f"{src_year}-{src_month_str}", f"{tgt_year}-{tgt_month_str}", 1
@@ -440,6 +483,7 @@ def clone_budget_items(source_month: str, target_month: str, user_id: int, db: S
             base_cloned=item.monto_total,
             version_source_month=source_month,
         )
+        new_item.expense_type = item.expense_type
         db.add(new_item)
         cloned.append(new_item)
 
@@ -454,6 +498,7 @@ def open_month(
     db: Session,
     skip_carryover: bool = False,
     skip_clone: bool = False,
+    only_fixed: bool = True,
 ) -> Dict[str, Any]:
     """Open a monthly period, optionally creating carryover transaction and cloned budget items."""
     _validate_year_month(year_month)
@@ -495,7 +540,7 @@ def open_month(
         }
 
     if prior_period and not skip_clone:
-        cloned = clone_budget_items(prior_month, year_month, user_id, db)
+        cloned = clone_budget_items(prior_month, year_month, user_id, db, only_fixed=only_fixed)
         cloned_count = len(cloned)
 
     period = existing or MonthlyPeriod(

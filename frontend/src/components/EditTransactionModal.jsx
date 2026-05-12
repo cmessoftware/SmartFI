@@ -2,6 +2,24 @@ import { useState, useEffect } from 'react';
 import { toISODate } from '../utils/dateUtils';
 
 function EditTransactionModal({ transaction, onSave, onClose, categories, necessityTypes, debts = [] }) {
+  const dedupeDebtsByVisibleLabel = (items) => {
+    const byLabel = new Map();
+
+    items.forEach((debt) => {
+      const montoEjecutado = debt.monto_ejecutado ?? debt.monto_pagado ?? 0;
+      const remaining = Number(debt.monto_total || 0) - Number(montoEjecutado || 0);
+      const baseLabel = debt.detalle || `${debt.tipo} - ${debt.categoria}`;
+      const key = `${baseLabel} - Resta: ${remaining.toFixed(2)}`;
+      const existing = byLabel.get(key);
+
+      if (!existing || Number(debt.id) > Number(existing.id)) {
+        byLabel.set(key, debt);
+      }
+    });
+
+    return Array.from(byLabel.values());
+  };
+
   const normalizeFlowType = (value) => {
     const normalized = String(value || '').trim().toUpperCase();
     if (normalized === 'GASTO') return 'Gasto';
@@ -69,16 +87,18 @@ function EditTransactionModal({ transaction, onSave, onClose, categories, necess
     : debts;
 
   // Filtrar debts por tipo de flujo coincidente
-  const suggestedDebts = debtsForMonth
-    .filter((debt) => normalizeFlowType(debt.tipo_flujo) === normalizeFlowType(formData.type))
+  const suggestedDebts = dedupeDebtsByVisibleLabel(
+    debtsForMonth.filter((debt) => normalizeFlowType(debt.tipo_flujo) === normalizeFlowType(formData.type))
+  )
     .sort((a, b) => {
       const labelA = (a.detalle || `Presupuesto ${a.tipo || ''}`).trim().toLowerCase();
       const labelB = (b.detalle || `Presupuesto ${b.tipo || ''}`).trim().toLowerCase();
       return labelA.localeCompare(labelB, 'es');
     });
 
-  const otherDebts = debtsForMonth
-    .filter((debt) => normalizeFlowType(debt.tipo_flujo) !== normalizeFlowType(formData.type))
+  const otherDebts = dedupeDebtsByVisibleLabel(
+    debtsForMonth.filter((debt) => normalizeFlowType(debt.tipo_flujo) !== normalizeFlowType(formData.type))
+  )
     .sort((a, b) => {
       const labelA = (a.detalle || `Presupuesto ${a.tipo || ''}`).trim().toLowerCase();
       const labelB = (b.detalle || `Presupuesto ${b.tipo || ''}`).trim().toLowerCase();

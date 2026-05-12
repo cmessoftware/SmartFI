@@ -11,6 +11,11 @@ function App() {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  const getTransactionsCacheKey = (userData) => {
+    const userId = userData?.id;
+    return userId ? `transactions_cache_user_${userId}` : 'transactions_cache';
+  };
+
   useEffect(() => {
     // One-time migration: clean old localStorage keys
     if (!localStorage.getItem('migrated_to_sheets')) {
@@ -24,24 +29,42 @@ function App() {
       localStorage.setItem('migrated_to_sheets', 'true');
     }
     
-    // Check if user is already logged in
-    const storedUser = localStorage.getItem('user');
-    const storedToken = localStorage.getItem('token');
-    if (storedUser && storedToken) {
-      const userData = JSON.parse(storedUser);
-      setUser(userData);
-      // Load transactions from backend (no sync on startup)
-      loadTransactionsFromDB();
-    }
+    // Check if user is already logged in and validate token before loading protected data
+    const bootstrapSession = async () => {
+      const storedUser = localStorage.getItem('user');
+      const storedToken = localStorage.getItem('token');
+      if (!storedUser || !storedToken) {
+        return;
+      }
+
+      try {
+        const meResponse = await authAPI.getCurrentUser();
+        const userData = meResponse?.data || JSON.parse(storedUser);
+        setUser(userData);
+        localStorage.setItem('user', JSON.stringify(userData));
+        // Load transactions from backend (no sync on startup)
+        loadTransactionsFromDB(userData);
+      } catch (_error) {
+        // Session is no longer valid: clean local auth and stay on login view
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
+        localStorage.removeItem('refresh_token');
+        setUser(null);
+      }
+    };
+
+    bootstrapSession();
   }, []);
 
   // Load transactions from PostgreSQL only (no sync)
-  const loadTransactionsFromDB = async () => {
+  const loadTransactionsFromDB = async (userDataOverride = null) => {
     try {
       setLoading(true);
+      const effectiveUser = userDataOverride || user;
+      const cacheKey = getTransactionsCacheKey(effectiveUser);
       
       // Try to load from localStorage cache first (for instant UI)
-      const cachedTransactions = localStorage.getItem('transactions_cache');
+      const cachedTransactions = localStorage.getItem(cacheKey);
       if (cachedTransactions) {
         setTransactions(JSON.parse(cachedTransactions));
         console.log('⚡ Loaded from cache');
@@ -53,13 +76,15 @@ function App() {
       
       setTransactions(backendTransactions);
       // Update cache
-      localStorage.setItem('transactions_cache', JSON.stringify(backendTransactions));
+      localStorage.setItem(cacheKey, JSON.stringify(backendTransactions));
       console.log(`✅ Loaded ${backendTransactions.length} transactions from PostgreSQL`);
       
     } catch (error) {
       console.error('❌ Error loading transactions:', error);
       // Only show alert if we don't have cached data
-      const cachedTransactions = localStorage.getItem('transactions_cache');
+      const effectiveUser = userDataOverride || user;
+      const cacheKey = getTransactionsCacheKey(effectiveUser);
+      const cachedTransactions = localStorage.getItem(cacheKey);
       if (!cachedTransactions) {
         console.warn('No cached data available. Unable to load transactions.');
       }
@@ -72,6 +97,7 @@ function App() {
   const loadTransactions = async (force = false) => {
     try {
       setLoading(true);
+      const cacheKey = getTransactionsCacheKey(user);
       
       // Sync from Google Sheets to PostgreSQL (admin only)
       if (user && user.roles && user.roles.includes('ADMIN')) {
@@ -91,13 +117,14 @@ function App() {
       
       setTransactions(backendTransactions);
       // Update cache
-      localStorage.setItem('transactions_cache', JSON.stringify(backendTransactions));
+      localStorage.setItem(cacheKey, JSON.stringify(backendTransactions));
       console.log(`✅ Loaded ${backendTransactions.length} transactions from PostgreSQL`);
       
     } catch (error) {
       console.error('❌ Error loading transactions:', error);
       // Only show alert if we don't have cached data
-      const cachedTransactions = localStorage.getItem('transactions_cache');
+      const cacheKey = getTransactionsCacheKey(user);
+      const cachedTransactions = localStorage.getItem(cacheKey);
       if (!cachedTransactions) {
         console.warn('No cached data available. Unable to load transactions.');
       }
@@ -114,7 +141,7 @@ function App() {
       localStorage.setItem('refresh_token', refreshToken);
     }
     // Load transactions immediately after login
-    loadTransactionsFromDB();
+    loadTransactionsFromDB(userData);
   };
 
   const handleLogout = async () => {
@@ -127,6 +154,8 @@ function App() {
     localStorage.removeItem('user');
     localStorage.removeItem('token');
     localStorage.removeItem('refresh_token');
+    // Clean visible in-memory data on logout to avoid cross-user confusion.
+    setTransactions([]);
   };
 
   const addTransaction = async (newTransaction) => {
@@ -140,7 +169,7 @@ function App() {
       const savedTransaction = { ...newTransaction, id: savedId };
       const updatedTransactions = [...transactions, savedTransaction];
       setTransactions(updatedTransactions);
-      localStorage.setItem('transactions_cache', JSON.stringify(updatedTransactions));
+      localStorage.setItem(getTransactionsCacheKey(user), JSON.stringify(updatedTransactions));
     } catch (error) {
       console.error('❌ Error saving transaction:', error);
       throw error; // Let component show error to user

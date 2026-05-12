@@ -40,6 +40,11 @@ logs/
 *.db
 *.sqlite
 
+# Backups - nunca subir al repositorio (contienen datos sensibles)
+backups/
+*.sql
+*.dump
+
 # Python virtual environment
 venv/
 env/
