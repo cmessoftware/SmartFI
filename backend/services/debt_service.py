@@ -189,6 +189,9 @@ class DebtService:
                     'tipo_flujo': budget_item.tipo_flujo.value if hasattr(budget_item.tipo_flujo, 'value') else budget_item.tipo_flujo,
                     'monto_ejecutado': budget_item.monto_ejecutado,
                     'estimated_payment': budget_item.estimated_payment if budget_item.estimated_payment is not None else budget_item.monto_total,
+                    'cloned_from_item_id': budget_item.cloned_from_item_id,
+                    'base_cloned': budget_item.base_cloned,
+                    'version_source_month': budget_item.version_source_month,
                     'created_at': budget_item.created_at.isoformat() if budget_item.created_at else None,
                     'updated_at': budget_item.updated_at.isoformat() if budget_item.updated_at else None
                 })
@@ -239,6 +242,9 @@ class DebtService:
                 'tipo_flujo': budget_item.tipo_flujo.value if hasattr(budget_item.tipo_flujo, 'value') else budget_item.tipo_flujo,
                 'monto_ejecutado': budget_item.monto_ejecutado,
                 'estimated_payment': budget_item.estimated_payment if budget_item.estimated_payment is not None else budget_item.monto_total,
+                'cloned_from_item_id': budget_item.cloned_from_item_id,
+                'base_cloned': budget_item.base_cloned,
+                'version_source_month': budget_item.version_source_month,
                 'created_at': budget_item.created_at.isoformat() if budget_item.created_at else None,
                 'updated_at': budget_item.updated_at.isoformat() if budget_item.updated_at else None
             }

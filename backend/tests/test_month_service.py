@@ -145,6 +145,7 @@ class TestCloseMonth:
             category_id=cat.id,
             necessity=NecessityType.NECESARIO,
             origin="MANUAL",
+            user_id=admin_user.id,
         )
         t2 = DBTransaction(
             date="2025-06-15",
@@ -154,6 +155,7 @@ class TestCloseMonth:
             category_id=cat.id,
             necessity=NecessityType.NECESARIO,
             origin="MANUAL",
+            user_id=admin_user.id,
         )
         db_session.add_all([t1, t2])
         db_session.commit()
@@ -333,3 +335,114 @@ class TestValidatePeriodForMutation:
 
         # Should not raise — REOPENED is treated as open
         validate_period_for_mutation("2026-07", is_admin=False, origin="MANUAL", db=db_session)
+
+
+# ===========================================================================
+# open_month() / carryover / clone
+# ===========================================================================
+
+class TestOpenMonthRollover:
+    def _seed_category(self, db_session, name):
+        from database.database import Category
+        cat = Category(name=name)
+        db_session.add(cat)
+        db_session.flush()
+        return cat
+
+    def test_open_month_with_closed_prior_creates_carryover_and_balance(self, db_session, admin_user):
+        from services.month_service import close_month, open_month
+        from database.database import Transaction as DBTransaction, TransactionType, NecessityType, MonthlyBalance
+
+        cat = self._seed_category(db_session, "Test Rollover Cat")
+        db_session.add(DBTransaction(
+            user_id=admin_user.id,
+            date="2026-08-10",
+            type=TransactionType.INGRESO,
+            category_id=cat.id,
+            amount=1000.0,
+            necessity=NecessityType.NECESARIO,
+            payment_method="Débito",
+            detail="Ingreso Agosto",
+            origin="MANUAL",
+        ))
+        db_session.add(DBTransaction(
+            user_id=admin_user.id,
+            date="2026-08-12",
+            type=TransactionType.GASTO,
+            category_id=cat.id,
+            amount=300.0,
+            necessity=NecessityType.NECESARIO,
+            payment_method="Débito",
+            detail="Gasto Agosto",
+            origin="MANUAL",
+        ))
+        db_session.commit()
+
+        close_month("2026-08", admin_user.id, admin_user.username, db_session)
+
+        result = open_month("2026-09", admin_user.id, admin_user.username, db_session)
+
+        assert result["status"] == "OPEN"
+        assert result["carryover"] is not None
+        assert result["carryover"]["net_balance"] == pytest.approx(700.0)
+
+        mb = db_session.query(MonthlyBalance).filter(
+            MonthlyBalance.user_id == admin_user.id,
+            MonthlyBalance.source_month == "2026-08",
+            MonthlyBalance.target_month == "2026-09",
+        ).first()
+        assert mb is not None
+        assert mb.balance_amount == pytest.approx(700.0)
+
+    def test_open_month_blocks_when_prior_exists_but_not_closed(self, db_session, admin_user):
+        from services.month_service import open_month
+        from database.database import MonthlyPeriod, MonthPeriodStatus
+        from fastapi import HTTPException
+
+        # Create prior month explicitly open (not closed)
+        db_session.add(MonthlyPeriod(year_month="2026-10", user_id=admin_user.id, status=MonthPeriodStatus.OPEN))
+        db_session.commit()
+
+        with pytest.raises(HTTPException) as exc_info:
+            open_month("2026-11", admin_user.id, admin_user.username, db_session)
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["code"] == "PRIOR_MONTH_NOT_CLOSED"
+
+    def test_open_month_without_prior_period_still_opens(self, db_session, admin_user):
+        from services.month_service import open_month
+
+        result = open_month("2030-01", admin_user.id, admin_user.username, db_session)
+
+        assert result["status"] == "OPEN"
+        assert result["carryover"] is None
+
+    def test_clone_budget_items_preserves_traceability(self, db_session, admin_user):
+        from services.month_service import clone_budget_items
+        from database.database import BudgetItem, DebtStatus, BudgetType, FlowType
+
+        item = BudgetItem(
+            user_id=admin_user.id,
+            fecha="2027-01-05",
+            tipo="Servicio",
+            categoria="Hogar",
+            monto_total=250.0,
+            monto_pagado=0.0,
+            detalle="Internet",
+            fecha_vencimiento="2027-01-20",
+            status=DebtStatus.PENDIENTE,
+            tipo_presupuesto=BudgetType.OBLIGATION,
+            tipo_flujo=FlowType.GASTO,
+            monto_ejecutado=0.0,
+            estimated_payment=250.0,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        cloned = clone_budget_items("2027-01", "2027-02", admin_user.id, db_session)
+
+        assert len(cloned) == 1
+        assert cloned[0].cloned_from_item_id == item.id
+        assert cloned[0].version_source_month == "2027-01"
+        assert cloned[0].base_cloned == pytest.approx(250.0)
+        assert cloned[0].fecha.startswith("2027-02")

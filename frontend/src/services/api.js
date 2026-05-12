@@ -143,8 +143,12 @@ export const monthClosingAPI = {
 
 export const monthsAPI = {
   getStatus: (yearMonth) => api.get(`/api/months/${yearMonth}/status`),
+  openMonth: (payload) => api.post('/api/months', payload),
   closeMonth: (yearMonth) => api.post(`/api/months/${yearMonth}/close`),
   reopenMonth: (yearMonth, reason) => api.post(`/api/months/${yearMonth}/reopen`, { reason }),
+  getCarryover: (yearMonth) => api.get(`/api/months/${yearMonth}/carryover`),
+  getBudgetItems: (yearMonth, includeCloneInfo = false) =>
+    api.get(`/api/months/${yearMonth}/budget-items?include_clone_info=${includeCloneInfo}`),
   getMonths: () => api.get('/api/months?include_status=true'),
 };
 
@@ -168,6 +172,7 @@ export const debtsAPI = {
       target_month: targetMonth,
       target_year: targetYear,
     }),
+  getCloneLineage: (itemId) => api.get(`/api/budget-items/${itemId}/clone-lineage`),
 };
 
 export const creditCardAPI = {

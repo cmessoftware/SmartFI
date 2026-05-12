@@ -15,6 +15,8 @@ from database.database import (
     MonthlyPeriodEvent, MonthPeriodEventType,
     Transaction, TransactionType, get_db,
 )
+from database.database import BudgetItem, Category, MonthlyBalance
+from database.database import DebtStatus
 from security.audit_service import log_event
 
 logger = logging.getLogger(__name__)
@@ -314,3 +316,227 @@ def validate_period_for_mutation(
             "message": f"El mes {year_month} está cerrado. No se pueden modificar transacciones.",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Rollover / open_month logic  (exp-month-open-rollover)
+# ---------------------------------------------------------------------------
+
+def _prev_year_month(year_month: str) -> str:
+    """Return the previous 'YYYY-MM' string (e.g. '2025-04' -> '2025-03')."""
+    dt = datetime.strptime(year_month, "%Y-%m")
+    if dt.month == 1:
+        return f"{dt.year - 1}-12"
+    return f"{dt.year}-{dt.month - 1:02d}"
+
+
+def _ensure_saldo_anterior_category(db: Session) -> int:
+    """Return the id of the 'Saldo Anterior' category, creating it if missing."""
+    cat = db.query(Category).filter(Category.name == "Saldo Anterior").first()
+    if not cat:
+        cat = Category(name="Saldo Anterior")
+        db.add(cat)
+        db.flush()
+    return cat.id
+
+
+def calculate_month_balance(year_month: str, user_id: int, db: Session) -> Dict[str, Any]:
+    """Calculate net balance of a CLOSED period from its latest snapshot."""
+    _validate_year_month(year_month)
+    period = db.query(MonthlyPeriod).filter(
+        MonthlyPeriod.year_month == year_month,
+        MonthlyPeriod.user_id == user_id,
+    ).first()
+
+    if not period or period.status != MonthPeriodStatus.CLOSED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "PRIOR_MONTH_NOT_CLOSED",
+                "message": f"El mes anterior {year_month} no está cerrado. Ciérralo antes de abrir el nuevo.",
+            },
+        )
+
+    snapshot = (
+        db.query(MonthlyPeriodSnapshot)
+        .filter(MonthlyPeriodSnapshot.monthly_period_id == period.id)
+        .order_by(MonthlyPeriodSnapshot.snapshot_at.desc())
+        .first()
+    )
+    if not snapshot:
+        return {"total_income": 0.0, "total_expenses": 0.0, "net_balance": 0.0}
+
+    return {
+        "total_income": snapshot.total_income,
+        "total_expenses": snapshot.total_expenses,
+        "net_balance": snapshot.net_balance,
+    }
+
+
+def create_carryover_transaction(
+    target_month: str,
+    source_month: str,
+    balance_amount: float,
+    user_id: int,
+    db: Session,
+) -> Transaction:
+    """Create a CARRYOVER transaction in target_month representing prior month net balance."""
+    from database.database import NecessityType, AssignmentStatus  # local import to avoid circular
+
+    category_id = _ensure_saldo_anterior_category(db)
+    year, month = target_month.split("-")
+    txn_date = f"{year}-{month}-01"
+
+    txn = Transaction(
+        user_id=user_id,
+        date=txn_date,
+        type=TransactionType.INGRESO if balance_amount >= 0 else TransactionType.GASTO,
+        category_id=category_id,
+        amount=abs(balance_amount),
+        necessity=NecessityType.NECESARIO,
+        payment_method="Carryover",
+        detail=f"Saldo trasladado de {source_month}",
+        origin="CARRYOVER",
+        source_month=source_month,
+        assignment_status=AssignmentStatus.ASIGNADA_AUTOMATICA,
+    )
+    db.add(txn)
+    db.flush()
+    return txn
+
+
+def clone_budget_items(source_month: str, target_month: str, user_id: int, db: Session) -> list:
+    """Clone all budget items from source_month into target_month with traceability."""
+    src_year, src_month_str = source_month.split("-")
+
+    source_items = db.query(BudgetItem).filter(
+        BudgetItem.user_id == user_id,
+        BudgetItem.fecha.like(f"{src_year}-{src_month_str}%"),
+    ).all()
+
+    tgt_year, tgt_month_str = target_month.split("-")
+    cloned = []
+    for item in source_items:
+        new_fecha = item.fecha.replace(f"{src_year}-{src_month_str}", f"{tgt_year}-{tgt_month_str}", 1)
+        new_fecha_vto = item.fecha_vencimiento.replace(
+            f"{src_year}-{src_month_str}", f"{tgt_year}-{tgt_month_str}", 1
+        ) if item.fecha_vencimiento else new_fecha
+
+        new_item = BudgetItem(
+            user_id=user_id,
+            fecha=new_fecha,
+            tipo=item.tipo,
+            categoria=item.categoria,
+            monto_total=item.monto_total,
+            monto_pagado=0.0,
+            detalle=item.detalle,
+            fecha_vencimiento=new_fecha_vto,
+            status=DebtStatus.PENDIENTE,
+            tipo_presupuesto=item.tipo_presupuesto,
+            tipo_flujo=item.tipo_flujo,
+            monto_ejecutado=0.0,
+            estimated_payment=item.estimated_payment,
+            cloned_from_item_id=item.id,
+            base_cloned=item.monto_total,
+            version_source_month=source_month,
+        )
+        db.add(new_item)
+        cloned.append(new_item)
+
+    db.flush()
+    return cloned
+
+
+def open_month(
+    year_month: str,
+    user_id: int,
+    username: str,
+    db: Session,
+    skip_carryover: bool = False,
+    skip_clone: bool = False,
+) -> Dict[str, Any]:
+    """Open a monthly period, optionally creating carryover transaction and cloned budget items."""
+    _validate_year_month(year_month)
+
+    existing = db.query(MonthlyPeriod).filter(
+        MonthlyPeriod.year_month == year_month,
+        MonthlyPeriod.user_id == user_id,
+    ).first()
+    if existing and existing.status in (MonthPeriodStatus.OPEN, MonthPeriodStatus.REOPENED):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "MONTH_ALREADY_OPEN", "message": f"El mes {year_month} ya está abierto."},
+        )
+
+    prior_month = _prev_year_month(year_month)
+    prior_period = db.query(MonthlyPeriod).filter(
+        MonthlyPeriod.year_month == prior_month,
+        MonthlyPeriod.user_id == user_id,
+    ).first()
+
+    carryover_info: Optional[Dict[str, Any]] = None
+    cloned_count = 0
+
+    if prior_period and not skip_carryover:
+        balance = calculate_month_balance(prior_month, user_id, db)
+        txn = create_carryover_transaction(
+            target_month=year_month,
+            source_month=prior_month,
+            balance_amount=balance["net_balance"],
+            user_id=user_id,
+            db=db,
+        )
+        carryover_info = {
+            "source_month": prior_month,
+            "net_balance": balance["net_balance"],
+            "total_income": balance["total_income"],
+            "total_expenses": balance["total_expenses"],
+            "transaction_id": txn.id,
+        }
+
+    if prior_period and not skip_clone:
+        cloned = clone_budget_items(prior_month, year_month, user_id, db)
+        cloned_count = len(cloned)
+
+    period = existing or MonthlyPeriod(
+        year_month=year_month,
+        user_id=user_id,
+        status=MonthPeriodStatus.OPEN,
+    )
+    if not existing:
+        db.add(period)
+    else:
+        period.status = MonthPeriodStatus.OPEN
+    period.updated_at = datetime.utcnow()
+    db.flush()
+
+    if carryover_info:
+        mb = MonthlyBalance(
+            user_id=user_id,
+            source_month=prior_month,
+            target_month=year_month,
+            balance_amount=carryover_info["net_balance"],
+            balance_type="NET",
+            carryover_date=datetime.utcnow(),
+            transaction_id=carryover_info["transaction_id"],
+        )
+        db.add(mb)
+
+    _log_period_event(db, period, user_id, username, MonthPeriodEventType.OPEN)
+    db.commit()
+    db.refresh(period)
+
+    log_event(
+        db,
+        action="MONTH_OPENED",
+        user_id=user_id,
+        username=username,
+        entity="monthly_period",
+        entity_id=period.id,
+        details=f"Mes {year_month} abierto. Carryover: {carryover_info}. Ítems clonados: {cloned_count}",
+    )
+
+    result = _period_to_dict(period)
+    result["carryover"] = carryover_info
+    result["cloned_items_count"] = cloned_count
+    return result
