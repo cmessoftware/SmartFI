@@ -1,5 +1,25 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { toISODate } from '../utils/dateUtils';
+
+const getCategoryOption = (category) => {
+  if (category == null) return null;
+
+  if (typeof category === 'string') {
+    const value = category.trim();
+    if (!value) return null;
+    return { value, label: value };
+  }
+
+  if (typeof category === 'object') {
+    const raw = category.name ?? category.label ?? category.value ?? category.categoria ?? category.id;
+    const value = raw != null ? String(raw).trim() : '';
+    if (!value) return null;
+    return { value, label: value };
+  }
+
+  const value = String(category).trim();
+  return value ? { value, label: value } : null;
+};
 
 function EditDebtModal({ debt, onSave, onClose, categories }) {
   // Opciones de Tipo según Tipo de Flujo
@@ -38,9 +58,37 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
     fecha_vencimiento: '',
     tipo_presupuesto: 'OBLIGATION',
     tipo_flujo: 'Gasto',
+    expense_type: 'VARIABLE',
     monto_ejecutado: '0',
     estimated_payment: ''
   });
+
+  const categoryOptions = useMemo(() => {
+    const map = new Map();
+    if (Array.isArray(categories)) {
+      for (const category of categories) {
+        const option = getCategoryOption(category);
+        if (!option) continue;
+        const key = option.value.toLowerCase();
+        if (!map.has(key)) {
+          map.set(key, option);
+        }
+      }
+    }
+
+    if (debt?.categoria) {
+      const current = getCategoryOption(debt.categoria);
+      if (current) {
+        map.set(current.value.toLowerCase(), current);
+      }
+    }
+
+    if (!map.size) {
+      map.set('otro', { value: 'Otro', label: 'Otro' });
+    }
+
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, 'es', { sensitivity: 'base' }));
+  }, [categories, debt]);
 
   useEffect(() => {
     if (debt) {
@@ -53,6 +101,7 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
         fecha_vencimiento: toISODate(debt.fecha_vencimiento) || '',
         tipo_presupuesto: debt.tipo_presupuesto || 'OBLIGATION',
         tipo_flujo: debt.tipo_flujo || 'Gasto',
+        expense_type: debt.expense_type || 'VARIABLE',
         monto_ejecutado: (debt.monto_ejecutado || debt.monto_pagado || 0).toString(),
         estimated_payment: (debt.estimated_payment != null ? debt.estimated_payment : debt.monto_total).toString()
       });
@@ -158,6 +207,22 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
             {/* Categoría */}
             <div>
               <label className="block text-sm font-medium text-finly-text mb-2">
+                Recurrencia *
+              </label>
+              <select
+                name="expense_type"
+                value={formData.expense_type}
+                onChange={handleChange}
+                required
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
+              >
+                <option value="FIJO">🟣 Fijo</option>
+                <option value="VARIABLE">🔵 Variable</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">
                 Categoría *
               </label>
               <select
@@ -167,20 +232,9 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
                 required
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
               >
-                {categories && categories.length > 0 ? (
-                  categories.map(cat => (
-                    <option key={cat.id || cat} value={cat.name || cat}>{cat.name || cat}</option>
-                  ))
-                ) : (
-                  <>
-                    <option value="Personal">Personal</option>
-                    <option value="Vivienda">Vivienda</option>
-                    <option value="Transporte">Transporte</option>
-                    <option value="Educación">Educación</option>
-                    <option value="Salud">Salud</option>
-                    <option value="Otro">Otro</option>
-                  </>
-                )}
+                {categoryOptions.map(cat => (
+                  <option key={cat.value} value={cat.value}>{cat.label}</option>
+                ))}
               </select>
             </div>
 
