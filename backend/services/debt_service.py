@@ -1,6 +1,6 @@
 from database.database import (
     SessionLocal, BudgetItem, Debt, DebtStatus, Transaction,
-    TransactionType, BudgetType, FlowType,
+    TransactionType, BudgetType, FlowType, ExpenseType,
     InstallmentPlan, InstallmentScheduleItem, InstallmentStatus
 )
 from datetime import datetime
@@ -106,10 +106,12 @@ class DebtService:
             # Nuevos campos refactor
             tipo_presupuesto_str = debt_data.get('tipo_presupuesto', 'OBLIGATION')
             tipo_flujo_str = debt_data.get('tipo_flujo', 'Gasto')
+            expense_type_str = str(debt_data.get('expense_type', 'VARIABLE')).upper()
             
             # Convertir strings a enums
             tipo_presupuesto = BudgetType.OBLIGATION if tipo_presupuesto_str == 'OBLIGATION' else BudgetType.VARIABLE
             tipo_flujo = FlowType.GASTO if tipo_flujo_str == 'Gasto' else FlowType.INGRESO
+            expense_type = ExpenseType.FIJO if expense_type_str == 'FIJO' else ExpenseType.VARIABLE
             
             # monto_ejecutado: inicializar con monto_pagado para compatibilidad
             monto_ejecutado = monto_pagado
@@ -143,6 +145,7 @@ class DebtService:
                 status=status,
                 tipo_presupuesto=tipo_presupuesto,
                 tipo_flujo=tipo_flujo,
+                expense_type=expense_type,
                 monto_ejecutado=monto_ejecutado,
                 estimated_payment=estimated_payment_val,
                 user_id=user_id
@@ -187,6 +190,7 @@ class DebtService:
                     # Budget Model fields
                     'tipo_presupuesto': budget_item.tipo_presupuesto.value if hasattr(budget_item.tipo_presupuesto, 'value') else budget_item.tipo_presupuesto,
                     'tipo_flujo': budget_item.tipo_flujo.value if hasattr(budget_item.tipo_flujo, 'value') else budget_item.tipo_flujo,
+                    'expense_type': budget_item.expense_type.value if hasattr(budget_item.expense_type, 'value') else budget_item.expense_type,
                     'monto_ejecutado': budget_item.monto_ejecutado,
                     'estimated_payment': budget_item.estimated_payment if budget_item.estimated_payment is not None else budget_item.monto_total,
                     'cloned_from_item_id': budget_item.cloned_from_item_id,
@@ -240,6 +244,7 @@ class DebtService:
                 # Nuevos campos refactor
                 'tipo_presupuesto': budget_item.tipo_presupuesto.value if hasattr(budget_item.tipo_presupuesto, 'value') else budget_item.tipo_presupuesto,
                 'tipo_flujo': budget_item.tipo_flujo.value if hasattr(budget_item.tipo_flujo, 'value') else budget_item.tipo_flujo,
+                'expense_type': budget_item.expense_type.value if hasattr(budget_item.expense_type, 'value') else budget_item.expense_type,
                 'monto_ejecutado': budget_item.monto_ejecutado,
                 'estimated_payment': budget_item.estimated_payment if budget_item.estimated_payment is not None else budget_item.monto_total,
                 'cloned_from_item_id': budget_item.cloned_from_item_id,
@@ -291,6 +296,9 @@ class DebtService:
             if 'tipo_flujo' in debt_data:
                 tipo_flujo_str = debt_data['tipo_flujo']
                 debt.tipo_flujo = FlowType.GASTO if tipo_flujo_str == 'Gasto' else FlowType.INGRESO
+            if 'expense_type' in debt_data:
+                expense_type_str = str(debt_data['expense_type']).upper()
+                debt.expense_type = ExpenseType.FIJO if expense_type_str == 'FIJO' else ExpenseType.VARIABLE
             if 'monto_ejecutado' in debt_data:
                 debt.monto_ejecutado = float(debt_data['monto_ejecutado'])
             if 'estimated_payment' in debt_data:
