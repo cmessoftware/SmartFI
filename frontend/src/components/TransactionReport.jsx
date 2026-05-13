@@ -120,6 +120,19 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
     return uniqueCategories.sort();
   }, [transactions]);
 
+  const dedupeDebtsByVisibleLabel = useMemo(() => {
+    const byLabel = new Map();
+    for (const debt of debts) {
+      if (!debt || debt.id == null) continue;
+      const recurrence = debt.expense_type || 'VARIABLE';
+      const label = `${debt.detalle || 'Sin detalle'} - ${recurrence} - $${Number(debt.monto_total || 0).toLocaleString('es-AR')}`;
+      if (!byLabel.has(label)) {
+        byLabel.set(label, debt);
+      }
+    }
+    return Array.from(byLabel.values());
+  }, [debts]);
+
   // Aplicar filtros y ordenamiento
   const filteredAndSortedTransactions = useMemo(() => {
     let filtered = [...transactions];
@@ -862,11 +875,11 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
                 <option value="all">Todas</option>
                 <option value="vinculado">📊 Vinculadas</option>
                 <option value="no_vinculado">⭕ No vinculadas</option>
-                {debts.length > 0 && (
+                {dedupeDebtsByVisibleLabel.length > 0 && (
                   <optgroup label="Por Presupuesto">
-                    {debts.map(debt => (
+                    {dedupeDebtsByVisibleLabel.map(debt => (
                       <option key={debt.id} value={debt.id}>
-                        {debt.detalle} - ${debt.monto_total.toLocaleString('es-AR')}
+                        {debt.detalle || 'Sin detalle'} - {debt.expense_type || 'VARIABLE'} - ${Number(debt.monto_total || 0).toLocaleString('es-AR')}
                       </option>
                     ))}
                   </optgroup>

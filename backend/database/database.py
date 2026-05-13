@@ -40,6 +40,10 @@ class FlowType(str, enum.Enum):
     GASTO = "Gasto"
     INGRESO = "Ingreso"
 
+class ExpenseType(str, enum.Enum):
+    FIJO = "FIJO"
+    VARIABLE = "VARIABLE"
+
 class AssignmentStatus(str, enum.Enum):
     ASIGNADA_MANUAL = "ASIGNADA_MANUAL"
     ASIGNADA_AUTOMATICA = "ASIGNADA_AUTOMATICA"
@@ -117,6 +121,11 @@ class BudgetItem(Base):
     # Budget Model columns
     tipo_presupuesto = Column(SQLEnum(BudgetType, values_callable=lambda x: [e.value for e in x]), default=BudgetType.OBLIGATION, nullable=False)
     tipo_flujo = Column(SQLEnum(FlowType, values_callable=lambda x: [e.value for e in x]), default=FlowType.GASTO, nullable=False)
+    expense_type = Column(
+        SQLEnum(ExpenseType, values_callable=lambda x: [e.value for e in x], name='expensetype'),
+        default=ExpenseType.VARIABLE,
+        nullable=False
+    )
     monto_ejecutado = Column(Float, default=0.0, nullable=False)
     estimated_payment = Column(Float, nullable=True)  # monto_a_pagar: defaults to monto_total (100%)
     
