@@ -19,7 +19,7 @@
       "id": "CC-FEAT-001",
       "type": "feature",
       "priority": "alta",
-      "status": "todo",
+      "status": "done",
       "title": "Registro de gastos del periodo actual",
       "scope": ["backend", "frontend"],
       "acceptance_criteria": [
@@ -32,7 +32,7 @@
       "id": "CC-FEAT-002",
       "type": "feature",
       "priority": "alta",
-      "status": "todo",
+      "status": "verify",
       "title": "Registrar monto total como item de presupuesto del mes siguiente al cierre",
       "scope": ["backend", "frontend"],
       "acceptance_criteria": [
@@ -45,7 +45,7 @@
       "id": "CC-FEAT-003",
       "type": "feature",
       "priority": "alta",
-      "status": "todo",
+      "status": "done",
       "title": "Calculo de cuotas futuras para compras en cuotas",
       "scope": ["backend"],
       "acceptance_criteria": [
@@ -58,7 +58,7 @@
       "id": "CC-FEAT-004",
       "type": "feature",
       "priority": "media",
-      "status": "todo",
+      "status": "done",
       "title": "Calculo de montos en ARS para compras en USD",
       "scope": ["backend"],
       "acceptance_criteria": [
@@ -71,7 +71,7 @@
       "id": "CC-FEAT-007",
       "type": "feature",
       "priority": "media",
-      "status": "todo",
+      "status": "verify",
       "title": "Crear opcion para registrar gasto de nuevo periodo",
       "scope": ["frontend"],
       "acceptance_criteria": [
@@ -84,7 +84,7 @@
       "id": "CC-FEAT-009",
       "type": "feature",
       "priority": "baja",
-      "status": "todo",
+      "status": "done",
       "title": "Paginar la vista de compras del periodo a 5 lineas",
       "scope": ["frontend"],
       "acceptance_criteria": [
@@ -97,7 +97,7 @@
       "id": "CC-FEAT-012",
       "type": "feature",
       "priority": "alta",
-      "status": "todo",
+      "status": "done",
       "title": "Validar pagos con fechas fuera del periodo",
       "scope": ["backend", "frontend"],
       "acceptance_criteria": [
