@@ -1,8 +1,50 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { debtsAPI, transactionsAPI } from '../services/api';
 import { useToast } from './ToastContainer';
 
-export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
+const getInitialDate = (yearMonth) => {
+  if (typeof yearMonth === 'string' && /^\d{4}-\d{2}$/.test(yearMonth)) {
+    return `${yearMonth}-01`;
+  }
+  return new Date().toISOString().split('T')[0];
+};
+
+const buildInitialFormData = (yearMonth) => ({
+  fecha: getInitialDate(yearMonth),
+  tipo: 'Servicios',
+  categoria: 'Personal',
+  monto_total: '',
+  monto_pagado: '0',
+  detalle: '',
+  fecha_vencimiento: '',
+  tipo_presupuesto: 'OBLIGATION',
+  tipo_flujo: 'Gasto',
+  expense_type: 'VARIABLE',
+  monto_ejecutado: '0',
+  estimated_payment: ''
+});
+
+const getCategoryOption = (category) => {
+  if (category == null) return null;
+
+  if (typeof category === 'string') {
+    const value = category.trim();
+    if (!value) return null;
+    return { value, label: value };
+  }
+
+  if (typeof category === 'object') {
+    const raw = category.name ?? category.label ?? category.value ?? category.categoria ?? category.id;
+    const value = raw != null ? String(raw).trim() : '';
+    if (!value) return null;
+    return { value, label: value };
+  }
+
+  const value = String(category).trim();
+  return value ? { value, label: value } : null;
+};
+
+export default function NewDebtModal({ isOpen, onClose, onSuccess, yearMonth }) {
   const toast = useToast();
   
   // Opciones de Tipo según Tipo de Flujo
@@ -31,28 +73,33 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
     'Otro'
   ];
   
-  const [formData, setFormData] = useState({
-    fecha: new Date().toISOString().split('T')[0],
-    tipo: 'Servicios',
-    categoria: 'Personal',
-    monto_total: '',
-    monto_pagado: '0',
-    detalle: '',
-    fecha_vencimiento: '',
-    tipo_presupuesto: 'OBLIGATION',
-    tipo_flujo: 'Gasto',
-    monto_ejecutado: '0',
-    estimated_payment: ''
-  });
+  const [formData, setFormData] = useState(() => buildInitialFormData(yearMonth));
 
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
+      setFormData(buildInitialFormData(yearMonth));
       loadCategories();
     }
-  }, [isOpen]);
+  }, [isOpen, yearMonth]);
+
+  const categoryOptions = useMemo(() => {
+    const map = new Map();
+    for (const category of categories) {
+      const option = getCategoryOption(category);
+      if (!option) continue;
+      const key = option.value.toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, option);
+      }
+    }
+    if (!map.size) {
+      map.set('otro', { value: 'Otro', label: 'Otro' });
+    }
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, 'es', { sensitivity: 'base' }));
+  }, [categories]);
 
   const loadCategories = async () => {
     try {
@@ -104,19 +151,7 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
       toast.success('Item de presupuesto creado correctamente');
       
       // Reset form
-      setFormData({
-        fecha: new Date().toISOString().split('T')[0],
-        tipo: 'Servicios',
-        categoria: 'Personal',
-        monto_total: '',
-        monto_pagado: '0',
-        detalle: '',
-        fecha_vencimiento: '',
-        tipo_presupuesto: 'OBLIGATION',
-        tipo_flujo: 'Gasto',
-        monto_ejecutado: '0',
-        estimated_payment: ''
-      });
+      setFormData(buildInitialFormData(yearMonth));
       
       onSuccess();
       onClose();
@@ -130,19 +165,7 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
 
   const handleClose = () => {
     if (loading) return;
-    setFormData({
-      fecha: new Date().toISOString().split('T')[0],
-      tipo: 'Servicios',
-      categoria: 'Personal',
-      monto_total: '',
-      monto_pagado: '0',
-      detalle: '',
-      fecha_vencimiento: '',
-      tipo_presupuesto: 'OBLIGATION',
-      tipo_flujo: 'Gasto',
-      monto_ejecutado: '0',
-      estimated_payment: ''
-    });
+    setFormData(buildInitialFormData(yearMonth));
     onClose();
   };
 
@@ -236,6 +259,22 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
 
             <div>
               <label className="block text-sm font-medium text-finly-text mb-2">
+                Recurrencia *
+              </label>
+              <select
+                name="expense_type"
+                value={formData.expense_type}
+                onChange={handleChange}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
+                required
+              >
+                <option value="FIJO">Fijo</option>
+                <option value="VARIABLE">Variable</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">
                 Categoría *
               </label>
               <select
@@ -245,13 +284,9 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess }) {
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
                 required
               >
-                {categories.length > 0 ? (
-                  categories.map((category) => (
-                    <option key={category.id || category} value={category.name || category}>{category.name || category}</option>
-                  ))
-                ) : (
-                  <option value="Otro">Otro</option>
-                )}
+                {categoryOptions.map((category) => (
+                  <option key={category.value} value={category.value}>{category.label}</option>
+                ))}
               </select>
             </div>
 

@@ -118,6 +118,7 @@ class Debt(BaseModel):
     # Nuevos campos - Fase A Refactor
     tipo_presupuesto: Optional[str] = "OBLIGATION"
     tipo_flujo: Optional[str] = "Gasto"
+    expense_type: Optional[str] = "VARIABLE"
     monto_ejecutado: Optional[float] = 0.0
     estimated_payment: Optional[float] = None
 
@@ -925,6 +926,7 @@ async def clone_month_debts(
                         'status': 'PENDIENTE',
                         'tipo_presupuesto': debt.tipo_presupuesto.value if hasattr(debt.tipo_presupuesto, 'value') else debt.tipo_presupuesto,
                         'tipo_flujo': debt.tipo_flujo.value if hasattr(debt.tipo_flujo, 'value') else debt.tipo_flujo,
+                        'expense_type': debt.expense_type.value if hasattr(debt.expense_type, 'value') else debt.expense_type,
                         'monto_ejecutado': 0.0,
                         'estimated_payment': debt.estimated_payment if debt.estimated_payment is not None else debt.monto_total
                     }
