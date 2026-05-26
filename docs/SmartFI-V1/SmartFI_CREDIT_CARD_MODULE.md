@@ -74,8 +74,9 @@ Modelo de ticket
 | CC-BUG-026 | Alta | ⏳ Todo | Editar fecha de gasto no mueve de periodo; debe validar y mover con confirmacion |
 | CC-BUG-027 | Alta | ✅ Done | Gasto en cuotas propagaba hasta diciembre copiando todos los gastos del periodo |
 | CC-BUG-028 | Baja | ⏳ Todo | UX: Al cambiar fecha de item en cuotas no se actualiza el panel de Cronograma de Cuotas |
+| CC-BUG-029 | Alta | ✅ Done | Nueva Compra muestra opción visible de extracción en efectivo, con comisión obligatoria y 1 cuota (Issue Gitea #133) |
 
-**Resumen:** 28 bugs, 25 resueltos (89%), 3 pendientes (11%)
+**Resumen:** 29 bugs, 26 resueltos (90%), 3 pendientes (10%)
 
 ## OpenSpec Changes
 
@@ -87,6 +88,7 @@ Modelo de ticket
 | `cc-ux-improvements` | Mejoras de usabilidad (paginación, orden, agrupado, tooltip) | CC-FEAT-009, CC-FEAT-014, CC-FEAT-015, CC-FEAT-016, CC-FEAT-020, CC-FEAT-021 | 📋 Backlog |
 | `cc-period-budget-registration` | Registro automático del total del período en presupuesto | CC-FEAT-002, CC-FEAT-007 | 📋 Backlog |
 | `credit-card-usd-billing-date` | Compras USD con `billing_date` correcto al período siguiente | CC-FEAT-004, CC-FEAT-022 | ✅ Done |
+| `cc-bug-029-cash-advance-visibility` | Corrección UX para visibilidad de extracción en Nueva Compra | CC-BUG-029 | ✅ Done |
 | `cc-next-statement-estimation` | Proyección automática de pagos al período siguiente | CC-FEAT-023 | 📋 Backlog |
 | `cc-period-close` | Cierre de período con lifecycle OPEN/CLOSED/REOPENED y snapshot | — | 📋 Backlog |
 | `cc-period-open-rollover` | Apertura de período con carryover de saldo pendiente | — | 📋 Backlog |

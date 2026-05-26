@@ -43,6 +43,7 @@ services:
       # Google Sheets (optional)
       GOOGLE_SHEET_ID: ${GOOGLE_SHEET_ID:-}
       GOOGLE_CREDENTIALS_FILE: ${GOOGLE_CREDENTIALS_FILE:-credentials.json}
+      GOOGLE_CREDENTIALS_JSON: ${GOOGLE_CREDENTIALS_JSON:-}
       
       # CORS
       FRONTEND_URL: http://localhost:3000
@@ -53,9 +54,6 @@ services:
         condition: service_healthy
     networks:
       - finly-network
-    volumes:
-      # Mount credentials if exists
-      - ./backend/credentials.json:/app/credentials.json:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/api/health')"]
       interval: 30s
@@ -80,7 +78,7 @@ services:
     networks:
       - finly-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/"]
       interval: 30s
       timeout: 10s
       retries: 3
