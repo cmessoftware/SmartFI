@@ -301,6 +301,9 @@ class CreditCardPurchase(Base):
     amount_in_pesos = Column(Float, nullable=True)  # Total in ARS (for USD: total_amount * exchange_rate)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    movement_type = Column(String(30), nullable=False, default="normal")
+    cash_advance_fee = Column(Float, nullable=False, default=0.0)
+    derived_debt_id = Column(Integer, ForeignKey('budget_items.id', ondelete='SET NULL'), nullable=True)
 
 class InstallmentPlan(Base):
     __tablename__ = "installment_plans"

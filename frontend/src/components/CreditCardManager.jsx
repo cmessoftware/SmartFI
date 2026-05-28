@@ -107,11 +107,17 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
     setPurchaseModalOpen(true);
   };
 
-  const handlePurchaseSuccess = () => {
-    loadCards();
+  const handlePurchaseSuccess = async () => {
+    await loadCards();
     if (selectedCard?.id) {
-      loadCardSummary(selectedCard.id);
-      loadCardPurchases(selectedCard.id);
+      await loadCardSummary(selectedCard.id);
+      await loadCardPurchases(selectedCard.id);
+      if (periodYear && periodMonth) {
+        await loadPeriodData(selectedCard.id, periodYear, periodMonth);
+      }
+    }
+    if (refreshTransactions) {
+      await refreshTransactions(false);
     }
   };
 

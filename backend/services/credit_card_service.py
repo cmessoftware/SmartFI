@@ -2,8 +2,8 @@ from database.database import (
     SessionLocal, 
     CreditCard, CreditCardPurchase, InstallmentPlan, InstallmentScheduleItem,
     CreditCardStatement, CreditCardPayment,
-    BudgetItem, DebtStatus, BudgetType, FlowType,
-    Transaction, TransactionType, Category,
+    BudgetItem, DebtStatus, BudgetType, FlowType, ExpenseType,
+    Transaction, TransactionType, Category, NecessityType, AssignmentStatus,
     InstallmentStatus, StatementStatus, InstallmentPlanType,
     AppSetting, CreditCardPeriodConfig
 )
@@ -21,6 +21,147 @@ class CreditCardService:
         if currency == 'USD':
             return purchase_date + relativedelta(months=1)
         return purchase_date
+
+    def _calculate_cash_advance_due_date(self, purchase_date: date, due_day: int) -> date:
+        """Cash advance derived debt is due in the next card period."""
+        from calendar import monthrange
+
+        due_base = purchase_date + relativedelta(months=1)
+        last_day = monthrange(due_base.year, due_base.month)[1]
+        safe_day = min(max(int(due_day or due_base.day), 1), last_day)
+        return date(due_base.year, due_base.month, safe_day)
+
+    def _calculate_cash_advance_fee_amount(self, purchase: CreditCardPurchase) -> float:
+        """Calculate fee amount in ARS from stored percentage in cash_advance_fee."""
+        base_amount_ars = self._get_purchase_amount_in_ars(purchase)
+        fee_percent = float(purchase.cash_advance_fee or 0.0)
+        return round(float(base_amount_ars) * fee_percent / 100.0, 2)
+
+    def _upsert_cash_advance_debt(self, purchase: CreditCardPurchase, card: CreditCard, fee_amount: float):
+        """Create or update the derived BudgetItem for a cash advance purchase."""
+        due_date = self._calculate_cash_advance_due_date(purchase.purchase_date, card.due_day)
+        detalle = f"Extraccion {card.card_name}"
+
+        debt = None
+        if purchase.derived_debt_id:
+            debt = self.db.query(BudgetItem).filter(BudgetItem.id == purchase.derived_debt_id).first()
+
+        if not debt:
+            debt = BudgetItem(
+                fecha=purchase.purchase_date.isoformat(),
+                tipo="Tarjeta de Credito",
+                categoria="Tarjeta de Credito",
+                monto_total=round(float(fee_amount), 2),
+                monto_pagado=0.0,
+                detalle=detalle,
+                fecha_vencimiento=due_date.isoformat(),
+                status=DebtStatus.PENDIENTE,
+                tipo_presupuesto=BudgetType.OBLIGATION,
+                tipo_flujo=FlowType.GASTO,
+                expense_type=ExpenseType.VARIABLE,
+                monto_ejecutado=0.0,
+                estimated_payment=round(float(fee_amount), 2),
+                user_id=card.user_id,
+            )
+            self.db.add(debt)
+            self.db.flush()
+            purchase.derived_debt_id = debt.id
+        else:
+            debt.fecha = purchase.purchase_date.isoformat()
+            debt.tipo = "Tarjeta de Credito"
+            debt.categoria = "Tarjeta de Credito"
+            debt.detalle = detalle
+            debt.monto_total = round(float(fee_amount), 2)
+            debt.estimated_payment = round(float(fee_amount), 2)
+            debt.fecha_vencimiento = due_date.isoformat()
+            debt.tipo_presupuesto = BudgetType.OBLIGATION
+            debt.tipo_flujo = FlowType.GASTO
+            debt.expense_type = ExpenseType.VARIABLE
+            debt.user_id = card.user_id
+            if (debt.monto_pagado or 0) <= 0:
+                debt.monto_pagado = 0.0
+                debt.monto_ejecutado = 0.0
+                debt.status = DebtStatus.PENDIENTE
+            elif (debt.monto_pagado or 0) >= debt.monto_total:
+                debt.status = DebtStatus.PAGADA
+                debt.monto_ejecutado = debt.monto_pagado
+            else:
+                debt.status = DebtStatus.PAGO_PARCIAL
+                debt.monto_ejecutado = debt.monto_pagado
+            debt.updated_at = datetime.utcnow()
+
+    def _resolve_cash_advance_category_id(self) -> int:
+        """Get or create a category suitable for credit-card cash advances."""
+        category = self.db.query(Category).filter(
+            Category.name.in_(['Tarjeta de Credito', 'Tarjeta de Crédito'])
+        ).first()
+        if category:
+            return category.id
+
+        category = Category(name='Tarjeta de Credito')
+        self.db.add(category)
+        self.db.flush()
+        return category.id
+
+    def _upsert_cash_advance_transaction(self, purchase: CreditCardPurchase, card: CreditCard):
+        """Create or update the transaction mirror so cash advance is visible in Gastos."""
+        amount_ars = self._get_purchase_amount_in_ars(purchase)
+        fee_amount = self._calculate_cash_advance_fee_amount(purchase)
+        total_amount = round(float(amount_ars) + float(fee_amount), 2)
+        category_id = self._resolve_cash_advance_category_id()
+        detail = (
+            f"Extraccion en efectivo - {purchase.description} "
+            f"(Comision {float(purchase.cash_advance_fee or 0):.2f}% = ${fee_amount:,.2f})"
+        )
+
+        tx = None
+        if purchase.transaction_id:
+            tx = self.db.query(Transaction).filter(Transaction.id == purchase.transaction_id).first()
+
+        if tx and tx.origin != 'CC_CASH_ADVANCE':
+            tx = None
+
+        if not tx:
+            tx = Transaction(
+                user_id=card.user_id,
+                date=purchase.purchase_date.isoformat(),
+                type=TransactionType.GASTO,
+                category_id=category_id,
+                amount=total_amount,
+                necessity=NecessityType.NECESARIO,
+                payment_method='Tarjeta de Credito',
+                detail=detail,
+                budget_item_id=None,
+                assignment_status=AssignmentStatus.NO_PLANIFICADA,
+                origin='CC_CASH_ADVANCE',
+            )
+            self.db.add(tx)
+            self.db.flush()
+            purchase.transaction_id = tx.id
+        else:
+            tx.user_id = card.user_id
+            tx.date = purchase.purchase_date.isoformat()
+            tx.type = TransactionType.GASTO
+            tx.category_id = category_id
+            tx.amount = total_amount
+            tx.necessity = NecessityType.NECESARIO
+            tx.payment_method = 'Tarjeta de Credito'
+            tx.detail = detail
+            tx.budget_item_id = None
+            tx.assignment_status = AssignmentStatus.NO_PLANIFICADA
+            tx.origin = 'CC_CASH_ADVANCE'
+            tx.timestamp = datetime.utcnow()
+
+    def _delete_cash_advance_transaction(self, purchase: CreditCardPurchase):
+        """Delete mirrored transaction when cash advance is removed/deleted."""
+        if not purchase.transaction_id:
+            return
+
+        tx = self.db.query(Transaction).filter(Transaction.id == purchase.transaction_id).first()
+        if tx and tx.origin == 'CC_CASH_ADVANCE':
+            self.db.delete(tx)
+
+        purchase.transaction_id = None
     
     def close(self):
         """Close database session"""
@@ -211,6 +352,22 @@ class CreditCardService:
         try:
             installments = purchase_data.get('installments', 1)
             has_financing = installments > 1
+            movement_type = purchase_data.get('movement_type', 'normal')
+            cash_advance_fee = float(purchase_data.get('cash_advance_fee', 0.0) or 0.0)
+
+            card = self.db.query(CreditCard).filter(CreditCard.id == purchase_data['card_id']).first()
+            if not card:
+                raise ValueError(f"Credit card {purchase_data['card_id']} not found")
+
+            if movement_type == 'cash_advance':
+                if installments != 1:
+                    raise ValueError("Cash advance purchases must use a single installment")
+                if cash_advance_fee <= 0:
+                    raise ValueError("Cash advance fee percentage must be greater than zero")
+                if cash_advance_fee > 100:
+                    raise ValueError("Cash advance fee percentage cannot exceed 100")
+            else:
+                cash_advance_fee = 0.0
             
             # Get amount (support both 'amount' and 'total_amount' for backward compatibility)
             amount = purchase_data.get('amount') or purchase_data.get('total_amount')
@@ -231,6 +388,9 @@ class CreditCardService:
                 exchange_rate = float(setting.value) if setting else 1.0
                 amount_in_pesos = amount * exchange_rate
 
+            amount_for_fee_ars = amount_in_pesos if currency == 'USD' else amount
+            fee_amount = round(float(amount_for_fee_ars) * float(cash_advance_fee) / 100.0, 2)
+
             purchase_date = datetime.strptime(purchase_data['purchase_date'], '%Y-%m-%d').date()
             billing_date = self._calculate_billing_date(purchase_date, currency)
             
@@ -247,11 +407,17 @@ class CreditCardService:
                 has_financing=has_financing,
                 currency=currency,
                 exchange_rate=exchange_rate,
-                amount_in_pesos=amount_in_pesos
+                amount_in_pesos=amount_in_pesos,
+                movement_type=movement_type,
+                cash_advance_fee=cash_advance_fee
             )
             
             self.db.add(purchase)
             self.db.flush()
+
+            if movement_type == 'cash_advance':
+                self._upsert_cash_advance_debt(purchase, card, fee_amount)
+                self._upsert_cash_advance_transaction(purchase, card)
             
             # 2. Only create installment plan for multi-cuota purchases
             if installments > 1:
@@ -272,7 +438,7 @@ class CreditCardService:
         """Create installment plan and schedule for a purchase"""
         try:
             installments = purchase_data.get('installments', 1)
-            interest_rate = purchase_data.get('interest_rate', 0.0)
+            interest_rate = float(purchase_data.get('interest_rate', 0.0) or 0.0)
             total_amount = purchase.total_amount
             
             # Calculate installment amounts
@@ -400,6 +566,9 @@ class CreditCardService:
                     'currency': purchase.currency or 'ARS',
                     'exchange_rate': purchase.exchange_rate,
                     'amount_in_pesos': purchase.amount_in_pesos,
+                    'movement_type': purchase.movement_type or 'normal',
+                    'cash_advance_fee': purchase.cash_advance_fee or 0.0,
+                    'derived_debt_id': purchase.derived_debt_id,
                     'created_at': purchase.created_at.isoformat() if purchase.created_at else None
                 })
             
@@ -570,6 +739,30 @@ class CreditCardService:
                 purchase.total_amount = float(purchase_data['amount'])
             if 'installments' in purchase_data:
                 purchase.installments = int(purchase_data['installments'])
+            if 'movement_type' in purchase_data:
+                purchase.movement_type = purchase_data['movement_type']
+            if 'cash_advance_fee' in purchase_data:
+                purchase.cash_advance_fee = float(purchase_data['cash_advance_fee'] or 0.0)
+
+            if purchase.movement_type == 'cash_advance':
+                if purchase.installments != 1:
+                    raise ValueError("Cash advance purchases must use a single installment")
+                if purchase.cash_advance_fee <= 0:
+                    raise ValueError("Cash advance fee percentage must be greater than zero")
+                if purchase.cash_advance_fee > 100:
+                    raise ValueError("Cash advance fee percentage cannot exceed 100")
+                card = self.db.query(CreditCard).filter(CreditCard.id == purchase.card_id).first()
+                if not card:
+                    raise ValueError(f"Credit card {purchase.card_id} not found")
+                fee_amount = self._calculate_cash_advance_fee_amount(purchase)
+                self._upsert_cash_advance_debt(purchase, card, fee_amount)
+                self._upsert_cash_advance_transaction(purchase, card)
+            elif 'movement_type' in purchase_data or 'cash_advance_fee' in purchase_data:
+                if purchase.derived_debt_id:
+                    self.db.query(BudgetItem).filter(BudgetItem.id == purchase.derived_debt_id).delete()
+                    purchase.derived_debt_id = None
+                self._delete_cash_advance_transaction(purchase)
+                purchase.cash_advance_fee = 0.0
             
             # Handle currency (Bug 1 fix)
             if 'currency' in purchase_data:
@@ -600,7 +793,7 @@ class CreditCardService:
                 
                 # Update interest rate if provided
                 if 'interest_rate' in purchase_data:
-                    plan.interest_rate = float(purchase_data['interest_rate'])
+                    plan.interest_rate = float(purchase_data['interest_rate'] or 0.0)
                 interest_rate = plan.interest_rate
                 
                 # Recalculate with interest (interest_rate is annual %)
@@ -720,6 +913,14 @@ class CreditCardService:
                 
                 # Delete plan
                 self.db.delete(plan)
+
+            # Delete derived cash advance debt if linked
+            if purchase.derived_debt_id:
+                self.db.query(BudgetItem).filter(BudgetItem.id == purchase.derived_debt_id).delete()
+                purchase.derived_debt_id = None
+
+            # Delete mirrored cash-advance transaction if linked
+            self._delete_cash_advance_transaction(purchase)
             
             # Delete purchase
             self.db.delete(purchase)

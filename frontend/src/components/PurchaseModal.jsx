@@ -103,11 +103,15 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
 
     const cashAdvanceFee = parseFloat(formData.cash_advance_fee || '0');
     if (!isNaN(cashAdvanceFee) && cashAdvanceFee < 0) {
-      toast.warning('La comisión no puede ser negativa');
+      toast.warning('El porcentaje de comisión no puede ser negativo');
       return;
     }
     if (formData.movement_type === 'cash_advance' && (isNaN(cashAdvanceFee) || cashAdvanceFee <= 0)) {
-      toast.warning('La comisión es obligatoria para extracciones');
+      toast.warning('El porcentaje de comisión es obligatorio para extracciones');
+      return;
+    }
+    if (formData.movement_type === 'cash_advance' && cashAdvanceFee > 100) {
+      toast.warning('El porcentaje de comisión no puede superar 100%');
       return;
     }
     if (formData.movement_type === 'cash_advance' && installments > 1) {
@@ -148,7 +152,7 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
       }
       
       setFormData(getDefaultFormData());
-      onSuccess();
+      await Promise.resolve(onSuccess?.());
       onClose();
     } catch (error) {
       toast.error(isEditMode ? 'Error al actualizar compra' : 'Error al registrar compra');
@@ -193,6 +197,12 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
   const monthlyPayment = calculateMonthlyPayment();
   const totalWithInterest = getTotalWithInterest();
   const isCashAdvance = formData.movement_type === 'cash_advance';
+  const amountValue = parseFloat(formData.amount || '0');
+  const feePercentValue = parseFloat(formData.cash_advance_fee || '0');
+  const feeAmountValue = isCashAdvance && amountValue > 0 && feePercentValue > 0
+    ? (amountValue * feePercentValue) / 100
+    : 0;
+  const totalExpenseValue = amountValue + feeAmountValue;
 
   if (!isOpen || (!card && !purchase)) return null;
 
@@ -313,7 +323,7 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
             {isCashAdvance && (
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Comisión de extracción *
+                  Comisión de extracción (%) *
                 </label>
                 <input
                   type="number"
@@ -322,13 +332,20 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
                   onChange={handleChange}
                   step="0.01"
                   min="0"
+                  max="100"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent"
-                  placeholder="0.00"
+                  placeholder="7.50"
                   required
                 />
                 <p className="text-xs text-amber-700 mt-1">
-                  Obligatorio para registrar extracción y generar deuda del período siguiente.
+                  Ingrese el porcentaje. Se calculará sobre el monto de la extracción.
                 </p>
+                {amountValue > 0 && feePercentValue > 0 && (
+                  <p className="text-xs text-amber-900 mt-1 font-medium">
+                    Comisión calculada: {new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(feeAmountValue)}.
+                    Gasto total en módulo Gastos: {new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(totalExpenseValue)}.
+                  </p>
+                )}
               </div>
             )}
 
