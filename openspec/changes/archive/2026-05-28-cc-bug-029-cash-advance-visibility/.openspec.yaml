@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-05-22
+status: proposed
+gitea_milestone: cc-bugs-critical
+gitea_issue: 133
+branch: fix/cc-bug-029-cash-advance-visibility

@@ -13,7 +13,9 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
     installments: '1',
     interest_rate: '0',
     plan_type: 'MANUAL',
-    currency: 'ARS'
+    currency: 'ARS',
+    movement_type: 'normal',
+    cash_advance_fee: '0'
   });
 
   const [formData, setFormData] = useState(getDefaultFormData());
@@ -30,7 +32,9 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
         installments: String(purchase.installments || '1'),
         interest_rate: String(purchase.interest_rate || '0'),
         plan_type: 'MANUAL',
-        currency: purchase.currency || 'ARS'
+        currency: purchase.currency || 'ARS',
+        movement_type: purchase.movement_type || 'normal',
+        cash_advance_fee: String(purchase.cash_advance_fee || '0')
       });
     } else {
       setFormData(getDefaultFormData());
@@ -63,6 +67,14 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
     }));
   };
 
+  const handleCashAdvanceToggle = (enabled) => {
+    setFormData(prev => ({
+      ...prev,
+      movement_type: enabled ? 'cash_advance' : 'normal',
+      installments: enabled ? '1' : prev.installments || '1'
+    }));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -89,6 +101,24 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
       return;
     }
 
+    const cashAdvanceFee = parseFloat(formData.cash_advance_fee || '0');
+    if (!isNaN(cashAdvanceFee) && cashAdvanceFee < 0) {
+      toast.warning('El porcentaje de comisión no puede ser negativo');
+      return;
+    }
+    if (formData.movement_type === 'cash_advance' && (isNaN(cashAdvanceFee) || cashAdvanceFee <= 0)) {
+      toast.warning('El porcentaje de comisión es obligatorio para extracciones');
+      return;
+    }
+    if (formData.movement_type === 'cash_advance' && cashAdvanceFee > 100) {
+      toast.warning('El porcentaje de comisión no puede superar 100%');
+      return;
+    }
+    if (formData.movement_type === 'cash_advance' && installments > 1) {
+      toast.warning('Las extracciones deben registrarse en una sola cuota');
+      return;
+    }
+
     setLoading(true);
     try {
       if (isEditMode) {
@@ -99,7 +129,9 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
           installments: installments,
           interest_rate: interestRate,
           category: purchase.category,
-          currency: formData.currency
+          currency: formData.currency,
+          movement_type: formData.movement_type,
+          cash_advance_fee: cashAdvanceFee,
         });
         toast.success('Compra actualizada correctamente');
       } else {
@@ -111,14 +143,16 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
           installments: installments,
           interest_rate: interestRate,
           plan_type: formData.plan_type,
-          currency: formData.currency
+          currency: formData.currency,
+          movement_type: formData.movement_type,
+          cash_advance_fee: cashAdvanceFee,
         };
         await creditCardAPI.createPurchase(payload);
         toast.success('Compra registrada correctamente');
       }
       
       setFormData(getDefaultFormData());
-      onSuccess();
+      await Promise.resolve(onSuccess?.());
       onClose();
     } catch (error) {
       toast.error(isEditMode ? 'Error al actualizar compra' : 'Error al registrar compra');
@@ -162,6 +196,13 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
 
   const monthlyPayment = calculateMonthlyPayment();
   const totalWithInterest = getTotalWithInterest();
+  const isCashAdvance = formData.movement_type === 'cash_advance';
+  const amountValue = parseFloat(formData.amount || '0');
+  const feePercentValue = parseFloat(formData.cash_advance_fee || '0');
+  const feeAmountValue = isCashAdvance && amountValue > 0 && feePercentValue > 0
+    ? (amountValue * feePercentValue) / 100
+    : 0;
+  const totalExpenseValue = amountValue + feeAmountValue;
 
   if (!isOpen || (!card && !purchase)) return null;
 
@@ -262,6 +303,52 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
               )}
             </div>
 
+            {/* Activación de extracción */}
+            <div className="md:col-span-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isCashAdvance}
+                  onChange={(e) => handleCashAdvanceToggle(e.target.checked)}
+                  className="h-4 w-4 text-finly-primary border-gray-300 rounded focus:ring-finly-primary"
+                />
+                <div>
+                  <p className="text-sm font-semibold text-amber-900">Es una extracción de efectivo</p>
+                  <p className="text-xs text-amber-700">Activa el tratamiento de comisión y deuda derivada del próximo período.</p>
+                </div>
+              </label>
+            </div>
+
+            {/* Comisión de extracción */}
+            {isCashAdvance && (
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Comisión de extracción (%) *
+                </label>
+                <input
+                  type="number"
+                  name="cash_advance_fee"
+                  value={formData.cash_advance_fee}
+                  onChange={handleChange}
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent"
+                  placeholder="7.50"
+                  required
+                />
+                <p className="text-xs text-amber-700 mt-1">
+                  Ingrese el porcentaje. Se calculará sobre el monto de la extracción.
+                </p>
+                {amountValue > 0 && feePercentValue > 0 && (
+                  <p className="text-xs text-amber-900 mt-1 font-medium">
+                    Comisión calculada: {new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(feeAmountValue)}.
+                    Gasto total en módulo Gastos: {new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(totalExpenseValue)}.
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Número de Cuotas */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -273,9 +360,13 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
                 value={formData.installments}
                 onChange={handleChange}
                 min="1"
+                disabled={isCashAdvance}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent"
                 required
               />
+              {isCashAdvance && (
+                <p className="text-xs text-amber-700 mt-1">Para extracciones, la operación se registra siempre en 1 cuota.</p>
+              )}
             </div>
 
             {/* Tasa de Interés */}

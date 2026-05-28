@@ -191,6 +191,8 @@ class CreditCardPurchaseCreate(BaseModel):
     interest_rate: Optional[float] = 0.0
     plan_type: Optional[str] = "MANUAL"  # MANUAL or AUTOMATIC
     currency: Optional[str] = "ARS"  # ARS or USD
+    movement_type: Optional[str] = "normal"  # normal or cash_advance
+    cash_advance_fee: Optional[float] = 0.0  # percentage value, e.g. 7.5
 
 class InstallmentPayment(BaseModel):
     payment_date: str  # ISO format
@@ -800,6 +802,8 @@ async def delete_transaction(
             return {"message": "Transaction deleted successfully", "id": transaction_id}
         else:
             raise HTTPException(status_code=404, detail="Transaction not found")
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ Error deleting transaction: {e}")
         raise HTTPException(status_code=500, detail=str(e))
