@@ -10,8 +10,10 @@ function App() {
   const [currentView, setCurrentView] = useState('dashboard');
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [authChecking, setAuthChecking] = useState(true);
 
   useEffect(() => {
+    const bootstrapSession = async () => {
     // One-time migration: clean old localStorage keys
     if (!localStorage.getItem('migrated_to_sheets')) {
       const oldKeys = ['transactions'];
@@ -30,9 +32,24 @@ function App() {
     if (storedUser && storedToken) {
       const userData = JSON.parse(storedUser);
       setUser(userData);
-      // Load transactions from backend (no sync on startup)
-      loadTransactionsFromDB();
+      try {
+        // Validate/refresh token once before mounting protected dashboard calls.
+        await authAPI.getCurrentUser();
+        // Load transactions from backend (no sync on startup)
+        await loadTransactionsFromDB();
+      } catch (error) {
+        console.warn('⚠️ Session expired. Redirecting to login.');
+        setUser(null);
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
+        localStorage.removeItem('refresh_token');
+      }
     }
+
+    setAuthChecking(false);
+    };
+
+    bootstrapSession();
   }, []);
 
   // Load transactions from PostgreSQL only (no sync)
@@ -108,6 +125,7 @@ function App() {
 
   const handleLogin = (userData, token, refreshToken) => {
     setUser(userData);
+    setAuthChecking(false);
     localStorage.setItem('user', JSON.stringify(userData));
     localStorage.setItem('token', token);
     if (refreshToken) {
@@ -188,6 +206,16 @@ function App() {
       throw error;
     }
   };
+
+  if (authChecking) {
+    return (
+      <ToastProvider>
+        <div className="h-screen w-full flex items-center justify-center bg-finly-bg text-finly-text">
+          Validando sesion...
+        </div>
+      </ToastProvider>
+    );
+  }
 
   if (!user) {
     return (
