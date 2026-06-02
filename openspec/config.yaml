@@ -7,7 +7,7 @@ context: |
 	Backend services use singleton pattern. API endpoints in backend/main.py. Frontend API in frontend/src/services/api.js.
 	Task management: Gitea (issues, milestones, PRs). GitHub = hosting only.
 	Branch naming: feature/<change-name>, bugfix/<gitea-issue-id>, hotfix/<gitea-issue-id>.
-	Commit format: [SPEC:<change-name>] description\n\ncloses #<gitea-issue-id>
+	Commit format: [SPEC:<change-name>] ?description\n\ncloses #<gitea-issue-id>
 
 rules:
 	tasks:

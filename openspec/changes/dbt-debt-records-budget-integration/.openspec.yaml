@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-05-29
+status: proposed
+gitea_milestone: dbt-debt-records-budget-integration
+gitea_issue: TBD
+branch: feature/dbt-debt-records-budget-integration

@@ -38,7 +38,7 @@ Modelo de ticket
 | CC-FEAT-021 | Feature | Baja ||| ⏳ Todo | Agregar textbox detalle (20 caracteres) en Nueva Compra |
 | CC-FEAT-022 | Feature | Alta ||| ✅ Done | USD al periodo siguiente con campo `billing_date` (propuesta Opcion A) |
 | CC-FEAT-023 | Feature | Alta ||| ⏳ Todo | Al registrar pagos del resumen actual, proyectarlos automaticamente en el periodo siguiente como movimientos negativos tipo "SU PAGO EN PESOS" para estimar el proximo resumen |
-|CC-FEAT-024|Feature|Alta||#125|🔄 In progress |Extracciones de tarjeta con impacto dual: gasto actual + deuda |   
+|CC-FEAT-024|Feature|Alta||#125|✅ Done |Extracciones de tarjeta con impacto dual: gasto actual + deuda |   
 
 **Resumen:** 23 features, 11 completadas (48%), 12 pendientes (52%)
 

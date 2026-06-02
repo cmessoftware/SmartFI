@@ -1,149 +1,119 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { toISODate } from '../utils/dateUtils';
 
-const getCategoryOption = (category) => {
-  if (category == null) return null;
+const DEBT_TYPE_OPTIONS = [
+  { value: 'PERSONAL', label: 'Personal' },
+  { value: 'PRESTAMO', label: 'Prestamo' },
+  { value: 'HIPOTECA', label: 'Hipoteca' },
+  { value: 'TARJETA', label: 'Tarjeta' },
+  { value: 'OTRO', label: 'Otro' },
+];
 
-  if (typeof category === 'string') {
-    const value = category.trim();
-    if (!value) return null;
-    return { value, label: value };
-  }
+const DEBT_SOURCE_OPTIONS = [
+  { value: 'BANCO', label: 'Banco' },
+  { value: 'FINTECH', label: 'Fintech' },
+  { value: 'INDIVIDUO', label: 'Individuo' },
+  { value: 'EMPRESA', label: 'Empresa' },
+  { value: 'OTRO', label: 'Otro' },
+];
 
-  if (typeof category === 'object') {
-    const raw = category.name ?? category.label ?? category.value ?? category.categoria ?? category.id;
-    const value = raw != null ? String(raw).trim() : '';
-    if (!value) return null;
-    return { value, label: value };
-  }
-
-  const value = String(category).trim();
-  return value ? { value, label: value } : null;
-};
-
-function EditDebtModal({ debt, onSave, onClose, categories }) {
-  // Opciones de Tipo según Tipo de Flujo
-  const tiposGasto = [
-    'Servicios',
-    'Alimentación',
-    'Transporte',
-    'Vivienda',
-    'Educación',
-    'Salud',
-    'Entretenimiento',
-    'Seguros',
-    'Impuestos',
-    'Préstamo',
-    'Tarjeta',
-    'Otro'
-  ];
-  
-  const tiposIngreso = [
-    'Sueldos',
-    'Honorarios',
-    'Alquileres',
-    'Inversiones',
-    'Freelance',
-    'Ventas',
-    'Reintegros',
-    'Otro'
-  ];
-  
+function EditDebtModal({ debt, onSave, onClose }) {
   const [formData, setFormData] = useState({
+    debt_name: '',
+    debt_type: 'PERSONAL',
+    debt_source: 'BANCO',
+    creditor: '',
     fecha: '',
-    tipo: 'Préstamo',
-    categoria: 'Personal',
-    monto_total: '',
-    detalle: '',
     fecha_vencimiento: '',
+    monto_total: '',
+    annual_interest_rate: '',
+    total_installments: '',
+    current_installment: '',
+    pending_installments: '',
+    notes: '',
     tipo_presupuesto: 'OBLIGATION',
-    tipo_flujo: 'Gasto',
+    tipo_flujo: 'Ingreso',
     expense_type: 'VARIABLE',
+    estimated_payment: '',
     monto_ejecutado: '0',
-    estimated_payment: ''
   });
 
-  const categoryOptions = useMemo(() => {
-    const map = new Map();
-    if (Array.isArray(categories)) {
-      for (const category of categories) {
-        const option = getCategoryOption(category);
-        if (!option) continue;
-        const key = option.value.toLowerCase();
-        if (!map.has(key)) {
-          map.set(key, option);
-        }
-      }
-    }
-
-    if (debt?.categoria) {
-      const current = getCategoryOption(debt.categoria);
-      if (current) {
-        map.set(current.value.toLowerCase(), current);
-      }
-    }
-
-    if (!map.size) {
-      map.set('otro', { value: 'Otro', label: 'Otro' });
-    }
-
-    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, 'es', { sensitivity: 'base' }));
-  }, [categories, debt]);
-
   useEffect(() => {
-    if (debt) {
-      setFormData({
-        fecha: toISODate(debt.fecha),
-        tipo: debt.tipo,
-        categoria: debt.categoria,
-        monto_total: debt.monto_total.toString(),
-        detalle: debt.detalle || '',
-        fecha_vencimiento: toISODate(debt.fecha_vencimiento) || '',
-        tipo_presupuesto: debt.tipo_presupuesto || 'OBLIGATION',
-        tipo_flujo: debt.tipo_flujo || 'Gasto',
-        expense_type: debt.expense_type || 'VARIABLE',
-        monto_ejecutado: (debt.monto_ejecutado || debt.monto_pagado || 0).toString(),
-        estimated_payment: (debt.estimated_payment != null ? debt.estimated_payment : debt.monto_total).toString()
-      });
-    }
+    if (!debt) return;
+
+    setFormData({
+      debt_name: debt.debt_name || debt.detalle || '',
+      debt_type: debt.debt_type || debt.tipo || 'PERSONAL',
+      debt_source: debt.debt_source || 'BANCO',
+      creditor: debt.creditor || debt.categoria || '',
+      fecha: toISODate(debt.fecha),
+      fecha_vencimiento: toISODate(debt.fecha_vencimiento) || '',
+      monto_total: debt.monto_total != null ? String(debt.monto_total) : '',
+      annual_interest_rate: debt.annual_interest_rate != null ? String(debt.annual_interest_rate) : '',
+      total_installments: debt.total_installments != null ? String(debt.total_installments) : '',
+      current_installment: debt.current_installment != null ? String(debt.current_installment) : '',
+      pending_installments: debt.pending_installments != null ? String(debt.pending_installments) : '',
+      notes: debt.notes || '',
+      tipo_presupuesto: debt.tipo_presupuesto || 'OBLIGATION',
+      tipo_flujo: debt.tipo_flujo || 'Ingreso',
+      expense_type: debt.expense_type || 'VARIABLE',
+      estimated_payment: (debt.estimated_payment != null ? debt.estimated_payment : debt.monto_total || '').toString(),
+      monto_ejecutado: (debt.monto_ejecutado || debt.monto_pagado || 0).toString(),
+    });
   }, [debt]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    
-    // Si cambia el tipo_flujo, resetear el campo tipo
-    if (name === 'tipo_flujo') {
-      setFormData({
-        ...formData,
-        tipo_flujo: value,
-        tipo: value === 'Ingreso' ? tiposIngreso[0] : tiposGasto[0]
-      });
-    } else if (name === 'monto_total') {
-      setFormData({
-        ...formData,
+
+    if (name === 'monto_total') {
+      setFormData((prev) => ({
+        ...prev,
         monto_total: value,
-        estimated_payment: (!formData.estimated_payment || formData.estimated_payment === formData.monto_total) ? value : formData.estimated_payment
-      });
-    } else {
-      setFormData({
-        ...formData,
-        [name]: value
-      });
+        estimated_payment: (!prev.estimated_payment || prev.estimated_payment === prev.monto_total)
+          ? value
+          : prev.estimated_payment,
+      }));
+      return;
     }
+
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  const toNullableNumber = (value) => {
+    if (value === '' || value === null || value === undefined) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    
+
+    if (!formData.debt_name || !formData.debt_name.trim()) {
+      return;
+    }
+
     if (!formData.monto_total || parseFloat(formData.monto_total) <= 0) {
+      return;
+    }
+
+    const totalInstallments = toNullableNumber(formData.total_installments);
+    const currentInstallment = toNullableNumber(formData.current_installment);
+    if (totalInstallments != null && currentInstallment != null && currentInstallment > totalInstallments) {
       return;
     }
 
     onSave({
       ...formData,
       monto_total: parseFloat(formData.monto_total),
+      annual_interest_rate: toNullableNumber(formData.annual_interest_rate),
+      total_installments: totalInstallments,
+      current_installment: currentInstallment,
+      pending_installments: toNullableNumber(formData.pending_installments),
       monto_ejecutado: parseFloat(formData.monto_ejecutado),
-      estimated_payment: formData.estimated_payment ? parseFloat(formData.estimated_payment) : parseFloat(formData.monto_total)
+      estimated_payment: formData.estimated_payment ? parseFloat(formData.estimated_payment) : parseFloat(formData.monto_total),
     });
   };
 
@@ -151,9 +121,9 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-finly-text">Editar Item de Presupuesto</h2>
+          <h2 className="text-2xl font-bold text-finly-text">Editar Deuda</h2>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -166,11 +136,61 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Fecha */}
             <div>
-              <label className="block text-sm font-medium text-finly-text mb-2">
-                Fecha *
-              </label>
+              <label className="block text-sm font-medium text-finly-text mb-2">Nombre de la deuda *</label>
+              <input
+                type="text"
+                name="debt_name"
+                value={formData.debt_name}
+                onChange={handleChange}
+                required
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">Tipo de deuda *</label>
+              <select
+                name="debt_type"
+                value={formData.debt_type}
+                onChange={handleChange}
+                required
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
+              >
+                {DEBT_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">Fuente de la deuda *</label>
+              <select
+                name="debt_source"
+                value={formData.debt_source}
+                onChange={handleChange}
+                required
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
+              >
+                {DEBT_SOURCE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">Acreedor / Entidad</label>
+              <input
+                type="text"
+                name="creditor"
+                value={formData.creditor}
+                onChange={handleChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">Fecha de toma de deuda *</label>
               <input
                 type="date"
                 name="fecha"
@@ -179,70 +199,23 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
                 required
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
               />
+              <p className="text-xs text-gray-500 mt-1">Corresponde a la fecha en que se tomo la deuda.</p>
             </div>
 
-            {/* Tipo */}
             <div>
-              <label className="block text-sm font-medium text-finly-text mb-2">
-                Tipo de {formData.tipo_flujo} *
-              </label>
-              <select
-                name="tipo"
-                value={formData.tipo}
+              <label className="block text-sm font-medium text-finly-text mb-2">Fecha de primera cuota</label>
+              <input
+                type="date"
+                name="fecha_vencimiento"
+                value={formData.fecha_vencimiento}
                 onChange={handleChange}
-                required
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
-              >
-                {formData.tipo_flujo === 'Ingreso' 
-                  ? tiposIngreso.map(tipo => (
-                      <option key={tipo} value={tipo}>{tipo}</option>
-                    ))
-                  : tiposGasto.map(tipo => (
-                      <option key={tipo} value={tipo}>{tipo}</option>
-                    ))
-                }
-              </select>
-            </div>
-
-            {/* Categoría */}
-            <div>
-              <label className="block text-sm font-medium text-finly-text mb-2">
-                Recurrencia *
-              </label>
-              <select
-                name="expense_type"
-                value={formData.expense_type}
-                onChange={handleChange}
-                required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
-              >
-                <option value="FIJO">🟣 Fijo</option>
-                <option value="VARIABLE">🔵 Variable</option>
-              </select>
+              />
+              <p className="text-xs text-gray-500 mt-1">Si se omite, se proyecta desde el mes siguiente a la toma.</p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-finly-text mb-2">
-                Categoría *
-              </label>
-              <select
-                name="categoria"
-                value={formData.categoria}
-                onChange={handleChange}
-                required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
-              >
-                {categoryOptions.map(cat => (
-                  <option key={cat.value} value={cat.value}>{cat.label}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Monto Total */}
-            <div>
-              <label className="block text-sm font-medium text-finly-text mb-2">
-                Monto Total *
-              </label>
+              <label className="block text-sm font-medium text-finly-text mb-2">Monto total *</label>
               <input
                 type="number"
                 name="monto_total"
@@ -255,12 +228,60 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
               />
             </div>
 
-            {/* Monto a Pagar */}
             <div>
-              <label className="block text-sm font-medium text-finly-text mb-2">
-                Monto a Pagar
-                <span className="text-xs text-gray-500 ml-2">(por defecto 100% del total)</span>
-              </label>
+              <label className="block text-sm font-medium text-finly-text mb-2">Tasa de interes anual (%)</label>
+              <input
+                type="number"
+                name="annual_interest_rate"
+                value={formData.annual_interest_rate}
+                onChange={handleChange}
+                step="0.01"
+                min="0"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">Total de cuotas</label>
+              <input
+                type="number"
+                name="total_installments"
+                value={formData.total_installments}
+                onChange={handleChange}
+                step="0.01"
+                min="0"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">Cuota actual (X)</label>
+              <input
+                type="number"
+                name="current_installment"
+                value={formData.current_installment}
+                onChange={handleChange}
+                step="0.01"
+                min="0"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">Cuotas pendientes</label>
+              <input
+                type="number"
+                name="pending_installments"
+                value={formData.pending_installments}
+                onChange={handleChange}
+                step="0.01"
+                min="0"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">Monto a pagar</label>
               <input
                 type="number"
                 name="estimated_payment"
@@ -268,64 +289,12 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
                 onChange={handleChange}
                 step="0.01"
                 min="0"
-                placeholder={formData.monto_total || '0.00'}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
               />
             </div>
 
-            {/* Tipo de Presupuesto */}
             <div>
-              <label className="block text-sm font-medium text-finly-text mb-2">
-                Tipo de Presupuesto *
-              </label>
-              <select
-                name="tipo_presupuesto"
-                value={formData.tipo_presupuesto}
-                onChange={handleChange}
-                required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
-              >
-                <option value="OBLIGATION">🔴 Obligación (Deuda/Compromiso)</option>
-                <option value="VARIABLE">🔵 Variable (Presupuesto Flexible)</option>
-              </select>
-            </div>
-
-            {/* Tipo de Flujo */}
-            <div>
-              <label className="block text-sm font-medium text-finly-text mb-2">
-                Tipo de Flujo *
-              </label>
-              <select
-                name="tipo_flujo"
-                value={formData.tipo_flujo}
-                onChange={handleChange}
-                required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
-              >
-                <option value="Gasto">💸 Gasto</option>
-                <option value="Ingreso">💰 Ingreso</option>
-              </select>
-            </div>
-
-            {/* Fecha de Vencimiento */}
-            <div>
-              <label className="block text-sm font-medium text-finly-text mb-2">
-                Fecha de Vencimiento
-              </label>
-              <input
-                type="date"
-                name="fecha_vencimiento"
-                value={formData.fecha_vencimiento}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
-              />
-            </div>
-
-            {/* Monto Ejecutado (read-only) */}
-            <div>
-              <label className="block text-sm font-medium text-finly-text mb-2">
-                Monto Ejecutado (Read-only)
-              </label>
+              <label className="block text-sm font-medium text-finly-text mb-2">Monto ejecutado (Read-only)</label>
               <input
                 type="number"
                 name="monto_ejecutado"
@@ -333,26 +302,21 @@ function EditDebtModal({ debt, onSave, onClose, categories }) {
                 readOnly
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
               />
-              <p className="text-xs text-gray-500 mt-1">Se actualiza automáticamente con las transacciones</p>
             </div>
           </div>
 
-          {/* Detalle */}
           <div>
-            <label className="block text-sm font-medium text-finly-text mb-2">
-              Detalle
-            </label>
+            <label className="block text-sm font-medium text-finly-text mb-2">Comentarios</label>
             <textarea
-              name="detalle"
-              value={formData.detalle}
+              name="notes"
+              value={formData.notes}
               onChange={handleChange}
               rows={3}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all resize-none"
-              placeholder="Descripción del item de presupuesto (opcional)"
+              placeholder="Notas adicionales de la deuda"
             />
           </div>
 
-          {/* Botones */}
           <div className="flex gap-3 pt-4">
             <button
               type="button"

@@ -906,7 +906,7 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
                 const purchase = cardPurchases.find(p => p.id === selectedPurchaseId);
                 return purchase?.debt_id ? (
                   <button
-                    onClick={() => setCurrentView && setCurrentView('debts')}
+                    onClick={() => setCurrentView && setCurrentView('budget')}
                     className="text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1"
                     title="Ver item en Presupuesto"
                   >

@@ -2,7 +2,7 @@
 # Quick build script with automatic commit hash
 # Usage: ./build.sh
 
-echo "🔨 Building Finly with automatic version..."
+echo "🔨 Building SmartFI with automatic version..."
 
 # Get current commit hash
 COMMIT_HASH=$(git log -1 --format=%h)
