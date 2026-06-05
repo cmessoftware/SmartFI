@@ -51,14 +51,14 @@ En encabezado de pantalla que muestra la tabla de deudas (usando look&feel de Ga
 Estado sincronizado con Gitea (2026-06-01):
 - Issues `#135` a `#152`: `open`.
 - Avance real de implementacion: `DBT-FEAT-001` cerrado en `✅ Done` (BE + FE consolidados).
-- Avance real de implementacion: `DBT-FEAT-002 [FE]` en progreso avanzado (formulario de alta/edicion con campos completos implementado), pendiente smoke test manual y cierre formal de issue.
-- Estado funcional actual: `DBT-FEAT-003` se mantiene en `⏳ Todo` porque las cuotas no se estan proyectando a meses futuros de forma consistente.
+- Avance real de implementacion: `DBT-FEAT-002` en `✅ Done` (BE + FE con formulario completo de alta/edicion y mapeo API actualizado).
+- Avance real de implementacion: `DBT-FEAT-003` en `✅ Done` (proyeccion mensual por calendario + reconciliacion de proyecciones; validado por pruebas automatizadas del servicio).
 
 | ID | Tipo | Prioridad |Issue Padre|Issue Gitea| Estado | Resumen |
 |---|---|---|---|---|---|---|
 | DBT-FEAT-001 | feature | alta | DEBTS-MVP | #135 (BE), #136 (FE) | ✅ Done | Definir `debt-records` como fuente de verdad e integrar contratos API con Presupuesto (BE validado, FE integrado en vista de Deudas). |
-| DBT-FEAT-002 | feature | alta | DBT-FEAT-001 | #137 (BE), #138 (FE) | ✅ Done  | Implementar alta de deuda no tarjeta con campos completos: interes anual, cuotas, cuota actual, cuotas pendientes, fuente y comentarios (BE completo, FE implementado y pendiente smoke test). |
-| DBT-FEAT-003 | feature | alta | DBT-FEAT-001 | #139 (BE), #140 (FE) | ⏳ Todo | Generar proyeccion automatica en Presupuesto por mes calendario (cuota X/Y) al crear deuda. Estado actual: no proyecta cuotas a futuro de forma consistente. |
+| DBT-FEAT-002 | feature | alta | DBT-FEAT-001 | #137 (BE), #138 (FE) | ✅ Done | Implementar alta de deuda no tarjeta con campos completos: interes anual, cuotas, cuota actual, cuotas pendientes, fuente y comentarios (BE + FE consolidados). |
+| DBT-FEAT-003 | feature | alta | DBT-FEAT-001 | #139 (BE), #140 (FE) | ✅ Done | Proyeccion automatica en Presupuesto por mes calendario (cuota X/Y) al crear deuda, con reconciliacion de proyecciones faltantes y cobertura de pruebas en `backend/tests/test_debt_record_projection_service.py`. |
 | DBT-FEAT-004 | feature | alta | DBT-FEAT-001 | #141 (BE), #142 (FE) | ⏳ Todo | Registrar pago parcial/total y reconciliar saldo + cuotas pendientes fraccionarias en `debt-records`. |
 | DBT-FEAT-005 | feature | alta | DBT-FEAT-004 | #143 (BE), #144 (FE) | ⏳ Todo | Aplicar regla de cuotas fraccionarias con precision fija de 2 decimales en backend y frontend. |
 | DBT-FEAT-006 | feature | media | DBT-FEAT-001 | #145 (BE), #146 (FE) | ⏳ Todo | Exponer dashboard de deudas por fuente (total historico) con grafico de torta. |
@@ -72,8 +72,7 @@ Estado sincronizado con Gitea (2026-06-01):
 | DBT-BUG-001 | bug | media | DBT-FEAT-004 | #151 | ⏳ Todo | Corregir desalineacion entre pago registrado en Presupuesto y saldo pendiente en `debt-records`. |
 | DBT-BUG-002 | bug | media | DBT-FEAT-005 | #152 | ⏳ Todo | Corregir inconsistencias de redondeo de cuotas fraccionarias entre vistas y persistencia. |
 | DBT-BUG-003 | bug | alta | DBT-FEAT-002 | TDB | ✅ Done | Separado sidebar en dos entradas (`Presupuesto` y `Deudas`) y desacoplado el flujo UI/API por vista: Presupuesto vuelve a modal/edicion clasica (fijo/variable, gasto/ingreso) y Deudas mantiene formulario especifico de deuda. |
-| DBT-BUG-004 | bug | alta | DBT-BUG-003 | TDB | 🔄 In progress | Implementado fix backend: las proyecciones ya no se crean solo en mes de vencimiento; ahora se generan por mes calendario desde fecha de inicio hasta completar cuotas. Pendiente smoke test funcional en UI.
-Revisión DBT-BUG-004: Solo registra en mes de inicio de la deuda, no proyecta a todos los meses.|
+| DBT-BUG-004 | bug | alta | DBT-BUG-003 | TDB | ✅ Done | Corregida la proyeccion mensual: ya no se concentra en un solo mes; se proyecta por calendario y se reconcilian meses faltantes. Evidencia: pruebas `test_create_without_due_date_defaults_next_month_and_generates_12`, `test_projection_count_matches_remaining_installments` y `test_reconcile_restores_missing_projection_rows`. |
 | DBT-BUG-005 | bug | media | DBT-BUG-003 | TDB | 🔄 In progress | Implementado fix frontend: estado de cuotas ahora usa cuota actual/total (ej. 1/12) en lugar de 0/12 por campo inexistente. Pendiente smoke test funcional. 
 Revisión DBT-BUG-005: En deuda muestra como ejecutado el mesa actual, eso al crear la deuda está pendiente.|
 | DBT-BUG-006 | bug | alta | DBT-BUG-003 | TDB | 🔄 In progress | Implementado fix estructural en proyección mensual para evitar duplicación en mes de vencimiento y desalineación tabla/gráfico en Presupuesto. Pendiente validación con datos reales. 
@@ -91,9 +90,9 @@ Regla acordada:
 | DBT-FEAT-001-BE | DBT-FEAT-001 | Back | [DBT-FEAT-001][BE] Fuente de verdad debt-records + contratos API | ✅ Done |
 | DBT-FEAT-001-FE | DBT-FEAT-001 | Front | [DBT-FEAT-001][FE] Consumo front de debt-records como fuente primaria | ✅ Done |
 | DBT-FEAT-002-BE | DBT-FEAT-002 | Back | [DBT-FEAT-002][BE] Alta de deuda con campos completos | ✅ Done |
-| DBT-FEAT-002-FE | DBT-FEAT-002 | Front | [DBT-FEAT-002][FE] Formulario alta/edicion con campos completos | 🔄 In progress |
-| DBT-FEAT-003-BE | DBT-FEAT-003 | Back | [DBT-FEAT-003][BE] Proyeccion mensual a presupuesto por cuota | ⏳ Todo |
-| DBT-FEAT-003-FE | DBT-FEAT-003 | Front | [DBT-FEAT-003][FE] Visualizacion de proyecciones y cuota X/Y | ⏳ Todo |
+| DBT-FEAT-002-FE | DBT-FEAT-002 | Front | [DBT-FEAT-002][FE] Formulario alta/edicion con campos completos | ✅ Done |
+| DBT-FEAT-003-BE | DBT-FEAT-003 | Back | [DBT-FEAT-003][BE] Proyeccion mensual a presupuesto por cuota | ✅ Done |
+| DBT-FEAT-003-FE | DBT-FEAT-003 | Front | [DBT-FEAT-003][FE] Visualizacion de proyecciones y cuota X/Y | ✅ Done |
 | DBT-FEAT-004-BE | DBT-FEAT-004 | Back | [DBT-FEAT-004][BE] Reconciliacion de pagos y saldo pendiente | ⏳ Todo |
 | DBT-FEAT-004-FE | DBT-FEAT-004 | Front | [DBT-FEAT-004][FE] Flujo de pago parcial/total y estado de deuda | ⏳ Todo |
 | DBT-FEAT-005-BE | DBT-FEAT-005 | Back | [DBT-FEAT-005][BE] Precision 2 decimales en cuotas fraccionarias | ⏳ Todo |
