@@ -261,6 +261,7 @@ const mapProjectedDebtRecordToUi = (record) => {
     debt_source: record.debt_source || null,
     creditor: record.creditor || null,
     currency: record.currency || 'ARS',
+    outstanding_amount: outstandingAmount,
     annual_interest_rate: record.annual_interest_rate,
     total_installments: record.total_installments,
     current_installment: record.current_installment,
@@ -300,6 +301,9 @@ export const debtRecordsAPI = {
   createDebt: (debt) => api.post('/api/debt-records', toDebtRecordPayloadFromBudgetForm(debt)),
   updateDebt: (id, debt) => api.put(`/api/debt-records/${id}`, toDebtRecordPayloadFromBudgetForm(debt)),
   deleteDebt: (id) => api.delete(`/api/debt-records/${id}`),
+  getPayments: (id) => api.get(`/api/debt-records/${id}/payments`),
+  addPayment: (id, payload) => api.post(`/api/debt-records/${id}/payments`, payload),
+  deletePayment: (paymentId) => api.delete(`/api/debt-records/payments/${paymentId}`),
 };
 
 export const debtsAPI = {

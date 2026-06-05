@@ -183,3 +183,59 @@ def test_projection_amount_applies_annual_interest_annuity(service, seeded_user_
 
     assert first_projection is not None
     assert first_projection["monto_total"] == pytest.approx(expected_quota, rel=1e-9)
+
+
+def test_add_partial_payment_reconciles_outstanding_and_installments(service, seeded_user_id):
+    rec = service.create_debt_record(
+        {
+            "debt_name": "TEST_PAYMENT_PARTIAL",
+            "debt_type": "PERSONAL",
+            "principal_amount": 1200000,
+            "outstanding_amount": 1200000,
+            "total_installments": 12,
+            "current_installment": 1,
+            "pending_installments": 12,
+            "start_date": "2026-01-01",
+        },
+        user_id=seeded_user_id,
+    )
+
+    service.add_payment(
+        debt_record_id=rec["id"],
+        data={"amount": 250000, "payment_date": "2026-02-01"},
+        user_id=seeded_user_id,
+    )
+
+    updated = service.get_debt_record(record_id=rec["id"], user_id=seeded_user_id)
+    assert updated["outstanding_amount"] == pytest.approx(950000, rel=1e-9)
+    assert updated["current_installment"] == pytest.approx(3.5, rel=1e-9)
+    assert updated["pending_installments"] == pytest.approx(9.5, rel=1e-9)
+    assert updated["status"] == "ACTIVA"
+
+
+def test_add_full_payment_cancels_debt(service, seeded_user_id):
+    rec = service.create_debt_record(
+        {
+            "debt_name": "TEST_PAYMENT_FULL",
+            "debt_type": "PERSONAL",
+            "principal_amount": 500000,
+            "outstanding_amount": 500000,
+            "total_installments": 5,
+            "current_installment": 1,
+            "pending_installments": 5,
+            "start_date": "2026-03-01",
+        },
+        user_id=seeded_user_id,
+    )
+
+    service.add_payment(
+        debt_record_id=rec["id"],
+        data={"amount": 500000, "payment_date": "2026-03-10"},
+        user_id=seeded_user_id,
+    )
+
+    updated = service.get_debt_record(record_id=rec["id"], user_id=seeded_user_id)
+    assert updated["outstanding_amount"] == pytest.approx(0.0, rel=1e-9)
+    assert updated["pending_installments"] == pytest.approx(0.0, rel=1e-9)
+    assert updated["current_installment"] == pytest.approx(6.0, rel=1e-9)
+    assert updated["status"] == "CANCELADA"

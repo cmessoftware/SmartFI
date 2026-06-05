@@ -46,6 +46,9 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
   const [isCloning, setIsCloning] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [debtToEdit, setDebtToEdit] = useState(null);
+  const [paymentModal, setPaymentModal] = useState({ open: false, debt: null });
+  const [paymentForm, setPaymentForm] = useState({ payment_date: '', amount: '', notes: '' });
+  const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState({ isOpen: false, debtId: null, debtName: '' });
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [selectedDebtIds, setSelectedDebtIds] = useState([]);
@@ -138,6 +141,59 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
   const handleCloseEditModal = () => {
     setEditModalOpen(false);
     setDebtToEdit(null);
+  };
+
+  const openPaymentModal = (debt) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const outstanding = Number(debt.outstanding_amount ?? Math.max(0, Number(debt.monto_total || 0) - Number(debt.monto_ejecutado ?? debt.monto_pagado ?? 0)));
+    setPaymentModal({ open: true, debt });
+    setPaymentForm({
+      payment_date: today,
+      amount: outstanding > 0 ? outstanding.toFixed(2) : '',
+      notes: '',
+    });
+  };
+
+  const closePaymentModal = () => {
+    if (paymentSubmitting) return;
+    setPaymentModal({ open: false, debt: null });
+    setPaymentForm({ payment_date: '', amount: '', notes: '' });
+  };
+
+  const submitDebtPayment = async (e) => {
+    e.preventDefault();
+    if (!paymentModal.debt) return;
+
+    const amount = Number(paymentForm.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.warning('Ingrese un monto de pago válido');
+      return;
+    }
+
+    const debt = paymentModal.debt;
+    const outstanding = Number(debt.outstanding_amount ?? Math.max(0, Number(debt.monto_total || 0) - Number(debt.monto_ejecutado ?? debt.monto_pagado ?? 0)));
+    if (amount - outstanding > 0.000001) {
+      toast.warning('El pago no puede superar el saldo pendiente');
+      return;
+    }
+
+    setPaymentSubmitting(true);
+    try {
+      await debtRecordsAPI.addPayment(debt.id, {
+        payment_date: paymentForm.payment_date || undefined,
+        amount,
+        notes: paymentForm.notes?.trim() || undefined,
+      });
+      toast.success('Pago registrado correctamente');
+      setPaymentSubmitting(false);
+      setPaymentModal({ open: false, debt: null });
+      setPaymentForm({ payment_date: '', amount: '', notes: '' });
+      await loadDebts();
+    } catch (error) {
+      const detail = error?.response?.data?.detail || 'Error al registrar pago';
+      toast.error(detail);
+    }
+    setPaymentSubmitting(false);
   };
 
   const handleDeleteClick = (debt) => {
@@ -1299,6 +1355,14 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
                       {canEdit && (
                         <td className="px-4 py-3 text-center">
                           <div className="flex gap-2 justify-center">
+                            {isDebtMode && debt.status !== 'PAGADA' && (
+                              <button
+                                onClick={() => openPaymentModal(debt)}
+                                className="text-emerald-600 hover:text-emerald-800 text-sm font-medium"
+                              >
+                                Pagar
+                              </button>
+                            )}
                             <button
                               onClick={() => handleEdit(debt)}
                               className="text-blue-600 hover:text-blue-800 text-sm font-medium"
@@ -1317,6 +1381,81 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
                     </tr>
                   );
                 })
+
+                {paymentModal.open && paymentModal.debt && (
+                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+                      <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-bold text-gray-900">Registrar Pago</h3>
+                        <button
+                          onClick={closePaymentModal}
+                          className="text-gray-400 hover:text-gray-600"
+                          disabled={paymentSubmitting}
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      <p className="text-sm text-gray-600 mb-4">
+                        {paymentModal.debt.detalle || paymentModal.debt.debt_name}
+                      </p>
+                      <p className="text-sm text-gray-700 mb-4">
+                        Saldo pendiente: <strong>{formatCurrency(paymentModal.debt.outstanding_amount ?? Math.max(0, Number(paymentModal.debt.monto_total || 0) - Number(paymentModal.debt.monto_ejecutado ?? paymentModal.debt.monto_pagado ?? 0)))}</strong>
+                      </p>
+
+                      <form onSubmit={submitDebtPayment} className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de pago</label>
+                          <input
+                            type="date"
+                            value={paymentForm.payment_date}
+                            onChange={(e) => setPaymentForm((prev) => ({ ...prev, payment_date: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Monto *</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={paymentForm.amount}
+                            onChange={(e) => setPaymentForm((prev) => ({ ...prev, amount: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Notas</label>
+                          <textarea
+                            rows={3}
+                            value={paymentForm.notes}
+                            onChange={(e) => setPaymentForm((prev) => ({ ...prev, notes: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                          />
+                        </div>
+
+                        <div className="flex gap-3 pt-2">
+                          <button
+                            type="button"
+                            onClick={closePaymentModal}
+                            disabled={paymentSubmitting}
+                            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={paymentSubmitting}
+                            className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                          >
+                            {paymentSubmitting ? 'Guardando...' : 'Registrar'}
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                )}
               )}
             </tbody>
           </table>

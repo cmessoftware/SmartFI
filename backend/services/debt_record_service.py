@@ -36,6 +36,11 @@ class DebtRecordService:
     def _projection_installment_count(self, record: DebtRecord) -> int:
         total = float(record.total_installments) if record.total_installments is not None else None
         current = float(record.current_installment) if record.current_installment is not None else None
+        pending = float(record.pending_installments) if record.pending_installments is not None else None
+
+        if pending is not None and pending > 0:
+            # Keep one row for any remaining fractional installment.
+            return max(1, int(math.ceil(pending)))
 
         if total is not None and current is not None:
             remaining = int(round(total - current + 1.0))
@@ -43,6 +48,57 @@ class DebtRecordService:
         if total is not None:
             return max(1, int(round(total)))
         return 1
+
+    def _installment_amount_for_progress(self, record: DebtRecord) -> float:
+        pending = float(record.pending_installments) if record.pending_installments is not None else None
+        outstanding = float(record.outstanding_amount or 0)
+        if outstanding <= 0:
+            return 0.0
+        if pending is not None and pending > 0:
+            return outstanding / pending
+        projected = self._projection_amount(record)
+        return projected if projected > 0 else 0.0
+
+    def _apply_payment_reconciliation(self, record: DebtRecord, amount: float, reverse: bool = False):
+        """Apply (or reverse) payment effects on outstanding and installments."""
+        signed_amount = -amount if reverse else amount
+        current_outstanding = float(record.outstanding_amount or 0)
+
+        if not reverse and signed_amount > current_outstanding + 1e-6:
+            raise ValueError("Payment amount cannot exceed outstanding amount")
+
+        installment_amount = self._installment_amount_for_progress(record)
+        progressed_installments = (signed_amount / installment_amount) if installment_amount > 0 else 0.0
+
+        if reverse:
+            record.outstanding_amount = current_outstanding + amount
+        else:
+            record.outstanding_amount = max(0.0, current_outstanding - amount)
+
+        total = float(record.total_installments) if record.total_installments is not None else None
+        current = float(record.current_installment) if record.current_installment is not None else None
+        pending = float(record.pending_installments) if record.pending_installments is not None else None
+
+        if current is not None:
+            updated_current = current + progressed_installments
+            min_current = 0.0
+            max_current = (total + 1.0) if total is not None else updated_current
+            record.current_installment = min(max(updated_current, min_current), max_current)
+
+        if pending is not None:
+            updated_pending = pending - progressed_installments
+            max_pending = total if total is not None else pending + abs(progressed_installments)
+            record.pending_installments = min(max(updated_pending, 0.0), max_pending)
+
+        if float(record.outstanding_amount or 0) <= 1e-6:
+            record.outstanding_amount = 0.0
+            record.status = DebtRecordStatus.CANCELADA
+            if total is not None:
+                record.current_installment = total + 1.0
+            if record.pending_installments is not None:
+                record.pending_installments = 0.0
+        elif record.status == DebtRecordStatus.CANCELADA:
+            record.status = DebtRecordStatus.ACTIVA
 
     def _add_months(self, dt: date, months: int) -> date:
         year = dt.year + (dt.month - 1 + months) // 12
@@ -440,6 +496,12 @@ class DebtRecordService:
             return None
 
         amount = float(data["amount"])
+        if amount <= 0:
+            raise ValueError("Payment amount must be greater than 0")
+
+        if float(record.outstanding_amount or 0) <= 0:
+            raise ValueError("Debt is already fully paid")
+
         payment = DebtPayment(
             debt_record_id=debt_record_id,
             transaction_id=data.get("transaction_id"),
@@ -449,10 +511,7 @@ class DebtRecordService:
         )
         self.db.add(payment)
 
-        # Reduce outstanding amount
-        record.outstanding_amount = max(0.0, float(record.outstanding_amount) - amount)
-        if record.outstanding_amount == 0.0:
-            record.status = DebtRecordStatus.CANCELADA
+        self._apply_payment_reconciliation(record, amount=amount, reverse=False)
         record.updated_at = datetime.utcnow()
         self._upsert_budget_projection(record)
 
@@ -478,10 +537,7 @@ class DebtRecordService:
         if not record:
             return False
 
-        # Restore outstanding amount
-        record.outstanding_amount = float(record.outstanding_amount) + float(payment.amount)
-        if record.status == DebtRecordStatus.CANCELADA and record.outstanding_amount > 0:
-            record.status = DebtRecordStatus.ACTIVA
+        self._apply_payment_reconciliation(record, amount=float(payment.amount), reverse=True)
         record.updated_at = datetime.utcnow()
         self._upsert_budget_projection(record)
 
