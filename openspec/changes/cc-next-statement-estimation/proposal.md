@@ -5,6 +5,8 @@ Hoy el sistema permite registrar pagos del resumen actual, pero no proyecta auto
 ## What Changes
 
 - Al registrar un pago del resumen actual, el sistema generará automáticamente un movimiento proyectado negativo en el período siguiente con semántica bancaria tipo `SU PAGO EN PESOS`.
+- Si el pago registrado es parcial, el saldo remanente del período actual se trasladará al pendiente estimado del período siguiente.
+- Si se registran nuevos pagos (o se editan/eliminan pagos) en el período actual, la estimación del pendiente del período siguiente se recalculará de forma acumulativa.
 - La estimación del próximo resumen usará saldo anterior, pagos proyectados y gastos/cargos del período actual.
 - La importación CSV del banco dejará de ser la fuente de los pagos ya registrados y se usará solo para ajustes adicionales no modelados previamente, como intereses, impuestos, retenciones y punitorios.
 - El sistema deberá evitar duplicar pagos si luego se importa un CSV que también contiene líneas negativas equivalentes.

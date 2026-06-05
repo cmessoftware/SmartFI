@@ -5,6 +5,7 @@ Este repositorio usa **OpenSpec** como fuente de verdad para especificaciones fu
 Referencias:
 
 - [SmartFI_DOC_NAMMING](SmartFI_DOC_NAMMING.md)
+- [GITEA_CLOUD_DEPLOY](GITEA_CLOUD_DEPLOY.md)
 
 ---
 

@@ -135,6 +135,11 @@ class BudgetItem(Base):
     cloned_from_item_id = Column(Integer, ForeignKey('budget_items.id', ondelete='SET NULL'), nullable=True)
     base_cloned = Column(Float, nullable=True)
     version_source_month = Column(String(7), nullable=True)  # "YYYY-MM"
+    # DBT traceability (DebtRecord source of truth linkage)
+    debt_record_id = Column(Integer, ForeignKey('debt_records.id', ondelete='SET NULL'), nullable=True, index=True)
+    debt_quota_number = Column(Float, nullable=True)
+    debt_total_quotas = Column(Float, nullable=True)
+    debt_source = Column(String(120), nullable=True)
 
 # Backward compatibility alias
 Debt = BudgetItem
@@ -296,6 +301,9 @@ class CreditCardPurchase(Base):
     description = Column(Text, nullable=True)
     installments = Column(Integer, default=1)
     has_financing = Column(Boolean, default=False)
+    movement_type = Column(String(20), nullable=False, default="normal")  # normal | cash_advance
+    cash_advance_fee = Column(Float, nullable=False, default=0.0)
+    derived_debt_id = Column(Integer, ForeignKey('budget_items.id', ondelete='SET NULL'), nullable=True)
     currency = Column(String(3), default="ARS")  # ARS or USD
     exchange_rate = Column(Float, nullable=True)  # Exchange rate at purchase time (for USD purchases)
     amount_in_pesos = Column(Float, nullable=True)  # Total in ARS (for USD: total_amount * exchange_rate)
@@ -505,11 +513,15 @@ class DebtRecord(Base):
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
     debt_name = Column(String(120), nullable=False)
     debt_type = Column(SQLEnum(DebtType, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    debt_source = Column(String(50), nullable=True)
     creditor = Column(String(120), nullable=True)
     currency = Column(String(3), default="ARS", nullable=False)
     principal_amount = Column(Float, nullable=False)
     outstanding_amount = Column(Float, nullable=False)
     annual_interest_rate = Column(Float, nullable=True)
+    total_installments = Column(Float, nullable=True)
+    current_installment = Column(Float, nullable=True)
+    pending_installments = Column(Float, nullable=True)
     start_date = Column(Date, nullable=True)
     due_date = Column(Date, nullable=True)
     status = Column(SQLEnum(DebtRecordStatus, values_callable=lambda x: [e.value for e in x]), default=DebtRecordStatus.ACTIVA, nullable=False)

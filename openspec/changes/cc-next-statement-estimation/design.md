@@ -31,6 +31,10 @@ La pantalla del resumen y las APIs de cálculo usarán como fuente principal el 
 
 Si el CSV contiene una línea negativa equivalente a un pago ya proyectado, el sistema no creará un segundo movimiento; deberá reconocerla como representada y omitir su duplicación o marcarla como conciliada.
 
+### D4: Recalcular pendiente proyectado ante pagos parciales sucesivos
+
+El pendiente estimado del próximo período se calculará de forma acumulativa con base en el total del período actual menos todos los pagos registrados en ese período. Cada alta/edición/eliminación de pago deberá actualizar la proyección para reflejar el nuevo saldo remanente.
+
 ## Risks / Trade-offs
 
 - [Risk: duplicación de movimientos al importar CSV] -> Mitigación: deduplicación por tipo, importe, período y proximidad de fecha.

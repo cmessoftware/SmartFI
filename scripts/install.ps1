@@ -1,7 +1,7 @@
-# Finly Installation Script
-# This script sets up the entire Finly application
+# SmartFI Installation Script
+# This script sets up the entire SmartFI application
 
-Write-Host "🔧 Finly Installation Script" -ForegroundColor Cyan
+Write-Host "🔧 SmartFI Installation Script" -ForegroundColor Cyan
 Write-Host "=============================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -42,17 +42,17 @@ Write-Host ""
 if ($condaAvailable) {
     Write-Host "🐍 Setting up Conda environment..." -ForegroundColor Yellow
     
-    # Check if finly environment exists
-    $envExists = conda env list | Select-String -Pattern "finly"
+    # Check if SmartFI environment exists
+    $envExists = conda env list | Select-String -Pattern "SmartFI"
     
     if ($envExists) {
-        Write-Host "✅ Conda environment 'finly' already exists" -ForegroundColor Green
+        Write-Host "✅ Conda environment 'SmartFI' already exists" -ForegroundColor Green
     } else {
-        Write-Host "Creating conda environment 'finly' with Python 3.9..." -ForegroundColor Cyan
-        conda create -n finly python=3.9 -y
+        Write-Host "Creating conda environment 'SmartFI' with Python 3.9..." -ForegroundColor Cyan
+        conda create -n SmartFI python=3.9 -y
         
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "✅ Conda environment 'finly' created successfully" -ForegroundColor Green
+            Write-Host "✅ Conda environment 'SmartFI' created successfully" -ForegroundColor Green
         } else {
             Write-Host "❌ Failed to create conda environment" -ForegroundColor Red
             Write-Host "   Falling back to Python venv..." -ForegroundColor Yellow
@@ -94,8 +94,8 @@ if (!(Test-Path ".env")) {
 
 # Install dependencies in the appropriate environment
 if ($condaAvailable) {
-    Write-Host "Installing packages in 'finly' conda environment..." -ForegroundColor Cyan
-    conda run -n finly pip install -r requirements.txt
+    Write-Host "Installing packages in 'SmartFI' conda environment..." -ForegroundColor Cyan
+    conda run -n SmartFI pip install -r requirements.txt
 } elseif ($useVenv) {
     Write-Host "Installing packages in virtual environment..." -ForegroundColor Cyan
     if ($IsWindows -or $env:OS -match "Windows") {
@@ -152,7 +152,7 @@ Write-Host "🎉 Installation Complete!" -ForegroundColor Green
 Write-Host ""
 
 if ($condaAvailable) {
-    Write-Host "📌 Conda environment 'finly' is ready!" -ForegroundColor Cyan
+    Write-Host "📌 Conda environment 'SmartFI' is ready!" -ForegroundColor Cyan
     Write-Host ""
 } elseif ($useVenv) {
     Write-Host "📌 Python virtual environment 'venv' is ready!" -ForegroundColor Cyan
@@ -171,7 +171,7 @@ Write-Host ""
 
 if ($condaAvailable) {
     Write-Host "Or start services manually with conda:" -ForegroundColor Yellow
-    Write-Host "   Backend:  cd backend && conda run -n finly python main.py" -ForegroundColor Gray
+    Write-Host "   Backend:  cd backend && conda run -n SmartFI python main.py" -ForegroundColor Gray
     Write-Host "   Frontend: cd frontend && npm run dev" -ForegroundColor Gray
 } elseif ($useVenv) {
     Write-Host "Or start services manually with venv:" -ForegroundColor Yellow

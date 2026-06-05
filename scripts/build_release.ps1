@@ -1,7 +1,7 @@
 # Quick build script with automatic commit hash
 # Usage: .\build.ps1
 
-Write-Host "🔨 Building Finly with automatic version..." -ForegroundColor Cyan
+Write-Host "🔨 Building SmartFI with automatic version..." -ForegroundColor Cyan
 
 # Get current commit hash
 $commitHash = git log -1 --format=%h

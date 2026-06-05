@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Chart as ChartJS, ArcElement, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
 import { Pie, Bar } from 'react-chartjs-2';
-import { debtsAPI, transactionsAPI } from '../services/api';
+import { debtsAPI, debtRecordsAPI, transactionsAPI } from '../services/api';
 import { useToast } from './ToastContainer';
 import ConfirmDialog from './ConfirmDialog';
 import { formatDate, toISODate } from '../utils/dateUtils';
@@ -9,6 +9,8 @@ import { exportToCsv } from '../utils/csvExport';
 import BudgetCSVImport from './BudgetCSVImport';
 import EditDebtModal from './EditDebtModal';
 import NewDebtModal from './NewDebtModal';
+import EditBudgetItemModal from './EditBudgetItemModal';
+import NewBudgetItemModal from './NewBudgetItemModal';
 
 ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
@@ -29,12 +31,13 @@ const getYearMonthKey = (value) => {
   return iso ? iso.slice(0, 7) : '';
 };
 
-export default function DebtManager({ canEdit, isAdmin = false }) {
+export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }) {
+  const isDebtMode = mode === 'debts';
+  const viewLabel = isDebtMode ? 'deudas' : 'presupuesto';
   const now = new Date();
   const chartColors = ['#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#22C55E', '#3B82F6', '#EF4444'];
   const [debts, setDebts] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [summary, setSummary] = useState(null);
   const [newModalOpen, setNewModalOpen] = useState(false);
   const [showCSVImport, setShowCSVImport] = useState(false);
   const [showCloneMonth, setShowCloneMonth] = useState(false);
@@ -68,14 +71,8 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
   // Cargar deudas y resumen
   useEffect(() => {
     loadDebts();
-    loadSummary();
     loadCategories();
   }, []);
-
-  // Recargar summary cuando cambia el mes/año
-  useEffect(() => {
-    loadSummary(filterMonth, filterYear);
-  }, [filterMonth, filterYear]);
 
   useEffect(() => {
     const existingIds = new Set(debts.map((debt) => debt.id));
@@ -84,20 +81,13 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
 
   const loadDebts = async () => {
     try {
-      const response = await debtsAPI.getDebts();
+      const response = isDebtMode
+        ? await debtRecordsAPI.getProjectedDebts()
+        : await debtsAPI.getDebts();
       setDebts(response.data || []);
     } catch (error) {
-      toast.error('Error al cargar presupuesto');
+      toast.error(`Error al cargar ${viewLabel}`);
       console.error('Error loading debts:', error);
-    }
-  };
-
-  const loadSummary = async (month, year) => {
-    try {
-      const response = await debtsAPI.getDebtSummary(month || filterMonth, year || filterYear);
-      setSummary(response.data);
-    } catch (error) {
-      console.error('Error loading debt summary:', error);
     }
   };
 
@@ -130,14 +120,17 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
 
   const handleSaveEdit = async (updatedData) => {
     try {
-      await debtsAPI.updateDebt(debtToEdit.id, updatedData);
-      toast.success('Item de presupuesto actualizado correctamente');
+      if (isDebtMode) {
+        await debtRecordsAPI.updateDebt(debtToEdit.id, updatedData);
+      } else {
+        await debtsAPI.updateDebt(debtToEdit.id, updatedData);
+      }
+      toast.success(isDebtMode ? 'Deuda actualizada correctamente' : 'Item de presupuesto actualizado correctamente');
       setEditModalOpen(false);
       setDebtToEdit(null);
       loadDebts();
-      loadSummary();
     } catch (error) {
-      toast.error('Error al actualizar item');
+      toast.error(isDebtMode ? 'Error al actualizar deuda' : 'Error al actualizar item de presupuesto');
       console.error('Error updating debt:', error);
     }
   };
@@ -159,17 +152,20 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
 
   const handleDeleteConfirm = async () => {
     try {
-      await debtsAPI.deleteDebt(deleteDialog.debtId);
-      toast.success('Item de presupuesto eliminado correctamente');
+      if (isDebtMode) {
+        await debtRecordsAPI.deleteDebt(deleteDialog.debtId);
+      } else {
+        await debtsAPI.deleteDebt(deleteDialog.debtId);
+      }
+      toast.success(isDebtMode ? 'Deuda eliminada correctamente' : 'Item de presupuesto eliminado correctamente');
       loadDebts();
-      loadSummary();
     } catch (error) {
       if (error.response?.status === 400) {
         // Mostrar el mensaje específico del backend
         const message = error.response?.data?.detail || 'No se puede eliminar un item con transacciones asociadas';
         toast.error(message);
       } else {
-        toast.error('Error al eliminar item');
+        toast.error(isDebtMode ? 'Error al eliminar deuda' : 'Error al eliminar item');
       }
       console.error('Error deleting debt:', error);
     }
@@ -213,7 +209,11 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
     try {
       for (const debtId of selectedDebtIds) {
         try {
-          await debtsAPI.deleteDebt(debtId);
+          if (isDebtMode) {
+            await debtRecordsAPI.deleteDebt(debtId);
+          } else {
+            await debtsAPI.deleteDebt(debtId);
+          }
           deletedCount += 1;
         } catch (error) {
           blockedCount += 1;
@@ -222,11 +222,14 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
       }
 
       await loadDebts();
-      await loadSummary();
       setSelectedDebtIds([]);
 
       if (deletedCount > 0) {
-        toast.success(`${deletedCount} item(s) de presupuesto eliminado(s)`);
+        toast.success(
+          isDebtMode
+            ? `${deletedCount} deuda(s) eliminada(s)`
+            : `${deletedCount} item(s) de presupuesto eliminado(s)`
+        );
       }
       if (blockedCount > 0) {
         toast.warning(`${blockedCount} item(s) no se pudieron eliminar (pueden tener transacciones vinculadas)`);
@@ -266,7 +269,9 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('es-AR', {
       style: 'currency',
-      currency: 'ARS'
+      currency: 'ARS',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(amount);
   };
 
@@ -319,7 +324,6 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
       toast.success(`${data.cloned_count} items clonados al mes ${targetMonth}/${targetYear}`);
       setShowCloneMonth(false);
       loadDebts();
-      loadSummary();
     } catch (error) {
       const detail = error?.response?.data?.detail || error.message;
       toast.error(`Error al clonar: ${detail}`);
@@ -341,11 +345,61 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
 
   const monthScopedDebts = useMemo(() => {
     const selectedKey = `${filterYear}-${String(filterMonth).padStart(2, '0')}`;
-    return debts.filter((debt) => {
-      const key = getYearMonthKey(debt.fecha_vencimiento || debt.fecha);
-      return key === selectedKey;
-    });
-  }, [debts, filterMonth, filterYear]);
+    if (!isDebtMode) {
+      return debts.filter((debt) => {
+        const key = getYearMonthKey(debt.fecha_vencimiento || debt.fecha);
+        return key === selectedKey;
+      });
+    }
+
+    return debts
+      .map((debt) => {
+        const projectionForMonth = debt.projection_by_month?.[selectedKey];
+        if (!projectionForMonth) {
+          return null;
+        }
+
+        return {
+          ...debt,
+          fecha: projectionForMonth.fecha || debt.fecha,
+          fecha_vencimiento: projectionForMonth.fecha_vencimiento || debt.fecha_vencimiento || debt.fecha,
+          monto_total: Number(debt.monto_total ?? 0),
+          monto_ejecutado: Number(debt.monto_ejecutado ?? debt.monto_pagado ?? 0),
+          monto_pagado: Number(debt.monto_pagado ?? debt.monto_ejecutado ?? 0),
+          status: projectionForMonth.status || debt.status,
+        };
+      })
+      .filter(Boolean);
+  }, [debts, filterMonth, filterYear, isDebtMode]);
+
+  const summary = useMemo(() => {
+    return monthScopedDebts.reduce(
+      (acc, debt) => {
+        const montoTotal = Number(debt.monto_total || 0);
+        const montoEjecutado = Number(debt.monto_ejecutado ?? debt.monto_pagado ?? 0);
+        const remaining = Math.max(0, montoTotal - montoEjecutado);
+
+        acc.total_debts += 1;
+        acc.total_estimated_payment += Number(debt.estimated_payment ?? debt.monto_total ?? 0);
+
+        if (debt.status === 'VENCIDA') {
+          acc.overdue_count += 1;
+          acc.overdue_amount += remaining;
+        } else if (debt.status !== 'PAGADA') {
+          acc.pending_amount += remaining;
+        }
+
+        return acc;
+      },
+      {
+        total_debts: 0,
+        total_estimated_payment: 0,
+        pending_amount: 0,
+        overdue_count: 0,
+        overdue_amount: 0,
+      }
+    );
+  }, [monthScopedDebts]);
 
   const monthIncomeTotal = useMemo(() => {
     return monthScopedDebts
@@ -527,7 +581,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
     const gastosDebts = displayedDebts.filter(debt => debt.tipo_flujo === 'Gasto');
     
     gastosDebts.forEach(debt => {
-      if (debt.estado === 'PAGADA') return;
+      if (debt.status === 'PAGADA') return;
       
       const fechaVenc = new Date(debt.fecha_vencimiento || debt.fecha);
       fechaVenc.setHours(0, 0, 0, 0);
@@ -635,7 +689,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
       {summary && (
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div className="bg-white p-4 rounded-lg shadow-sm border">
-            <p className="text-sm text-gray-600">Items Presupuesto</p>
+            <p className="text-sm text-gray-600">{isDebtMode ? 'Deudas del Mes' : 'Presupuesto del Mes'}</p>
             <p className="text-2xl font-bold text-gray-900">{summary.total_debts}</p>
           </div>
           <div className="bg-white p-4 rounded-lg shadow-sm border">
@@ -837,22 +891,26 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
                 onClick={() => setNewModalOpen(true)}
                 className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
               >
-                + Nuevo Item
+                {isDebtMode ? '+ Nueva Deuda' : '+ Nuevo Item'}
               </button>
-              <button
-                onClick={() => setShowCSVImport(true)}
-                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
-              >
-                <span>📥</span>
-                <span>Importar CSV</span>
-              </button>
-              <button
-                onClick={() => setShowCloneMonth(true)}
-                className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors flex items-center space-x-2"
-              >
-                <span>📋</span>
-                <span>Clonar Mes</span>
-              </button>
+              {!isDebtMode && (
+                <button
+                  onClick={() => setShowCSVImport(true)}
+                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
+                >
+                  <span>📥</span>
+                  <span>Importar CSV</span>
+                </button>
+              )}
+              {!isDebtMode && (
+                <button
+                  onClick={() => setShowCloneMonth(true)}
+                  className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors flex items-center space-x-2"
+                >
+                  <span>📋</span>
+                  <span>Clonar Mes</span>
+                </button>
+              )}
             </>
           )}
           <button
@@ -886,7 +944,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
       )}
 
       {/* Importación CSV */}
-      {showCSVImport && (
+      {!isDebtMode && showCSVImport && (
         <div className="bg-gray-50 rounded-lg p-4">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-semibold">Importar Presupuestos desde CSV</h3>
@@ -901,14 +959,13 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
             onImportSuccess={() => {
               setShowCSVImport(false);
               loadDebts();
-              loadSummary();
             }}
           />
         </div>
       )}
 
       {/* Modal Clonar Mes */}
-      {showCloneMonth && (
+      {!isDebtMode && showCloneMonth && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
             <div className="flex justify-between items-center mb-4">
@@ -977,10 +1034,10 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
         </div>
       )}
 
-      {!showCSVImport && (
+      {(!showCSVImport || isDebtMode) && (
         <div className="bg-white rounded-lg shadow-sm border p-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-700">Filtros de Presupuesto</h3>
+            <h3 className="text-sm font-semibold text-gray-700">{isDebtMode ? 'Filtros de Deudas' : 'Filtros de Presupuesto'}</h3>
             <button
               onClick={() => {
                 setFilterFechaDesde('');
@@ -1139,14 +1196,18 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
               {paginatedDebts.length === 0 ? (
                 <tr>
                   <td colSpan={canEdit ? "14" : "13"} className="px-4 py-8 text-center text-gray-500">
-                    {debts.length === 0 ? 'No hay items de presupuesto registrados' : 'No hay resultados para los filtros aplicados'}
+                    {debts.length === 0
+                      ? (isDebtMode ? 'No hay deudas registradas' : 'No hay items de presupuesto registrados')
+                      : 'No hay resultados para los filtros aplicados'}
                   </td>
                 </tr>
               ) : (
                 paginatedDebts.map((debt) => {
                   const montoEjecutado = debt.monto_ejecutado ?? debt.monto_pagado ?? 0;
+                  const cuotaActual = Number(debt.current_installment || 0);
+                  const totalCuotas = Number(debt.total_installments || 0);
                   const percentage = debt.total_installments > 0
-                    ? ((debt.paid_installments || 0) / debt.total_installments) * 100
+                    ? (cuotaActual / totalCuotas) * 100
                     : debt.monto_total > 0 
                       ? (montoEjecutado / debt.monto_total) * 100 
                       : 0;
@@ -1229,7 +1290,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
                       <td className="px-4 py-3 text-center">
                         <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusBadge(debt.status)}`}>
                           {getStatusText(debt.status)}
-                          {debt.total_installments > 0 && ` ${debt.paid_installments || 0}/${debt.total_installments}`}
+                          {debt.total_installments > 0 && ` ${cuotaActual}/${totalCuotas}`}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">
@@ -1313,7 +1374,7 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
         isOpen={deleteDialog.isOpen}
         onClose={() => setDeleteDialog({ isOpen: false, debtId: null, debtName: '' })}
         onConfirm={handleDeleteConfirm}
-        title="Eliminar Item de Presupuesto"
+        title={isDebtMode ? 'Eliminar Deuda' : 'Eliminar Item de Presupuesto'}
         message={`¿Está seguro de eliminar "${deleteDialog.debtName}"?`}
         type="danger"
       />
@@ -1326,31 +1387,52 @@ export default function DebtManager({ canEdit, isAdmin = false }) {
           }
         }}
         onConfirm={handleBulkDeleteConfirm}
-        title="Eliminar Items Seleccionados"
-        message={`¿Está seguro de eliminar ${selectedDebtIds.length} item(s) seleccionados del presupuesto?`}
+        title={isDebtMode ? 'Eliminar Deudas Seleccionadas' : 'Eliminar Items Seleccionados'}
+        message={isDebtMode
+          ? `¿Está seguro de eliminar ${selectedDebtIds.length} deuda(s) seleccionada(s)?`
+          : `¿Está seguro de eliminar ${selectedDebtIds.length} item(s) seleccionados del presupuesto?`}
         type="danger"
-        confirmText={isBulkDeleting ? 'Eliminando...' : 'Eliminar seleccionados'}
+        confirmText={isBulkDeleting ? 'Eliminando...' : (isDebtMode ? 'Eliminar deudas seleccionadas' : 'Eliminar seleccionados')}
       />
 
       {/* Edit Debt Modal */}
       {editModalOpen && (
-        <EditDebtModal
-          debt={debtToEdit}
-          onSave={handleSaveEdit}
-          onClose={handleCloseEditModal}
-          categories={categories}
-        />
+        isDebtMode ? (
+          <EditDebtModal
+            debt={debtToEdit}
+            onSave={handleSaveEdit}
+            onClose={handleCloseEditModal}
+            categories={categories}
+          />
+        ) : (
+          <EditBudgetItemModal
+            debt={debtToEdit}
+            onSave={handleSaveEdit}
+            onClose={handleCloseEditModal}
+            categories={categories}
+          />
+        )
       )}
 
       {/* New Debt Modal */}
-      <NewDebtModal
-        isOpen={newModalOpen}
-        onClose={() => setNewModalOpen(false)}
-        onSuccess={() => {
-          loadDebts();
-          loadSummary();
-        }}
-      />
+      {isDebtMode ? (
+        <NewDebtModal
+          isOpen={newModalOpen}
+          onClose={() => setNewModalOpen(false)}
+          onCreateDebt={debtRecordsAPI.createDebt}
+          onSuccess={() => {
+            loadDebts();
+          }}
+        />
+      ) : (
+        <NewBudgetItemModal
+          isOpen={newModalOpen}
+          onClose={() => setNewModalOpen(false)}
+          onSuccess={() => {
+            loadDebts();
+          }}
+        />
+      )}
 
       {lineageModal.open && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">

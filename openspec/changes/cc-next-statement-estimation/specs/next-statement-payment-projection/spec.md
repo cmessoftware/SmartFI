@@ -21,3 +21,14 @@ La estimación del próximo resumen SHALL incluir saldo anterior, pagos proyecta
 #### Scenario: Estimación sin CSV bancario
 - **WHEN** aún no se importó el extracto del banco
 - **THEN** el sistema igualmente muestra la estimación del próximo resumen con base en movimientos ya registrados internamente
+
+### Requirement: Pagos parciales actualizan el pendiente proyectado del próximo período
+Cuando un pago no cubre el total del período actual, el sistema SHALL trasladar el saldo remanente al pendiente estimado del período siguiente y SHALL recalcularlo cada vez que cambian los pagos del período actual.
+
+#### Scenario: Pago parcial inicial
+- **WHEN** el total del período actual es $1000 y el usuario registra un pago de $400
+- **THEN** el pendiente estimado del período siguiente considera un remanente de $600 para ese período
+
+#### Scenario: Nuevo pago reduce remanente proyectado
+- **WHEN** luego del pago parcial anterior el usuario registra otro pago de $300 en el mismo período
+- **THEN** el remanente proyectado del período siguiente se actualiza de $600 a $300 sin duplicaciones

@@ -3,7 +3,8 @@ function Sidebar({ user, currentView, setCurrentView, onLogout }) {
     { id: 'dashboard', label: 'Panel Principal', icon: '📊', roles: ['ADMIN', 'WRITER', 'READER'] },
     { id: 'add', label: 'Cargar Gasto/Ingreso', icon: '➕', roles: ['ADMIN', 'WRITER'] },
     { id: 'reports', label: 'Reportes', icon: '📈', roles: ['ADMIN', 'WRITER', 'READER'] },
-    { id: 'debts', label: 'Presupuesto', icon: '📊', roles: ['ADMIN', 'WRITER', 'READER'] },
+    { id: 'budget', label: 'Presupuesto', icon: '📋', roles: ['ADMIN', 'WRITER', 'READER'] },
+    { id: 'debts', label: 'Deudas', icon: '💼', roles: ['ADMIN', 'WRITER', 'READER'] },
     { id: 'credit-cards', label: 'Tarjetas de Crédito', icon: '💳', roles: ['ADMIN', 'WRITER', 'READER'] },
     { id: 'admin', label: 'Administración', icon: '⚙️', roles: ['ADMIN'] },
   ];

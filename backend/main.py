@@ -12,9 +12,9 @@ if sys.platform == "win32":
 
 from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional, List
-from datetime import datetime, timedelta
-from pydantic import BaseModel
+from typing import Optional, List, Literal
+from datetime import datetime, timedelta, date
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from database.database import SessionLocal, get_db, Transaction as DBTransaction, Debt as DBDebt, AppSetting, User as DBUser, MonthlyBalance as DBMonthlyBalance
 from security.auth_dependencies import get_current_user, require_role, require_permission
@@ -191,8 +191,8 @@ class CreditCardPurchaseCreate(BaseModel):
     interest_rate: Optional[float] = 0.0
     plan_type: Optional[str] = "MANUAL"  # MANUAL or AUTOMATIC
     currency: Optional[str] = "ARS"  # ARS or USD
-    movement_type: Optional[str] = "normal"  # normal or cash_advance
-    cash_advance_fee: Optional[float] = 0.0  # percentage value, e.g. 7.5
+    movement_type: Optional[str] = "normal"  # normal | cash_advance
+    cash_advance_fee: Optional[float] = 0.0
 
 class InstallmentPayment(BaseModel):
     payment_date: str  # ISO format
@@ -207,6 +207,52 @@ class CreditCardBulkPurchaseItem(BaseModel):
     installments: int = 1
     interest_rate: Optional[float] = 0.0
     detalle: Optional[str] = None
+    movement_type: Optional[str] = "normal"
+    cash_advance_fee: Optional[float] = 0.0
+
+
+# Debt Records Models (DBT module source of truth)
+class DebtRecordCreate(BaseModel):
+    debt_name: str = Field(..., min_length=1, max_length=120)
+    debt_type: Literal["TARJETA", "PRESTAMO", "HIPOTECA", "PERSONAL", "OTRO"]
+    debt_source: Optional[str] = Field(default=None, max_length=50)
+    creditor: Optional[str] = Field(default=None, max_length=120)
+    currency: str = Field(default="ARS", min_length=3, max_length=3)
+    principal_amount: float = Field(..., gt=0)
+    outstanding_amount: Optional[float] = Field(default=None, ge=0)
+    annual_interest_rate: Optional[float] = Field(default=None, ge=0)
+    total_installments: Optional[float] = Field(default=None, gt=0)
+    current_installment: Optional[float] = Field(default=None, ge=0)
+    pending_installments: Optional[float] = Field(default=None, ge=0)
+    start_date: Optional[date] = None
+    due_date: Optional[date] = None
+    status: Optional[Literal["ACTIVA", "CANCELADA", "VENCIDA"]] = "ACTIVA"
+    notes: Optional[str] = None
+
+
+class DebtRecordUpdate(BaseModel):
+    debt_name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    debt_type: Optional[Literal["TARJETA", "PRESTAMO", "HIPOTECA", "PERSONAL", "OTRO"]] = None
+    debt_source: Optional[str] = Field(default=None, max_length=50)
+    creditor: Optional[str] = Field(default=None, max_length=120)
+    currency: Optional[str] = Field(default=None, min_length=3, max_length=3)
+    principal_amount: Optional[float] = Field(default=None, gt=0)
+    outstanding_amount: Optional[float] = Field(default=None, ge=0)
+    annual_interest_rate: Optional[float] = Field(default=None, ge=0)
+    total_installments: Optional[float] = Field(default=None, gt=0)
+    current_installment: Optional[float] = Field(default=None, ge=0)
+    pending_installments: Optional[float] = Field(default=None, ge=0)
+    start_date: Optional[date] = None
+    due_date: Optional[date] = None
+    status: Optional[Literal["ACTIVA", "CANCELADA", "VENCIDA"]] = None
+    notes: Optional[str] = None
+
+
+class DebtPaymentCreate(BaseModel):
+    payment_date: Optional[date] = None
+    amount: float = Field(..., gt=0)
+    transaction_id: Optional[int] = None
+    notes: Optional[str] = None
 
 # ── Security routers ─────────────────────────────────────────
 from security.auth_router import router as auth_router
@@ -1423,6 +1469,9 @@ async def create_purchase(
             }
         else:
             raise HTTPException(status_code=500, detail="Failed to create purchase")
+    except ValueError as e:
+        print(f"⚠️ Validation error creating purchase: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         print(f"❌ Error creating purchase: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1536,6 +1585,9 @@ async def update_purchase(
             raise HTTPException(status_code=404, detail="Purchase not found")
     except HTTPException:
         raise
+    except ValueError as e:
+        print(f"⚠️ Validation error updating purchase: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         print(f"❌ Error updating purchase: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1697,7 +1749,9 @@ async def bulk_import_credit_card_purchases(
                 'purchase_date': purchase.purchase_date,
                 'installments': purchase.installments,
                 'interest_rate': purchase.interest_rate or 0.0,
-                'category': 'General'
+                'category': 'General',
+                'movement_type': purchase.movement_type or 'normal',
+                'cash_advance_fee': purchase.cash_advance_fee or 0.0,
             }
             purchase_id = credit_card_service.create_purchase(purchase_data)
             if purchase_id:
@@ -1984,7 +2038,27 @@ async def get_debt_records(
     """List all debt records for the current user."""
     if not debt_record_service:
         raise HTTPException(status_code=503, detail="Debt Record service not configured")
-    return debt_record_service.get_debt_records(user_id=current_user.id, status=status)
+    normalized_status = status.upper() if isinstance(status, str) else None
+    if normalized_status not in {"ACTIVA", "CANCELADA", "VENCIDA"}:
+        normalized_status = None
+    return debt_record_service.get_debt_records(user_id=current_user.id, status=normalized_status)
+
+
+@app.get("/api/debt-records/projected")
+async def get_debt_records_projected(
+    status: Optional[str] = None,
+    current_user: DBUser = Depends(require_permission("debt_records.read"))
+):
+    """List debt records enriched with linked budget projection state."""
+    if not debt_record_service:
+        raise HTTPException(status_code=503, detail="Debt Record service not configured")
+    normalized_status = status.upper() if isinstance(status, str) else None
+    if normalized_status not in {"ACTIVA", "CANCELADA", "VENCIDA"}:
+        normalized_status = None
+    return debt_record_service.get_debt_records_with_projection(
+        user_id=current_user.id,
+        status=normalized_status
+    )
 
 
 @app.get("/api/debt-records/{record_id}")
@@ -2003,14 +2077,14 @@ async def get_debt_record(
 
 @app.post("/api/debt-records", status_code=201)
 async def create_debt_record(
-    data: dict,
+    data: DebtRecordCreate,
     current_user: DBUser = Depends(require_permission("debt_records.write"))
 ):
     """Create a new debt record."""
     if not debt_record_service:
         raise HTTPException(status_code=503, detail="Debt Record service not configured")
     try:
-        return debt_record_service.create_debt_record(data=data, user_id=current_user.id)
+        return debt_record_service.create_debt_record(data=data.dict(exclude_none=True), user_id=current_user.id)
     except (KeyError, ValueError) as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -2020,14 +2094,17 @@ async def create_debt_record(
 @app.put("/api/debt-records/{record_id}")
 async def update_debt_record(
     record_id: int,
-    data: dict,
+    data: DebtRecordUpdate,
     current_user: DBUser = Depends(require_permission("debt_records.write"))
 ):
     """Update a debt record."""
     if not debt_record_service:
         raise HTTPException(status_code=503, detail="Debt Record service not configured")
+    payload = data.dict(exclude_unset=True)
+    if not payload:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
     result = debt_record_service.update_debt_record(
-        record_id=record_id, data=data, user_id=current_user.id
+        record_id=record_id, data=payload, user_id=current_user.id
     )
     if not result:
         raise HTTPException(status_code=404, detail="Debt record not found")
@@ -2065,7 +2142,7 @@ async def get_debt_payments(
 @app.post("/api/debt-records/{record_id}/payments", status_code=201)
 async def add_debt_payment(
     record_id: int,
-    data: dict,
+    data: DebtPaymentCreate,
     current_user: DBUser = Depends(require_permission("debt_records.write"))
 ):
     """Register a payment against a debt record."""
@@ -2073,7 +2150,7 @@ async def add_debt_payment(
         raise HTTPException(status_code=503, detail="Debt Record service not configured")
     try:
         result = debt_record_service.add_payment(
-            debt_record_id=record_id, data=data, user_id=current_user.id
+            debt_record_id=record_id, data=data.dict(exclude_none=True), user_id=current_user.id
         )
         if result is None:
             raise HTTPException(status_code=404, detail="Debt record not found")
