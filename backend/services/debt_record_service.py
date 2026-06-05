@@ -5,6 +5,7 @@ from database.database import (
 )
 from datetime import date, datetime
 import calendar
+import math
 import logging
 
 logger = logging.getLogger(__name__)
@@ -68,11 +69,22 @@ class DebtRecordService:
             return 0.0
 
         pending = float(record.pending_installments) if record.pending_installments is not None else None
-        if pending and pending > 0:
-            return outstanding / pending
+        if pending is None or pending <= 0:
+            count = self._projection_installment_count(record)
+            pending = float(count if count > 0 else 1)
 
-        count = self._projection_installment_count(record)
-        return outstanding / count if count > 0 else outstanding
+        annual_rate = float(record.annual_interest_rate or 0)
+        # Use fixed-payment annuity when there is annual interest and pending installments are whole numbers.
+        # For fractional pending installments (e.g., after partial payments), keep proportional fallback.
+        if annual_rate > 0 and abs(pending - round(pending)) < 1e-9:
+            monthly_rate = annual_rate / 100.0 / 12.0
+            n = int(round(pending))
+            if monthly_rate > 0 and n > 0:
+                denominator = 1.0 - math.pow(1.0 + monthly_rate, -n)
+                if denominator > 0:
+                    return outstanding * monthly_rate / denominator
+
+        return outstanding / pending
 
     def _build_projection_detail(self, record: DebtRecord) -> str:
         quota_label = ""
@@ -113,6 +125,9 @@ class DebtRecordService:
         if total is not None and current is not None and current > total:
             raise ValueError("current_installment cannot be greater than total_installments")
 
+        if current is None and total is not None:
+            current = 1.0
+
         if pending is None and total is not None and current is not None:
             pending = max(0.0, total - current + 1.0)
 
@@ -120,6 +135,26 @@ class DebtRecordService:
         normalized["current_installment"] = current
         normalized["pending_installments"] = pending
         return normalized
+
+    def _resolve_due_date(self, start_date_value, due_date_value):
+        start_date = _parse_date(start_date_value)
+        due_date = _parse_date(due_date_value)
+        if due_date is not None:
+            return due_date
+        if start_date is not None:
+            return self._add_months(start_date, 1)
+        return None
+
+    def _reconcile_projection_if_needed(self, record: DebtRecord, projections_for_record: list) -> bool:
+        expected_months = {month_key for month_key, _, _ in self._projection_schedule(record)}
+        existing_months = {
+            p.version_source_month for p in projections_for_record if p.version_source_month
+        }
+
+        if expected_months != existing_months:
+            self._upsert_budget_projection(record)
+            return True
+        return False
 
     def _upsert_budget_projection(self, record: DebtRecord):
         """Create/update monthly budget projections linked to a debt record."""
@@ -196,6 +231,9 @@ class DebtRecordService:
             "version_source_month": projection.version_source_month,
         }
 
+    def _projection_sort_key(self, projection: BudgetItem):
+        return (projection.version_source_month or "", projection.id)
+
     def get_debt_records(self, user_id: int, status: str = None) -> list:
         """Return all debt records for a user, optionally filtered by status."""
         q = self.db.query(DebtRecord).filter(DebtRecord.user_id == user_id)
@@ -230,29 +268,45 @@ class DebtRecordService:
         for p in projections:
             by_record.setdefault(p.debt_record_id, []).append(p)
 
+        reconciled_any = False
+        for record in records:
+            projections_for_record = by_record.get(record.id, [])
+            if self._reconcile_projection_if_needed(record, projections_for_record):
+                reconciled_any = True
+
+        if reconciled_any:
+            self.db.commit()
+            projections = self.db.query(BudgetItem).filter(
+                BudgetItem.user_id == user_id,
+                BudgetItem.debt_record_id.in_(record_ids)
+            ).all() if record_ids else []
+            by_record = {}
+            for p in projections:
+                by_record.setdefault(p.debt_record_id, []).append(p)
+
         result = []
         for record in records:
             projections_for_record = by_record.get(record.id, [])
+            projections_sorted = sorted(projections_for_record, key=self._projection_sort_key)
             projection_current = None
-            if projections_for_record and record.current_installment is not None:
+            if projections_sorted and record.current_installment is not None:
                 current = float(record.current_installment)
                 projection_current = next(
                     (
-                        p for p in projections_for_record
+                        p for p in projections_sorted
                         if p.debt_quota_number is not None and abs(float(p.debt_quota_number) - current) < 0.0001
                     ),
                     None,
                 )
 
-            if projection_current is None and projections_for_record:
-                projection_current = sorted(
-                    projections_for_record,
-                    key=lambda i: (i.version_source_month or "", i.id)
-                )[0]
+            if projection_current is None and projections_sorted:
+                projection_current = projections_sorted[0]
 
             item = self._record_to_dict(record)
-            item["projection_count"] = len(projections_for_record)
+            item["projection_count"] = len(projections_sorted)
             item["projection_current"] = self._projection_to_dict(projection_current)
+            item["projections"] = [self._projection_to_dict(p) for p in projections_sorted]
+            item["projection_months"] = [p.version_source_month for p in projections_sorted if p.version_source_month]
             result.append(item)
 
         return result
@@ -270,6 +324,8 @@ class DebtRecordService:
     def create_debt_record(self, data: dict, user_id: int) -> dict:
         """Create a new debt record."""
         payload = self._normalize_installments(data)
+        start_date = _parse_date(payload.get("start_date"))
+        due_date = self._resolve_due_date(start_date, payload.get("due_date"))
         record = DebtRecord(
             user_id=user_id,
             debt_name=payload["debt_name"],
@@ -283,11 +339,13 @@ class DebtRecordService:
             total_installments=payload.get("total_installments"),
             current_installment=payload.get("current_installment"),
             pending_installments=payload.get("pending_installments"),
-            start_date=_parse_date(payload.get("start_date")),
-            due_date=_parse_date(payload.get("due_date")),
+            start_date=start_date,
+            due_date=due_date,
             status=DebtRecordStatus(payload.get("status", DebtRecordStatus.ACTIVA.value)),
             notes=payload.get("notes"),
         )
+        if record.due_date is None and record.start_date is not None:
+            record.due_date = self._add_months(record.start_date, 1)
         self.db.add(record)
         self.db.flush()
         self._upsert_budget_projection(record)
@@ -323,7 +381,10 @@ class DebtRecordService:
         if "start_date" in payload:
             record.start_date = _parse_date(payload["start_date"])
         if "due_date" in payload:
-            record.due_date = _parse_date(payload["due_date"])
+            record.due_date = self._resolve_due_date(record.start_date, payload["due_date"])
+        elif record.due_date is None and record.start_date is not None:
+            # Keep date semantics stable for old records edited without an explicit due_date.
+            record.due_date = self._add_months(record.start_date, 1)
 
         record.updated_at = datetime.utcnow()
         self._upsert_budget_projection(record)

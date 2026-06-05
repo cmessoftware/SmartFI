@@ -269,7 +269,7 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess, yearMonth, on
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-finly-text mb-2">Cuota actual (X)</label>
+              <label className="block text-sm font-medium text-finly-text mb-2">Cuota actual (X, proxima a pagar)</label>
               <input
                 type="number"
                 name="current_installment"
@@ -280,6 +280,7 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess, yearMonth, on
                 placeholder="Ej: 3"
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
               />
+              <p className="text-xs text-gray-500 mt-1">Si ya pagaste 4 cuotas, la cuota actual es 5.</p>
             </div>
 
             <div className="md:col-span-2">

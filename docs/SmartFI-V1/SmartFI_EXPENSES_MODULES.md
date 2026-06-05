@@ -34,8 +34,15 @@
 | EXP-BUG-009 | Alta | ✅ Resuelto | Error en alta masiva desde CSV (incluye respuestas 401 intermitentes) |
 | EXP-BUG-010 | Alta | ✅ Resuelto | Al editar un gasto no persistía la vinculación a item de presupuesto tras recargar/cambiar de vista |
 | EXP-BUG-011 | Alta | ✅ Resuelto | Inconsistencia en abril 2026: total de ingresos en panel no coincidía con suma de ingresos en tabla/CSV |
-| EXP-BUG-012 | 📋 Backlog | **Datos sucios en combo categorias** | Limpiar categorias mal cargadas, en altas masivas considerar solo las categorias cargadas en modulo admin, sino usar categoria (sin clasificar), crearla sino existe.|
-| EXP-BUG-013 | ✅ Resuelto| **No coincide el reporte post cierre con el reporte de mes** |parece que esta sumando gastos y presupuesto de cuotas a vencern el futuro, o hay un calculo mas de fechas, o ambos. |
+| EXP-BUG-012 | Baja |📋 Backlog | **Datos sucios en combo categorias** | Limpiar categorias mal cargadas, en altas masivas considerar solo las categorias cargadas en modulo admin, sino usar categoria (sin clasificar), crearla sino existe.|
+| EXP-BUG-013 | Alta |✅ Resuelto| **No coincide el reporte post cierre con el reporte de mes** |parece que esta sumando gastos y presupuesto de cuotas a vencern el futuro, o hay un calculo mas de fechas, o ambos. |
+| EXP-BUG-014 | Alta | ✅ Resuelto | Opción de carga masiva eliminada |En la pantalla de carga de gastos/ingresos se eliminó opción de carga masiva por csv |
+| EXP-BUG-015 | Alta |✅ Resuelto |En Deudas, `monto_total` tomaba el valor de la cuota proyectada. Fix revisión: `monto_total` usa siempre `principal_amount` del debt-record y `monto_a_pagar` (`estimated_payment`) se calcula como total con interés anual (`principal_amount * (1 + annual_interest_rate / 100)`). 
+Revisión 1:✅ Resuelto  ![alt text](image-38.png) - Monto total incorrecto, Monto total a pagar incorecto (tanto que es menos que el monto solicitado) 
+Revisión 2:✅ Resuelto  En ejecutado aparace $0 en vez del monto ya pagado de la deuda. ![alt text](image-39.png)
+Ahora se calcula desde la deuda real (`principal_amount - outstanding_amount`) y no desde la proyección mensual. 
+|
+| EXP-BUG-016 | Baja |📋 Todo | cuando cargo Cuota actual (X, proxima a pagar) se cambia a numero decimal. Por ejemplo cargo 4 y se autoasigna 3.98|
 
 
 **Resumen:** 14 mejoras totales, 11 implementadas (79%), 1 en progreso (7%), 2 en backlog (14%)

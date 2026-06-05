@@ -191,8 +191,8 @@ class CreditCardPurchaseCreate(BaseModel):
     interest_rate: Optional[float] = 0.0
     plan_type: Optional[str] = "MANUAL"  # MANUAL or AUTOMATIC
     currency: Optional[str] = "ARS"  # ARS or USD
-    movement_type: Optional[str] = "normal"  # normal or cash_advance
-    cash_advance_fee: Optional[float] = 0.0  # percentage value, e.g. 7.5
+    movement_type: Optional[str] = "normal"  # normal | cash_advance
+    cash_advance_fee: Optional[float] = 0.0
 
 class InstallmentPayment(BaseModel):
     payment_date: str  # ISO format
@@ -207,6 +207,8 @@ class CreditCardBulkPurchaseItem(BaseModel):
     installments: int = 1
     interest_rate: Optional[float] = 0.0
     detalle: Optional[str] = None
+    movement_type: Optional[str] = "normal"
+    cash_advance_fee: Optional[float] = 0.0
 
 
 # Debt Records Models (DBT module source of truth)
@@ -1467,6 +1469,9 @@ async def create_purchase(
             }
         else:
             raise HTTPException(status_code=500, detail="Failed to create purchase")
+    except ValueError as e:
+        print(f"⚠️ Validation error creating purchase: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         print(f"❌ Error creating purchase: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1580,6 +1585,9 @@ async def update_purchase(
             raise HTTPException(status_code=404, detail="Purchase not found")
     except HTTPException:
         raise
+    except ValueError as e:
+        print(f"⚠️ Validation error updating purchase: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         print(f"❌ Error updating purchase: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1741,7 +1749,9 @@ async def bulk_import_credit_card_purchases(
                 'purchase_date': purchase.purchase_date,
                 'installments': purchase.installments,
                 'interest_rate': purchase.interest_rate or 0.0,
-                'category': 'General'
+                'category': 'General',
+                'movement_type': purchase.movement_type or 'normal',
+                'cash_advance_fee': purchase.cash_advance_fee or 0.0,
             }
             purchase_id = credit_card_service.create_purchase(purchase_data)
             if purchase_id:

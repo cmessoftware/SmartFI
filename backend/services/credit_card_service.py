@@ -350,23 +350,31 @@ class CreditCardService:
             purchase_id: int
         """
         try:
-            installments = purchase_data.get('installments', 1)
+            installments = int(purchase_data.get('installments', 1) or 1)
+            if installments < 1:
+                raise ValueError("installments must be at least 1")
             has_financing = installments > 1
-            movement_type = purchase_data.get('movement_type', 'normal')
-            cash_advance_fee = float(purchase_data.get('cash_advance_fee', 0.0) or 0.0)
+            movement_type = str(purchase_data.get('movement_type', 'normal')).strip().lower()
+            if movement_type not in ('normal', 'cash_advance'):
+                raise ValueError("movement_type must be 'normal' or 'cash_advance'")
+
+            cash_advance_fee = float(purchase_data.get('cash_advance_fee') or 0.0)
+            if cash_advance_fee < 0:
+                raise ValueError("cash_advance_fee cannot be negative")
+            if cash_advance_fee > 100:
+                raise ValueError("cash_advance_fee cannot exceed 100")
 
             card = self.db.query(CreditCard).filter(CreditCard.id == purchase_data['card_id']).first()
             if not card:
                 raise ValueError(f"Credit card {purchase_data['card_id']} not found")
 
             if movement_type == 'cash_advance':
-                if installments != 1:
-                    raise ValueError("Cash advance purchases must use a single installment")
                 if cash_advance_fee <= 0:
-                    raise ValueError("Cash advance fee percentage must be greater than zero")
-                if cash_advance_fee > 100:
-                    raise ValueError("Cash advance fee percentage cannot exceed 100")
-            else:
+                    raise ValueError("cash_advance_fee is required for cash_advance purchases")
+            if movement_type == 'cash_advance' and installments != 1:
+                raise ValueError("cash_advance purchases must be single installment")
+
+            if movement_type != 'cash_advance':
                 cash_advance_fee = 0.0
             
             # Get amount (support both 'amount' and 'total_amount' for backward compatibility)
@@ -388,9 +396,6 @@ class CreditCardService:
                 exchange_rate = float(setting.value) if setting else 1.0
                 amount_in_pesos = amount * exchange_rate
 
-            amount_for_fee_ars = amount_in_pesos if currency == 'USD' else amount
-            fee_amount = round(float(amount_for_fee_ars) * float(cash_advance_fee) / 100.0, 2)
-
             purchase_date = datetime.strptime(purchase_data['purchase_date'], '%Y-%m-%d').date()
             billing_date = self._calculate_billing_date(purchase_date, currency)
             
@@ -405,23 +410,25 @@ class CreditCardService:
                 description=purchase_data.get('description', ''),
                 installments=installments,
                 has_financing=has_financing,
+                movement_type=movement_type,
+                cash_advance_fee=cash_advance_fee,
                 currency=currency,
                 exchange_rate=exchange_rate,
                 amount_in_pesos=amount_in_pesos,
-                movement_type=movement_type,
-                cash_advance_fee=cash_advance_fee
             )
             
             self.db.add(purchase)
             self.db.flush()
 
-            if movement_type == 'cash_advance':
-                self._upsert_cash_advance_debt(purchase, card, fee_amount)
-                self._upsert_cash_advance_transaction(purchase, card)
-            
             # 2. Only create installment plan for multi-cuota purchases
             if installments > 1:
                 self._create_installment_plan(purchase, purchase_data)
+
+            # 3. Cash advance also creates derived debt in next card period.
+            if movement_type == 'cash_advance':
+                derived_debt = self._upsert_cash_advance_debt(purchase)
+                purchase.derived_debt_id = derived_debt.id
+                self._upsert_cash_advance_transaction(purchase, card)
             
             self.db.commit()
             self.db.refresh(purchase)
@@ -433,6 +440,90 @@ class CreditCardService:
             self.db.rollback()
             logger.error(f"❌ Error creating purchase: {e}")
             raise
+
+    def _calculate_period_due_date(self, card_id: int, year: int, month: int) -> date:
+        """Return due date for a period using per-period config fallback."""
+        from calendar import monthrange
+
+        _, due_day = self._get_period_config(card_id, year, month)
+        if month == 12:
+            due_year, due_month = year + 1, 1
+        else:
+            due_year, due_month = year, month + 1
+        due_last = monthrange(due_year, due_month)[1]
+        return date(due_year, due_month, min(due_day, due_last))
+
+    def _get_cash_advance_target_period(self, purchase: CreditCardPurchase) -> tuple[int, int]:
+        """Derived debt is registered on the period immediately after the purchase period."""
+        current_period = self.get_period_for_date(purchase.card_id, purchase.purchase_date.isoformat())
+        if not current_period:
+            # Fallback when period resolution fails.
+            next_period = purchase.purchase_date + relativedelta(months=1)
+            return next_period.year, next_period.month
+
+        period_anchor = date(current_period['year'], current_period['month'], 1) + relativedelta(months=1)
+        return period_anchor.year, period_anchor.month
+
+    def _upsert_cash_advance_debt(self, purchase: CreditCardPurchase):
+        """Create or update a BudgetItem debt linked to a cash advance purchase."""
+        card = self.db.query(CreditCard).filter(CreditCard.id == purchase.card_id).first()
+        if not card:
+            raise ValueError("Credit card not found for cash advance debt generation")
+
+        amount_ars = self._get_purchase_amount_in_ars(purchase)
+        debt_total = round(float(amount_ars) + float(purchase.cash_advance_fee or 0.0), 2)
+        target_year, target_month = self._get_cash_advance_target_period(purchase)
+        due_date = self._calculate_period_due_date(purchase.card_id, target_year, target_month)
+
+        detail = (
+            f"Extraccion TC {card.card_name}: monto ${amount_ars:,.2f} + comision ${float(purchase.cash_advance_fee or 0.0):,.2f} "
+            f"[cash_advance:{purchase.id}:{target_year}-{target_month:02d}]"
+        )
+
+        debt_item = None
+        if purchase.derived_debt_id:
+            debt_item = self.db.query(BudgetItem).filter(BudgetItem.id == purchase.derived_debt_id).first()
+
+        if not debt_item:
+            tag = f"%[cash_advance:{purchase.id}:{target_year}-{target_month:02d}]%"
+            debt_item = self.db.query(BudgetItem).filter(BudgetItem.detalle.like(tag)).first()
+
+        if debt_item:
+            debt_item.fecha = purchase.purchase_date.isoformat()
+            debt_item.monto_total = debt_total
+            debt_item.monto_pagado = 0.0
+            debt_item.monto_ejecutado = 0.0
+            debt_item.status = DebtStatus.PENDIENTE
+            debt_item.detalle = detail
+            debt_item.fecha_vencimiento = due_date.isoformat()
+            debt_item.updated_at = datetime.utcnow()
+        else:
+            debt_item = BudgetItem(
+                user_id=card.user_id,
+                fecha=purchase.purchase_date.isoformat(),
+                tipo='Tarjeta',
+                categoria='Extraccion Tarjeta',
+                monto_total=debt_total,
+                monto_pagado=0.0,
+                detalle=detail,
+                fecha_vencimiento=due_date.isoformat(),
+                status=DebtStatus.PENDIENTE,
+                tipo_presupuesto=BudgetType.OBLIGATION,
+                tipo_flujo=FlowType.GASTO,
+                monto_ejecutado=0.0,
+            )
+            self.db.add(debt_item)
+            self.db.flush()
+
+        return debt_item
+
+    def _delete_cash_advance_debt(self, purchase: CreditCardPurchase):
+        """Delete derived debt for a purchase if it exists."""
+        if purchase.derived_debt_id:
+            debt_item = self.db.query(BudgetItem).filter(BudgetItem.id == purchase.derived_debt_id).first()
+            if debt_item:
+                self.db.delete(debt_item)
+        purchase.derived_debt_id = None
     
     def _create_installment_plan(self, purchase: CreditCardPurchase, purchase_data: dict):
         """Create installment plan and schedule for a purchase"""
@@ -558,6 +649,9 @@ class CreditCardService:
                     'description': purchase.description,
                     'installments': purchase.installments,
                     'has_financing': purchase.has_financing,
+                    'movement_type': purchase.movement_type or 'normal',
+                    'cash_advance_fee': float(purchase.cash_advance_fee or 0.0),
+                    'derived_debt_id': purchase.derived_debt_id,
                     'installment_plan': plan_data,
                     'plan_id': plan.id if plan else None,
                     'budget_item_id': plan.budget_item_id if plan else None,
@@ -723,6 +817,8 @@ class CreditCardService:
             if not purchase:
                 logger.warning(f"⚠️ Purchase {purchase_id} not found")
                 return False
+
+            previous_movement_type = (purchase.movement_type or 'normal').lower()
             
             # Update basic fields
             if 'description' in purchase_data:
@@ -739,29 +835,25 @@ class CreditCardService:
                 purchase.total_amount = float(purchase_data['amount'])
             if 'installments' in purchase_data:
                 purchase.installments = int(purchase_data['installments'])
-            if 'movement_type' in purchase_data:
-                purchase.movement_type = purchase_data['movement_type']
-            if 'cash_advance_fee' in purchase_data:
-                purchase.cash_advance_fee = float(purchase_data['cash_advance_fee'] or 0.0)
 
-            if purchase.movement_type == 'cash_advance':
-                if purchase.installments != 1:
-                    raise ValueError("Cash advance purchases must use a single installment")
-                if purchase.cash_advance_fee <= 0:
-                    raise ValueError("Cash advance fee percentage must be greater than zero")
-                if purchase.cash_advance_fee > 100:
-                    raise ValueError("Cash advance fee percentage cannot exceed 100")
-                card = self.db.query(CreditCard).filter(CreditCard.id == purchase.card_id).first()
-                if not card:
-                    raise ValueError(f"Credit card {purchase.card_id} not found")
-                fee_amount = self._calculate_cash_advance_fee_amount(purchase)
-                self._upsert_cash_advance_debt(purchase, card, fee_amount)
-                self._upsert_cash_advance_transaction(purchase, card)
-            elif 'movement_type' in purchase_data or 'cash_advance_fee' in purchase_data:
-                if purchase.derived_debt_id:
-                    self.db.query(BudgetItem).filter(BudgetItem.id == purchase.derived_debt_id).delete()
-                    purchase.derived_debt_id = None
-                self._delete_cash_advance_transaction(purchase)
+            if 'movement_type' in purchase_data:
+                movement_type = str(purchase_data['movement_type']).strip().lower()
+                if movement_type not in ('normal', 'cash_advance'):
+                    raise ValueError("movement_type must be 'normal' or 'cash_advance'")
+                purchase.movement_type = movement_type
+
+            if 'cash_advance_fee' in purchase_data:
+                purchase.cash_advance_fee = float(purchase_data.get('cash_advance_fee') or 0.0)
+
+            if float(purchase.cash_advance_fee or 0.0) < 0:
+                raise ValueError("cash_advance_fee cannot be negative")
+
+            current_movement_type = (purchase.movement_type or 'normal').lower()
+            if current_movement_type == 'cash_advance' and float(purchase.cash_advance_fee or 0.0) <= 0:
+                raise ValueError("cash_advance_fee is required for cash_advance purchases")
+            if current_movement_type == 'cash_advance' and int(purchase.installments or 1) > 1:
+                raise ValueError("cash_advance purchases must be single installment")
+            if current_movement_type != 'cash_advance':
                 purchase.cash_advance_fee = 0.0
             
             # Handle currency (Bug 1 fix)
@@ -866,6 +958,17 @@ class CreditCardService:
                     if budget_item:
                         budget_item.detalle = f"{purchase.description} ({purchase.installments} cuotas)"
                         budget_item.updated_at = datetime.utcnow()
+
+            if current_movement_type == 'cash_advance':
+                derived_debt = self._upsert_cash_advance_debt(purchase)
+                purchase.derived_debt_id = derived_debt.id
+                card = self.db.query(CreditCard).filter(CreditCard.id == purchase.card_id).first()
+                if not card:
+                    raise ValueError(f"Credit card {purchase.card_id} not found")
+                self._upsert_cash_advance_transaction(purchase, card)
+            elif previous_movement_type == 'cash_advance':
+                self._delete_cash_advance_debt(purchase)
+                self._delete_cash_advance_transaction(purchase)
             
             self.db.commit()
             logger.info(f"✅ Purchase {purchase_id} updated successfully")
@@ -889,6 +992,9 @@ class CreditCardService:
                 return False
             
             card_id = purchase.card_id
+
+            if (purchase.movement_type or 'normal') == 'cash_advance':
+                self._delete_cash_advance_debt(purchase)
             
             # Delete associated installment plan, schedule, and budget item
             plan = self.db.query(InstallmentPlan)\
@@ -1222,6 +1328,9 @@ class CreditCardService:
                     'purchase_description': p.description or '',
                     'purchase_category': p.category or '',
                     'purchase_currency': p.currency or 'ARS',
+                    'movement_type': p.movement_type or 'normal',
+                    'cash_advance_fee': float(p.cash_advance_fee or 0.0),
+                    'derived_debt_id': p.derived_debt_id,
                     'item_type': 'single',
                 })
                 total_due += amount_ars

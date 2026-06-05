@@ -255,7 +255,7 @@ function EditDebtModal({ debt, onSave, onClose }) {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-finly-text mb-2">Cuota actual (X)</label>
+              <label className="block text-sm font-medium text-finly-text mb-2">Cuota actual (X, proxima a pagar)</label>
               <input
                 type="number"
                 name="current_installment"
@@ -265,6 +265,7 @@ function EditDebtModal({ debt, onSave, onClose }) {
                 min="0"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
               />
+              <p className="text-xs text-gray-500 mt-1">Si ya pagaste 4 cuotas, la cuota actual es 5.</p>
             </div>
 
             <div>

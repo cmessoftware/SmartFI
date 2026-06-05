@@ -131,7 +131,10 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
       )}
       
       {currentView === 'add' && (
-        <TransactionForm addTransaction={handleAddTransaction} />
+        <TransactionForm
+          addTransaction={handleAddTransaction}
+          onGoToCsvImport={() => setCurrentView('import')}
+        />
       )}
       
       {currentView === 'import' && (

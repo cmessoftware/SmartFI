@@ -157,6 +157,8 @@ const toNumber = (value, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+const roundCurrency = (value) => Math.round((toNumber(value, 0) + Number.EPSILON) * 100) / 100;
+
 const debtTypeFromUiType = (tipo = '') => {
   const value = String(tipo || '').toLowerCase();
   if (value.includes('tarjeta')) return 'TARJETA';
@@ -225,8 +227,29 @@ const toDebtRecordPayloadFromBudgetForm = (debt) => {
 
 const mapProjectedDebtRecordToUi = (record) => {
   const projection = record.projection_current || {};
-  const montoTotal = toNumber(projection.monto_total, toNumber(record.outstanding_amount, 0));
-  const montoEjecutado = toNumber(projection.monto_ejecutado, 0);
+  const projectionList = Array.isArray(record.projections) ? record.projections : [];
+  const projectionByMonth = projectionList.reduce((acc, item) => {
+    if (item?.version_source_month) {
+      acc[item.version_source_month] = item;
+    }
+    return acc;
+  }, {});
+  const principalAmount = toNumber(record.principal_amount, toNumber(record.outstanding_amount, 0));
+  const outstandingAmount = toNumber(record.outstanding_amount, principalAmount);
+  const totalInstallments = toNumber(record.total_installments, 0);
+  const currentInstallment = toNumber(record.current_installment, 0);
+  const annualInterestRate = toNumber(record.annual_interest_rate, 0);
+  const projectionInstallment = toNumber(projection.monto_total, 0);
+  const estimatedPayment = annualInterestRate > 0
+    ? principalAmount * (1 + (annualInterestRate / 100))
+    : principalAmount;
+  const paidFromOutstanding = Math.max(0, principalAmount - outstandingAmount);
+  const paidByInstallmentProgress =
+    totalInstallments > 0 && currentInstallment > 0
+      ? estimatedPayment * Math.min(Math.max(currentInstallment / totalInstallments, 0), 1)
+      : 0;
+  const totalPaid = paidFromOutstanding > 0 ? paidFromOutstanding : paidByInstallmentProgress;
+  const montoEjecutado = roundCurrency(totalPaid);
   const fecha = projection.fecha || record.start_date || record.due_date || null;
   const fechaVencimiento = projection.fecha_vencimiento || record.due_date || fecha;
 
@@ -248,16 +271,18 @@ const mapProjectedDebtRecordToUi = (record) => {
     tipo: uiTypeFromDebtType(record.debt_type),
     categoria: record.creditor || 'Deudas',
     detalle: record.debt_name || '',
-    monto_total: montoTotal,
+    monto_total: principalAmount,
     monto_pagado: montoEjecutado,
     monto_ejecutado: montoEjecutado,
-    estimated_payment: montoTotal,
+    estimated_payment: roundCurrency(estimatedPayment),
     status: budgetStatusFromDebtRecord(record.status, record.outstanding_amount),
     tipo_presupuesto: 'OBLIGATION',
     tipo_flujo: 'Ingreso',
     expense_type: 'VARIABLE',
-    debt_source: record.creditor || null,
+    debt_source: record.debt_source || record.creditor || null,
     projection_count: toNumber(record.projection_count, 0),
+    projection_months: Array.isArray(record.projection_months) ? record.projection_months : Object.keys(projectionByMonth),
+    projection_by_month: projectionByMonth,
   };
 };
 

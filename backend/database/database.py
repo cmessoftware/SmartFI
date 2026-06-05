@@ -301,6 +301,9 @@ class CreditCardPurchase(Base):
     description = Column(Text, nullable=True)
     installments = Column(Integer, default=1)
     has_financing = Column(Boolean, default=False)
+    movement_type = Column(String(20), nullable=False, default="normal")  # normal | cash_advance
+    cash_advance_fee = Column(Float, nullable=False, default=0.0)
+    derived_debt_id = Column(Integer, ForeignKey('budget_items.id', ondelete='SET NULL'), nullable=True)
     currency = Column(String(3), default="ARS")  # ARS or USD
     exchange_rate = Column(Float, nullable=True)  # Exchange rate at purchase time (for USD purchases)
     amount_in_pesos = Column(Float, nullable=True)  # Total in ARS (for USD: total_amount * exchange_rate)

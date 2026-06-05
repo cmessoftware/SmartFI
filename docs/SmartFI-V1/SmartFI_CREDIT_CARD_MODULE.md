@@ -38,9 +38,10 @@ Modelo de ticket
 | CC-FEAT-021 | Feature | Baja ||| ⏳ Todo | Agregar textbox detalle (20 caracteres) en Nueva Compra |
 | CC-FEAT-022 | Feature | Alta ||| ✅ Done | USD al periodo siguiente con campo `billing_date` (propuesta Opcion A) |
 | CC-FEAT-023 | Feature | Alta ||| ⏳ Todo | Al registrar pagos del resumen actual, proyectarlos automaticamente en el periodo siguiente como movimientos negativos tipo "SU PAGO EN PESOS" para estimar el proximo resumen |
-|CC-FEAT-024|Feature|Alta||#125|✅ Done |Extracciones de tarjeta con impacto dual: gasto actual + deuda |   
+| CC-FEAT-024 | Feature | Alta ||#125| ✅ Done | Extracciones de tarjeta con impacto dual: gasto actual + deuda |
+| CC-FEAT-025 | Feature | Alta ||| ⏳ Todo | En pagos parciales, trasladar saldo remanente al pendiente del siguiente período y recalcularlo ante nuevos pagos del período actual |
 
-**Resumen:** 23 features, 11 completadas (48%), 12 pendientes (52%)
+**Resumen:** 24 features, 11 completadas (46%), 13 pendientes (54%)
 
 ## Bugs Pendientes
 
@@ -93,7 +94,8 @@ Modelo de ticket
 | `credit-card-usd-billing-date` | Compras USD con `billing_date` correcto al período siguiente | CC-FEAT-004, CC-FEAT-022 | ✅ Done |
 | `cc-bug-029-cash-advance-visibility` | Corrección UX para visibilidad de extracción en Nueva Compra | CC-BUG-029 | ✅ Done |
 | `cc-bug-030-cash-advance-fee-percent` | Comisión de extracción en porcentaje y suma correcta en Gastos | CC-BUG-030 | ✅ Done |
-| `cc-next-statement-estimation` | Proyección automática de pagos al período siguiente | CC-FEAT-023 | 📋 Backlog |
+| `cc-next-statement-estimation` | Proyección automática de pagos al período siguiente con actualización por pagos parciales | CC-FEAT-023, CC-FEAT-025 | 📋 Backlog |
+| `cc-cash-advance-debt` | Extracciones de tarjeta con impacto dual: gasto actual + deuda siguiente con comisión | CC-FEAT-024 | 📋 Backlog |
 | `cc-period-close` | Cierre de período con lifecycle OPEN/CLOSED/REOPENED y snapshot | — | 📋 Backlog |
 | `cc-period-open-rollover` | Apertura de período con carryover de saldo pendiente | — | 📋 Backlog |
 

@@ -4,6 +4,19 @@
 
 La versión de la aplicación ahora se genera **automáticamente** usando el hash del último commit de Git. La versión se muestra en el formato: `v1.0.0.xxxxx` donde `xxxxx` son los primeros 5 caracteres del commit hash.
 
+## Tabla de features
+
+| ID | Tipo | Prioridad |Issue Padre|Issue Gitea| Estado | Resumen |
+|---|---|---|---|
+| UI-FEAT-001 |feat | Alta | TDB | TDB |✅ Done | Opción 1: Script Automático (Recomendado)|
+| UI-FEAT-002 |feat | Alta | TDB | TDB |✅ Done | Opción 3: Script Interactivo|
+
+## Tabla de bugs
+| ID | Tipo | Prioridad |Issue Padre|Issue Gitea| Estado | Resumen |
+|---|---|---|---|
+| UI-BUG-001 | bug | Alta | UI-FEAT-001 | TDB |✅ Done | No muestra versión actual. Muestras siempre v1.0.0.dev | 
+
+
 ## 🚀 Despliegue Local
 
 ### Opción 1: Script Automático (Recomendado)

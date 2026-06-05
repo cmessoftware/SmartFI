@@ -269,7 +269,9 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('es-AR', {
       style: 'currency',
-      currency: 'ARS'
+      currency: 'ARS',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(amount);
   };
 
@@ -343,11 +345,32 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
 
   const monthScopedDebts = useMemo(() => {
     const selectedKey = `${filterYear}-${String(filterMonth).padStart(2, '0')}`;
-    return debts.filter((debt) => {
-      const key = getYearMonthKey(debt.fecha_vencimiento || debt.fecha);
-      return key === selectedKey;
-    });
-  }, [debts, filterMonth, filterYear]);
+    if (!isDebtMode) {
+      return debts.filter((debt) => {
+        const key = getYearMonthKey(debt.fecha_vencimiento || debt.fecha);
+        return key === selectedKey;
+      });
+    }
+
+    return debts
+      .map((debt) => {
+        const projectionForMonth = debt.projection_by_month?.[selectedKey];
+        if (!projectionForMonth) {
+          return null;
+        }
+
+        return {
+          ...debt,
+          fecha: projectionForMonth.fecha || debt.fecha,
+          fecha_vencimiento: projectionForMonth.fecha_vencimiento || debt.fecha_vencimiento || debt.fecha,
+          monto_total: Number(debt.monto_total ?? 0),
+          monto_ejecutado: Number(debt.monto_ejecutado ?? debt.monto_pagado ?? 0),
+          monto_pagado: Number(debt.monto_pagado ?? debt.monto_ejecutado ?? 0),
+          status: projectionForMonth.status || debt.status,
+        };
+      })
+      .filter(Boolean);
+  }, [debts, filterMonth, filterYear, isDebtMode]);
 
   const summary = useMemo(() => {
     return monthScopedDebts.reduce(
