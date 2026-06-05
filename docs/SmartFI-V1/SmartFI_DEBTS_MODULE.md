@@ -64,6 +64,61 @@ Estado sincronizado con Gitea (2026-06-01):
 | DBT-FEAT-006 | feature | media | DBT-FEAT-001 | #145 (BE), #146 (FE) | ⏳ Todo | Exponer dashboard de deudas por fuente (total historico) con grafico de torta. |
 | DBT-FEAT-007 | feature | media | DBT-FEAT-001 | #147 (BE), #148 (FE) | ⏳ Todo | Exponer dashboard de deudas por fuente del mes actual con grafico de torta. |
 | DBT-FEAT-008 | feature | media | DBT-FEAT-001 | #149 (BE), #150 (FE) | ⏳ Todo | Exponer variacion de deuda mes a mes (ventana 12 meses centrada en mes actual) con barras + linea. |
+| DBT-FEAT-009 | feature | alta | DBT-FEAT-001 | TDB | ⏳ Todo | Integrar trazabilidad CC->EXP sin duplicar fuente canonica: registrar espejo operacional en EXP para compras CC con `source_module/source_id` y referencia de periodo de tarjeta. |
+| DBT-FEAT-010 | feature | alta | DBT-FEAT-009 | TDB | ⏳ Todo | Implementar regla anti-duplicado contable entre CC, EXP y DBT para evitar doble computo del mismo pasivo. |
+| DBT-FEAT-011 | feature | alta | DBT-FEAT-009 | TDB | ⏳ Todo | Conciliacion de pagos parciales de CC contra deuda reflejada en EXP y rollover de remanente al siguiente periodo de tarjeta. |
+| DBT-FEAT-012 | feature | media | DBT-FEAT-006 | TDB | ⏳ Todo | Dashboard unificado de deuda (CC + no CC) por origen, fuente, vencimiento y estado, sin mezclar fuentes canonicas. |
+
+### Analisis de coherencia (DBT-FEAT-004 a DBT-FEAT-008)
+
+- DBT-FEAT-004: Coherente para deuda no tarjeta; insuficiente para integracion CC porque no contempla pagos aplicados por ciclo de tarjeta ni arrastre de saldo por periodo.
+- DBT-FEAT-005: Coherente y necesario; debe extenderse a montos espejo de EXP cuando provienen de CC para mantener consistencia visual/contable.
+- DBT-FEAT-006: Parcialmente coherente; hoy habla solo de fuente de deuda DBT. Para la propuesta debe diferenciar origen (`CC` vs `DBT`) y luego permitir agregacion total.
+- DBT-FEAT-007: Igual que FEAT-006 pero en corte mensual; debe usar calendario de periodos CC ademas de mes calendario.
+- DBT-FEAT-008: Coherente para serie temporal, pero requiere normalizar eje temporal entre periodos de tarjeta y meses para no distorsionar tendencia.
+
+Conclusion operativa:
+- Mantener DBT-FEAT-004..008 vigentes para el eje no tarjeta.
+- Agregar DBT-FEAT-009..012 para cubrir integracion CC+EXP+DBT y luego converger en dashboard unificado.
+
+## Propuesta: Credit Cards + Debts (no card) integrado con Gastos/Ingresos
+
+- Carga de gastos de tarjeta ingresar en modulod e Gastos/Ingresops (EXP) como gasto a crédito (deuda)
+   - Comentario: Coherente como movimiento operativo (consumo), pero para coherencia contable se debe evitar que EXP sea fuente canonica de deuda; EXP deberia reflejar impacto presupuestario y la deuda consolidada mantenerse en CC (para tarjeta) y DBT (no tarjeta).
+  - Flujo:
+    - 1. El usuario ingreso a módulo Tarjeta de Credito (CC)
+         - Comentario: Correcto. Punto de entrada coherente con la implementación actual, donde CC ya administra compras, periodos y pagos.
+    - 2. El usuario regista un gastos del periodo vigente.
+         - Comentario: Correcto para gasto devengado en periodo CC. Requiere validar fecha contra configuracion de periodo (closing/due) para evitar imputaciones inconsistentes.
+    - 3. El sistema regitra el gasto en módulo CC y un registro en módulo EXP como gasto a pagar (deuda)
+         - Comentario: Coherente si se define patron espejo con id de trazabilidad (`cc_purchase_id` o equivalente) y regla anti-duplicado. El registro en EXP deberia ser proyeccion/impacto, no duplicar saldo canonico.
+    - 4. Validar si se justifica ingresar el item en módulo deuda (DBT) (originalmente no era para CC).
+         - Comentario: Recomendacion funcional: no crear DBT para consumos normales de tarjeta; si para casos excepcionales (ej. extraccion en efectivo) donde ya existe naturaleza de deuda separada. Esto evita doble conteo de pasivos.
+    - 5. En saldo de modulo EXP esos gastos se deben imputar como deuda a vencer en fecha de vencimiento de periodo actual de la CC.
+         - Comentario: Contablemente correcto si se modela como pasivo de corto plazo por resumen de tarjeta. Debe calcularse por periodo de cierre, no por mes calendario puro.
+    - 6. Cuando se paga la CC descontar esa deuda registrada hasta el mondo pagado, si queda deuda pendiente se computa como deuda para el siguiente periodo (tener en cuenta la opción de varios pagos parciales).
+         - Comentario: Critico para coherencia contable. Debe aplicarse waterfall de pagos (minimo/intereses/capital segun regla definida) y trasladar saldo remanente al siguiente periodo sin crear inconsistencias entre CC y EXP.
+    - 7. Unificar Dashboard de deudas por CC y no CC (prestamos bancarios etc.)
+         - Comentario: Muy recomendable. Debe unificarse en vista analitica, no necesariamente en tabla fisica unica; conviene capa de agregacion que combine fuentes canonicas diferentes (CC y DBT).
+
+### Comentarios de coherencia contable (resumen)
+
+- Principio recomendado: una sola fuente de verdad por tipo de deuda.
+- CC debe ser fuente canonica para deuda de tarjeta (resumen, pagos, remanente).
+- DBT debe seguir como fuente canonica para deuda no tarjeta.
+- EXP debe actuar como capa de impacto/presupuesto y trazabilidad operacional, no como saldo canonico duplicado.
+
+### Funcionalidades propuestas a diseñar e implementar
+
+- Definir contrato de trazabilidad cruzada CC->EXP: `cc_purchase_id`, `cc_statement_id`, `source_module`, `source_id`, `sync_status`.
+- Implementar regla anti-duplicado contable: no permitir que el mismo pasivo se compute dos veces entre CC, EXP y DBT.
+- Crear conciliador de saldos por periodo: total resumen CC, pagos aplicados, remanente y reflejo en EXP.
+- Definir politica formal para casos frontera: extraccion en efectivo, refinanciacion, adelantos y recategorizacion a DBT.
+- Diseñar motor de asignacion de pagos parciales de CC con orden de aplicacion auditable y reproducible.
+- Implementar vista unificada de deuda (Dashboard) con dimensiones: origen (CC/DBT), fuente, vencimiento, estado, saldo, riesgo.
+- Agregar alertas de desalineacion entre modulos (CC vs EXP vs DBT) con tolerancia configurable.
+- Incorporar pruebas end-to-end de conciliacion contable (alta gasto CC -> reflejo EXP -> pago parcial -> rollover -> dashboard).
+
 
 ## Bugs Pendientes
 
@@ -103,6 +158,14 @@ Regla acordada:
 | DBT-FEAT-007-FE | DBT-FEAT-007 | Front | [DBT-FEAT-007][FE] Grafico de torta mes actual por fuente | ⏳ Todo |
 | DBT-FEAT-008-BE | DBT-FEAT-008 | Back | [DBT-FEAT-008][BE] Serie 12 meses para variacion de deuda | ⏳ Todo |
 | DBT-FEAT-008-FE | DBT-FEAT-008 | Front | [DBT-FEAT-008][FE] Grafico barras + linea (12 meses) | ⏳ Todo |
+| DBT-FEAT-009-BE | DBT-FEAT-009 | Back | [DBT-FEAT-009][BE] Contrato de trazabilidad CC->EXP y persistencia de origen | ⏳ Todo |
+| DBT-FEAT-009-FE | DBT-FEAT-009 | Front | [DBT-FEAT-009][FE] Reflejo UI de gastos CC en EXP con enlace de trazabilidad | ⏳ Todo |
+| DBT-FEAT-010-BE | DBT-FEAT-010 | Back | [DBT-FEAT-010][BE] Reglas anti-duplicado contable CC/EXP/DBT | ⏳ Todo |
+| DBT-FEAT-010-FE | DBT-FEAT-010 | Front | [DBT-FEAT-010][FE] Señalizacion UX de movimientos deduplicados y origen canonico | ⏳ Todo |
+| DBT-FEAT-011-BE | DBT-FEAT-011 | Back | [DBT-FEAT-011][BE] Conciliador de pagos parciales y rollover por periodo CC | ⏳ Todo |
+| DBT-FEAT-011-FE | DBT-FEAT-011 | Front | [DBT-FEAT-011][FE] Flujo de pagos parciales CC con estado de deuda reflejada en EXP | ⏳ Todo |
+| DBT-FEAT-012-BE | DBT-FEAT-012 | Back | [DBT-FEAT-012][BE] Agregador unificado de deuda CC+DBT para analytics | ⏳ Todo |
+| DBT-FEAT-012-FE | DBT-FEAT-012 | Front | [DBT-FEAT-012][FE] Dashboard unificado de deuda por origen/fuente/vencimiento | ⏳ Todo |
 
 ### Template de checklist para issue Back (usar dentro de cada issue padre BE)
 
