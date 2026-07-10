@@ -49,11 +49,76 @@ class DebtRecordService:
             return max(1, int(round(total)))
         return 1
 
+    def _uses_salary_percent_installments(self, record: DebtRecord) -> bool:
+        mode = getattr(record, 'installment_mode', None) or 'FIXED'
+        return str(mode).upper() == 'SALARY_PERCENT'
+
+    def _salary_at_installment_index(self, record: DebtRecord, installment_index: int) -> float:
+        base_salary = float(record.base_salary or 0)
+        increase_percent = float(record.salary_increase_percent or 0)
+        interval = int(record.salary_increase_interval_months or 0)
+        if base_salary <= 0:
+            return 0.0
+        if interval <= 0 or increase_percent <= 0:
+            return base_salary
+        periods = max(0, int(installment_index) // interval)
+        return round(base_salary * math.pow(1.0 + increase_percent / 100.0, periods), 2)
+
+    def _installment_amount_at_index(self, record: DebtRecord, installment_index: int) -> float:
+        if not self._uses_salary_percent_installments(record):
+            return self._projection_amount(record)
+
+        salary = self._salary_at_installment_index(record, installment_index)
+        percent = float(record.installment_salary_percent or 0)
+        if salary <= 0 or percent <= 0:
+            return 0.0
+        return round(salary * percent / 100.0, 2)
+
+    def _validate_salary_percent_fields(self, data: dict, existing: DebtRecord = None):
+        mode = str(data.get('installment_mode') or (existing.installment_mode if existing else 'FIXED')).upper()
+        if mode != 'SALARY_PERCENT':
+            return
+
+        base_salary = data.get('base_salary')
+        if base_salary is None and existing is not None:
+            base_salary = existing.base_salary
+        percent = data.get('installment_salary_percent')
+        if percent is None and existing is not None:
+            percent = existing.installment_salary_percent
+        increase = data.get('salary_increase_percent')
+        if increase is None and existing is not None:
+            increase = existing.salary_increase_percent
+        interval = data.get('salary_increase_interval_months')
+        if interval is None and existing is not None:
+            interval = existing.salary_increase_interval_months
+
+        if base_salary is None or float(base_salary) <= 0:
+            raise ValueError("base_salary must be greater than 0 for SALARY_PERCENT installment mode")
+        if percent is None or float(percent) <= 0:
+            raise ValueError("installment_salary_percent (z) must be greater than 0 for SALARY_PERCENT mode")
+        if increase is None or float(increase) < 0:
+            raise ValueError("salary_increase_percent (x) must be greater or equal to 0 for SALARY_PERCENT mode")
+        if interval is None or int(interval) < 1:
+            raise ValueError("salary_increase_interval_months (n) must be at least 1 for SALARY_PERCENT mode")
+
+        total = data.get('total_installments')
+        if total is None and existing is not None:
+            total = existing.total_installments
+        if total is None or float(total) <= 0:
+            raise ValueError("total_installments is required for SALARY_PERCENT installment mode")
+
     def _installment_amount_for_progress(self, record: DebtRecord) -> float:
         pending = float(record.pending_installments) if record.pending_installments is not None else None
         outstanding = float(record.outstanding_amount or 0)
         if outstanding <= 0:
             return 0.0
+
+        if self._uses_salary_percent_installments(record):
+            current = float(record.current_installment or 1)
+            installment_index = max(0, int(math.floor(current - 1)))
+            amount = self._installment_amount_at_index(record, installment_index)
+            return amount if amount > 0 else 0.0
+
         if pending is not None and pending > 0:
             return outstanding / pending
         projected = self._projection_amount(record)
@@ -142,11 +207,17 @@ class DebtRecordService:
 
         return outstanding / pending
 
-    def _build_projection_detail(self, record: DebtRecord) -> str:
+    def _build_projection_detail(self, record: DebtRecord, quota=None, installment_amount=None) -> str:
         quota_label = ""
-        if record.current_installment is not None and record.total_installments is not None:
-            quota_label = f" - cuota {self._fmt_quota(record.current_installment)}/{self._fmt_quota(record.total_installments)}"
-        return f"DBT {record.debt_name}{quota_label} (debt-record {record.id})"
+        current = quota
+        if current is None and record.current_installment is not None:
+            current = record.current_installment
+        if current is not None and record.total_installments is not None:
+            quota_label = f" - cuota {self._fmt_quota(current)}/{self._fmt_quota(record.total_installments)}"
+        amount_label = ""
+        if installment_amount is not None and self._uses_salary_percent_installments(record):
+            amount_label = f" (${installment_amount:,.2f})"
+        return f"DBT {record.debt_name}{quota_label}{amount_label} (debt-record {record.id})"
 
     def _fmt_quota(self, value: float) -> str:
         n = float(value)
@@ -190,6 +261,17 @@ class DebtRecordService:
         normalized["total_installments"] = total
         normalized["current_installment"] = current
         normalized["pending_installments"] = pending
+
+        mode = normalized.get("installment_mode")
+        if mode is None and existing is not None:
+            mode = existing.installment_mode
+        normalized["installment_mode"] = str(mode or "FIXED").upper()
+        self._validate_salary_percent_fields(normalized, existing=existing)
+
+        interval = normalized.get("salary_increase_interval_months")
+        if interval is not None:
+            normalized["salary_increase_interval_months"] = int(interval)
+
         return normalized
 
     def _resolve_due_date(self, start_date_value, due_date_value):
@@ -202,20 +284,36 @@ class DebtRecordService:
         return None
 
     def _reconcile_projection_if_needed(self, record: DebtRecord, projections_for_record: list) -> bool:
-        expected_months = {month_key for month_key, _, _ in self._projection_schedule(record)}
-        existing_months = {
-            p.version_source_month for p in projections_for_record if p.version_source_month
+        expected_schedule = self._projection_schedule(record)
+        expected_months = {month_key for month_key, _, _ in expected_schedule}
+        existing_by_month = {
+            p.version_source_month: p for p in projections_for_record if p.version_source_month
         }
+        existing_months = set(existing_by_month.keys())
 
         if expected_months != existing_months:
             self._upsert_budget_projection(record)
             return True
+
+        for idx, (month_key, _, quota) in enumerate(expected_schedule):
+            existing = existing_by_month.get(month_key)
+            if not existing:
+                self._upsert_budget_projection(record)
+                return True
+            expected_amount = self._installment_amount_at_index(record, idx)
+            if abs(float(existing.monto_total or 0) - expected_amount) > 0.01:
+                self._upsert_budget_projection(record)
+                return True
+            if existing.debt_quota_number is not None and quota is not None:
+                if abs(float(existing.debt_quota_number) - float(quota)) > 0.0001:
+                    self._upsert_budget_projection(record)
+                    return True
+
         return False
 
     def _upsert_budget_projection(self, record: DebtRecord):
         """Create/update monthly budget projections linked to a debt record."""
         schedule = self._projection_schedule(record)
-        per_installment_amount = self._projection_amount(record)
 
         existing = self.db.query(BudgetItem).filter(
             BudgetItem.debt_record_id == record.id,
@@ -225,9 +323,11 @@ class DebtRecordService:
 
         valid_months = {month_key for month_key, _, _ in schedule}
 
-        for month_key, projection_date, quota in schedule:
+        for idx, (month_key, projection_date, quota) in enumerate(schedule):
+            per_installment_amount = self._installment_amount_at_index(record, idx)
             projection_date_iso = projection_date.isoformat()
             budget_item = existing_by_month.get(month_key)
+            detail = self._build_projection_detail(record, quota, per_installment_amount)
 
             if not budget_item:
                 budget_item = BudgetItem(
@@ -238,7 +338,7 @@ class DebtRecordService:
                     fecha_vencimiento=projection_date_iso,
                     tipo="Deuda no tarjeta",
                     categoria="Deudas",
-                    detalle=self._build_projection_detail(record),
+                    detalle=detail,
                     monto_total=per_installment_amount,
                     monto_pagado=0.0,
                     monto_ejecutado=0.0,
@@ -255,7 +355,7 @@ class DebtRecordService:
             else:
                 budget_item.fecha = projection_date_iso
                 budget_item.fecha_vencimiento = projection_date_iso
-                budget_item.detalle = self._build_projection_detail(record)
+                budget_item.detalle = detail
                 budget_item.monto_total = per_installment_amount
                 budget_item.estimated_payment = per_installment_amount
                 budget_item.debt_source = record.debt_source or record.creditor
@@ -395,6 +495,11 @@ class DebtRecordService:
             total_installments=payload.get("total_installments"),
             current_installment=payload.get("current_installment"),
             pending_installments=payload.get("pending_installments"),
+            installment_mode=payload.get("installment_mode", "FIXED"),
+            base_salary=float(payload["base_salary"]) if payload.get("base_salary") is not None else None,
+            installment_salary_percent=float(payload["installment_salary_percent"]) if payload.get("installment_salary_percent") is not None else None,
+            salary_increase_percent=float(payload["salary_increase_percent"]) if payload.get("salary_increase_percent") is not None else None,
+            salary_increase_interval_months=int(payload["salary_increase_interval_months"]) if payload.get("salary_increase_interval_months") is not None else None,
             start_date=start_date,
             due_date=due_date,
             status=DebtRecordStatus(payload.get("status", DebtRecordStatus.ACTIVA.value)),
@@ -425,6 +530,8 @@ class DebtRecordService:
             "debt_name", "creditor", "currency", "principal_amount",
             "outstanding_amount", "annual_interest_rate", "notes",
             "debt_source", "total_installments", "current_installment", "pending_installments",
+            "installment_mode", "base_salary", "installment_salary_percent",
+            "salary_increase_percent", "salary_increase_interval_months",
         ]
         for field in updatable:
             if field in payload:
@@ -565,6 +672,11 @@ class DebtRecordService:
             "total_installments": record.total_installments,
             "current_installment": record.current_installment,
             "pending_installments": record.pending_installments,
+            "installment_mode": record.installment_mode or "FIXED",
+            "base_salary": record.base_salary,
+            "installment_salary_percent": record.installment_salary_percent,
+            "salary_increase_percent": record.salary_increase_percent,
+            "salary_increase_interval_months": record.salary_increase_interval_months,
             "start_date": record.start_date.isoformat() if record.start_date else None,
             "due_date": record.due_date.isoformat() if record.due_date else None,
             "status": record.status.value if record.status else None,

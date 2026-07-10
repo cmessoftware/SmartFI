@@ -43,6 +43,8 @@ Revisión 2:✅ Resuelto  En ejecutado aparace $0 en vez del monto ya pagado de 
 Ahora se calcula desde la deuda real (`principal_amount - outstanding_amount`) y no desde la proyección mensual. 
 |
 | EXP-BUG-016 | Baja |📋 Todo | cuando cargo Cuota actual (X, proxima a pagar) se cambia a numero decimal. Por ejemplo cargo 4 y se autoasigna 3.98|
+| EXP-BUG-017 | Alta | ✅ Resuelto | WRITER puede reabrir únicamente los meses que cerró él mismo. Implementación: `services.month_service.reopen_month` y endpoint `/api/months/{year_month}/reopen` — control de permisos y motivo requerido (≥10 chars). |
+
 
 
 **Resumen:** 14 mejoras totales, 11 implementadas (79%), 1 en progreso (7%), 2 en backlog (14%)

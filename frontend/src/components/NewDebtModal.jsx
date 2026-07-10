@@ -9,13 +9,18 @@ const getInitialDate = (yearMonth) => {
   return new Date().toISOString().split('T')[0];
 };
 
-const buildInitialFormData = (yearMonth) => ({
+const buildInitialFormData = (yearMonth) => {
+  const defaultDate = getInitialDate(yearMonth);
+  const hasSelectedMonth = typeof yearMonth === 'string' && /^\d{4}-\d{2}$/.test(yearMonth);
+
+  return {
   debt_name: '',
   debt_type: 'PERSONAL',
   debt_source: 'BANCO',
   creditor: '',
-  fecha: getInitialDate(yearMonth),
-  fecha_vencimiento: '',
+  fecha: defaultDate,
+  // First installment defaults to the selected month so the debt appears in that month filter.
+  fecha_vencimiento: hasSelectedMonth ? defaultDate : '',
   monto_total: '',
   annual_interest_rate: '',
   total_installments: '',
@@ -25,8 +30,28 @@ const buildInitialFormData = (yearMonth) => ({
   tipo_presupuesto: 'OBLIGATION',
   tipo_flujo: 'Ingreso',
   expense_type: 'VARIABLE',
-  estimated_payment: ''
-});
+  estimated_payment: '',
+  installment_mode: 'FIXED',
+  base_salary: '',
+  installment_salary_percent: '',
+  salary_increase_percent: '',
+  salary_increase_interval_months: '',
+  };
+};
+
+const computeSalaryInstallment = (baseSalary, percent, increasePercent, intervalMonths, installmentIndex) => {
+  const base = Number(baseSalary);
+  const z = Number(percent);
+  const x = Number(increasePercent);
+  const n = Number(intervalMonths);
+  if (!Number.isFinite(base) || base <= 0 || !Number.isFinite(z) || z <= 0) return 0;
+  let salary = base;
+  if (Number.isFinite(x) && x >= 0 && Number.isFinite(n) && n >= 1) {
+    const periods = Math.floor(Math.max(0, installmentIndex) / n);
+    salary = base * Math.pow(1 + x / 100, periods);
+  }
+  return Math.round((salary * z / 100) * 100) / 100;
+};
 
 const DEBT_TYPE_OPTIONS = [
   { value: 'PERSONAL', label: 'Personal' },
@@ -56,7 +81,15 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess, yearMonth, on
   }, [isOpen, yearMonth]);
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
+    const { name, value, type, checked } = e.target;
+
+    if (name === 'installment_mode_toggle') {
+      setFormData((prev) => ({
+        ...prev,
+        installment_mode: checked ? 'SALARY_PERCENT' : 'FIXED',
+      }));
+      return;
+    }
 
     if (name === 'monto_total') {
       setFormData((prev) => ({
@@ -98,20 +131,61 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess, yearMonth, on
       return;
     }
 
+    const isSalaryPercent = formData.installment_mode === 'SALARY_PERCENT';
+    if (isSalaryPercent) {
+      const baseSalary = toNullableNumber(formData.base_salary);
+      const z = toNullableNumber(formData.installment_salary_percent);
+      const x = toNullableNumber(formData.salary_increase_percent);
+      const n = toNullableNumber(formData.salary_increase_interval_months);
+      if (!baseSalary || baseSalary <= 0) {
+        toast.warning('Ingrese el sueldo base inicial');
+        return;
+      }
+      if (!z || z <= 0) {
+        toast.warning('Ingrese el porcentaje de cuota sobre sueldo (z)');
+        return;
+      }
+      if (x == null || x < 0) {
+        toast.warning('Ingrese el porcentaje de aumento de sueldo (x)');
+        return;
+      }
+      if (!n || n < 1) {
+        toast.warning('Ingrese cada cuantos meses aumenta el sueldo (n >= 1)');
+        return;
+      }
+      if (!totalInstallments || totalInstallments <= 0) {
+        toast.warning('Ingrese el total de cuotas para cuota variable');
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const createDebt = onCreateDebt || debtsAPI.createDebt;
-      await createDebt({
+      const response = await createDebt({
         ...formData,
         annual_interest_rate: toNullableNumber(formData.annual_interest_rate),
         total_installments: totalInstallments,
         current_installment: currentInstallment,
         pending_installments: toNullableNumber(formData.pending_installments),
+        installment_mode: formData.installment_mode || 'FIXED',
+        base_salary: toNullableNumber(formData.base_salary),
+        installment_salary_percent: toNullableNumber(formData.installment_salary_percent),
+        salary_increase_percent: toNullableNumber(formData.salary_increase_percent),
+        salary_increase_interval_months: toNullableNumber(formData.salary_increase_interval_months),
       });
+      const created = response?.data || {};
+      const recordId = created.id ?? created.debt_record_id;
+      const recordName = created.debt_name || formData.debt_name;
+      const projectionMonth = (created.due_date || formData.fecha_vencimiento || formData.fecha || '').slice(0, 7);
 
-      toast.success('Deuda creada correctamente');
+      toast.success(
+        recordId
+          ? `Deuda creada: "${recordName}" (ID ${recordId})${projectionMonth ? ` — visible en ${projectionMonth}` : ''}`
+          : 'Deuda creada correctamente'
+      );
       setFormData(buildInitialFormData(yearMonth));
-      onSuccess();
+      onSuccess(created);
       onClose();
     } catch (error) {
       toast.error('Error al crear deuda');
@@ -128,6 +202,26 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess, yearMonth, on
   };
 
   if (!isOpen) return null;
+
+  const isSalaryPercent = formData.installment_mode === 'SALARY_PERCENT';
+  const previewCuota1 = isSalaryPercent
+    ? computeSalaryInstallment(
+      formData.base_salary,
+      formData.installment_salary_percent,
+      formData.salary_increase_percent,
+      formData.salary_increase_interval_months,
+      0
+    )
+    : 0;
+  const previewCuotaAfterN = isSalaryPercent && formData.salary_increase_interval_months
+    ? computeSalaryInstallment(
+      formData.base_salary,
+      formData.installment_salary_percent,
+      formData.salary_increase_percent,
+      formData.salary_increase_interval_months,
+      Number(formData.salary_increase_interval_months)
+    )
+    : 0;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -222,7 +316,9 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess, yearMonth, on
                 onChange={handleChange}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
               />
-              <p className="text-xs text-gray-500 mt-1">Si se omite, se proyecta desde el mes siguiente a la toma.</p>
+              <p className="text-xs text-gray-500 mt-1">
+                Define en qué mes aparece la deuda en la grilla. Si se omite, se proyecta desde el mes siguiente a la toma.
+              </p>
             </div>
 
             <div>
@@ -296,6 +392,97 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess, yearMonth, on
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
               />
             </div>
+
+            <div className="md:col-span-2">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="installment_mode_toggle"
+                  checked={isSalaryPercent}
+                  onChange={handleChange}
+                  className="w-4 h-4 rounded border-gray-300 text-finly-primary focus:ring-finly-primary"
+                />
+                <span className="text-sm font-medium text-finly-text">
+                  Cuota variable: z% del sueldo, con aumento de sueldo x% cada n meses
+                </span>
+              </label>
+              <p className="text-xs text-gray-500 mt-1 ml-7">
+                Para prestamos personales donde la cuota es un porcentaje del sueldo y el sueldo se actualiza periodicamente.
+              </p>
+            </div>
+
+            {isSalaryPercent && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-finly-text mb-2">Sueldo base inicial (ARS) *</label>
+                  <input
+                    type="number"
+                    name="base_salary"
+                    value={formData.base_salary}
+                    onChange={handleChange}
+                    step="0.01"
+                    min="0"
+                    placeholder="Ej: 1500000"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-finly-text mb-2">Cuota = z% del sueldo (z) *</label>
+                  <input
+                    type="number"
+                    name="installment_salary_percent"
+                    value={formData.installment_salary_percent}
+                    onChange={handleChange}
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    placeholder="Ej: 30"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-finly-text mb-2">Aumento de sueldo x% (x) *</label>
+                  <input
+                    type="number"
+                    name="salary_increase_percent"
+                    value={formData.salary_increase_percent}
+                    onChange={handleChange}
+                    step="0.01"
+                    min="0"
+                    placeholder="Ej: 8"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-finly-text mb-2">Cada n meses (n) *</label>
+                  <input
+                    type="number"
+                    name="salary_increase_interval_months"
+                    value={formData.salary_increase_interval_months}
+                    onChange={handleChange}
+                    step="1"
+                    min="1"
+                    placeholder="Ej: 6"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
+                  />
+                </div>
+
+                {(previewCuota1 > 0 || previewCuotaAfterN > 0) && (
+                  <div className="md:col-span-2 rounded-lg bg-indigo-50 border border-indigo-100 px-4 py-3 text-sm text-indigo-900">
+                    <p>Cuota estimada cuota 1: <strong>${previewCuota1.toLocaleString('es-AR')}</strong></p>
+                    {previewCuotaAfterN > 0 && Number(formData.salary_increase_interval_months) >= 1 && (
+                      <p className="mt-1">
+                        Cuota estimada cuota {Number(formData.salary_increase_interval_months) + 1} (despues del 1er aumento):{' '}
+                        <strong>${previewCuotaAfterN.toLocaleString('es-AR')}</strong>
+                      </p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
 
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-finly-text mb-2">Comentarios</label>

@@ -7,9 +7,11 @@ from dotenv import load_dotenv
 import enum
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(BASE_DIR)
+load_dotenv(os.path.join(ROOT_DIR, ".env"))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://admin:admin123@localhost:5432/fin_per_db")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://admin:admin123@localhost:5433/fin_per_db")
 
 # Create engine
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
@@ -76,6 +78,10 @@ class DebtRecordStatus(str, enum.Enum):
     ACTIVA = "ACTIVA"
     CANCELADA = "CANCELADA"
     VENCIDA = "VENCIDA"
+
+class InstallmentMode(str, enum.Enum):
+    FIXED = "FIXED"
+    SALARY_PERCENT = "SALARY_PERCENT"
 
 class AccountType(str, enum.Enum):
     CUENTA_CORRIENTE  = "CUENTA_CORRIENTE"
@@ -522,6 +528,11 @@ class DebtRecord(Base):
     total_installments = Column(Float, nullable=True)
     current_installment = Column(Float, nullable=True)
     pending_installments = Column(Float, nullable=True)
+    installment_mode = Column(String(20), default="FIXED", nullable=False)
+    base_salary = Column(Float, nullable=True)
+    installment_salary_percent = Column(Float, nullable=True)
+    salary_increase_percent = Column(Float, nullable=True)
+    salary_increase_interval_months = Column(Integer, nullable=True)
     start_date = Column(Date, nullable=True)
     due_date = Column(Date, nullable=True)
     status = Column(SQLEnum(DebtRecordStatus, values_callable=lambda x: [e.value for e in x]), default=DebtRecordStatus.ACTIVA, nullable=False)

@@ -167,6 +167,81 @@ Regla acordada:
 | DBT-FEAT-012-BE | DBT-FEAT-012 | Back | [DBT-FEAT-012][BE] Agregador unificado de deuda CC+DBT para analytics | ⏳ Todo |
 | DBT-FEAT-012-FE | DBT-FEAT-012 | Front | [DBT-FEAT-012][FE] Dashboard unificado de deuda por origen/fuente/vencimiento | ⏳ Todo |
 
+## Guía de Prueba Manual UI - DBT-FEAT-004 (Pago parcial/total)
+
+Objetivo:
+- Validar desde UI que el registro de pagos en Deudas actualiza saldo, estado y avance de cuotas sin recarga manual.
+
+Precondiciones:
+- Usuario con permisos para leer y escribir deudas (`debt_records.read` y `debt_records.write`).
+- Backend y Frontend levantados.
+- Existencia de al menos una deuda no tarjeta activa, o capacidad de crearla desde UI.
+
+Datos sugeridos para prueba controlada:
+- Nombre: Prestamo Prueba FEAT-004
+- Monto total: 1.200.000
+- Interes anual: 0 (para hacer trazable el calculo manual)
+- Total cuotas: 12
+- Cuota actual: 1
+- Cuotas pendientes: 12
+
+Paso a paso:
+
+1. Crear deuda base en UI
+- Ir a Deudas.
+- Click en Nueva Deuda.
+- Completar los datos sugeridos y guardar.
+- Verificar que la fila aparece con estado Pendiente y cuotas 1/12.
+
+2. Validar apertura del flujo de pago
+- En la fila de la deuda creada, hacer click en Pagar.
+- Verificar que se abre modal Registrar Pago.
+- Verificar que se visualiza el saldo pendiente en el modal.
+
+3. Probar pago parcial
+- En el modal, ingresar monto 250000 y una nota.
+- Confirmar registro.
+- Resultado esperado en UI:
+   - Se muestra mensaje de exito.
+   - La tabla se refresca automaticamente.
+   - El saldo pendiente disminuye.
+   - El avance de cuotas cambia (ejemplo esperado aproximado: 3.5/12).
+   - El estado se mantiene Pendiente.
+
+4. Probar validaciones de negocio
+- Reabrir modal de pago para la misma deuda.
+- Caso A: ingresar monto 0 o negativo.
+   - Resultado esperado: mensaje de validacion y no registra pago.
+- Caso B: ingresar monto mayor al saldo pendiente.
+   - Resultado esperado: mensaje de validacion y no registra pago.
+
+5. Probar pago total
+- Reabrir modal de pago.
+- Ingresar exactamente el saldo pendiente restante.
+- Confirmar registro.
+- Resultado esperado en UI:
+   - La deuda queda con saldo 0.
+   - Estado cambia a Pagada.
+   - Cuotas pendientes quedan en 0.
+
+6. Verificar consistencia de refresco sin recarga manual
+- Sin refrescar navegador, revisar resumen superior y fila de la deuda.
+- Resultado esperado: los valores visibles ya reflejan los pagos registrados.
+
+Checklist de aceptación FEAT-004 (UI):
+- [ ] Existe acción Pagar por fila en Deudas.
+- [ ] Modal de pago muestra saldo pendiente.
+- [ ] Pago parcial impacta saldo y progreso de cuotas.
+- [ ] Pago inválido (<= 0 o sobrepago) es bloqueado.
+- [ ] Pago total deja deuda en estado Pagada.
+- [ ] La vista se actualiza sin recarga manual del navegador.
+
+Evidencia recomendada a adjuntar:
+- Captura antes de pagar (deuda activa).
+- Captura después de pago parcial.
+- Captura de validación por sobrepago.
+- Captura después de pago total (deuda pagada).
+
 ### Template de checklist para issue Back (usar dentro de cada issue padre BE)
 
 - [ ] Definir/ajustar contrato de endpoint para el FEAT.

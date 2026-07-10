@@ -36,6 +36,11 @@ function EditDebtModal({ debt, onSave, onClose }) {
     expense_type: 'VARIABLE',
     estimated_payment: '',
     monto_ejecutado: '0',
+    installment_mode: 'FIXED',
+    base_salary: '',
+    installment_salary_percent: '',
+    salary_increase_percent: '',
+    salary_increase_interval_months: '',
   });
 
   useEffect(() => {
@@ -59,11 +64,24 @@ function EditDebtModal({ debt, onSave, onClose }) {
       expense_type: debt.expense_type || 'VARIABLE',
       estimated_payment: (debt.estimated_payment != null ? debt.estimated_payment : debt.monto_total || '').toString(),
       monto_ejecutado: (debt.monto_ejecutado || debt.monto_pagado || 0).toString(),
+      installment_mode: debt.installment_mode || 'FIXED',
+      base_salary: debt.base_salary != null ? String(debt.base_salary) : '',
+      installment_salary_percent: debt.installment_salary_percent != null ? String(debt.installment_salary_percent) : '',
+      salary_increase_percent: debt.salary_increase_percent != null ? String(debt.salary_increase_percent) : '',
+      salary_increase_interval_months: debt.salary_increase_interval_months != null ? String(debt.salary_increase_interval_months) : '',
     });
   }, [debt]);
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
+    const { name, value, type, checked } = e.target;
+
+    if (name === 'installment_mode_toggle') {
+      setFormData((prev) => ({
+        ...prev,
+        installment_mode: checked ? 'SALARY_PERCENT' : 'FIXED',
+      }));
+      return;
+    }
 
     if (name === 'monto_total') {
       setFormData((prev) => ({
@@ -114,10 +132,17 @@ function EditDebtModal({ debt, onSave, onClose }) {
       pending_installments: toNullableNumber(formData.pending_installments),
       monto_ejecutado: parseFloat(formData.monto_ejecutado),
       estimated_payment: formData.estimated_payment ? parseFloat(formData.estimated_payment) : parseFloat(formData.monto_total),
+      installment_mode: formData.installment_mode || 'FIXED',
+      base_salary: toNullableNumber(formData.base_salary),
+      installment_salary_percent: toNullableNumber(formData.installment_salary_percent),
+      salary_increase_percent: toNullableNumber(formData.salary_increase_percent),
+      salary_increase_interval_months: toNullableNumber(formData.salary_increase_interval_months),
     });
   };
 
   if (!debt) return null;
+
+  const isSalaryPercent = formData.installment_mode === 'SALARY_PERCENT';
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -304,6 +329,75 @@ function EditDebtModal({ debt, onSave, onClose }) {
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
               />
             </div>
+
+            <div className="md:col-span-2">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="installment_mode_toggle"
+                  checked={isSalaryPercent}
+                  onChange={handleChange}
+                  className="w-4 h-4 rounded border-gray-300 text-finly-primary focus:ring-finly-primary"
+                />
+                <span className="text-sm font-medium text-finly-text">
+                  Cuota variable: z% del sueldo, aumento x% cada n meses
+                </span>
+              </label>
+            </div>
+
+            {isSalaryPercent && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-finly-text mb-2">Sueldo base inicial (ARS)</label>
+                  <input
+                    type="number"
+                    name="base_salary"
+                    value={formData.base_salary}
+                    onChange={handleChange}
+                    step="0.01"
+                    min="0"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-finly-text mb-2">Cuota z% del sueldo</label>
+                  <input
+                    type="number"
+                    name="installment_salary_percent"
+                    value={formData.installment_salary_percent}
+                    onChange={handleChange}
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-finly-text mb-2">Aumento sueldo x%</label>
+                  <input
+                    type="number"
+                    name="salary_increase_percent"
+                    value={formData.salary_increase_percent}
+                    onChange={handleChange}
+                    step="0.01"
+                    min="0"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-finly-text mb-2">Cada n meses</label>
+                  <input
+                    type="number"
+                    name="salary_increase_interval_months"
+                    value={formData.salary_increase_interval_months}
+                    onChange={handleChange}
+                    step="1"
+                    min="1"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           <div>

@@ -2,8 +2,10 @@ import os
 import sys
 from dotenv import load_dotenv
 
-# Load backend/.env regardless of the process current working directory.
+# Load .env from the project root and backend directory so local env vars are available
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(BASE_DIR)
+load_dotenv(os.path.join(ROOT_DIR, ".env"))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 # Fix Windows console encoding for Unicode characters
@@ -91,6 +93,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Also allow any localhost origin (different ports) via regex to avoid CORS issues in dev
+    allow_origin_regex=r"^http://(localhost|127\.0\.0\.1)(:\\d+)?$",
 )
 
 # Health check endpoint
@@ -228,6 +232,11 @@ class DebtRecordCreate(BaseModel):
     due_date: Optional[date] = None
     status: Optional[Literal["ACTIVA", "CANCELADA", "VENCIDA"]] = "ACTIVA"
     notes: Optional[str] = None
+    installment_mode: Optional[Literal["FIXED", "SALARY_PERCENT"]] = "FIXED"
+    base_salary: Optional[float] = Field(default=None, gt=0)
+    installment_salary_percent: Optional[float] = Field(default=None, gt=0, le=100)
+    salary_increase_percent: Optional[float] = Field(default=None, ge=0)
+    salary_increase_interval_months: Optional[int] = Field(default=None, ge=1)
 
 
 class DebtRecordUpdate(BaseModel):
@@ -246,6 +255,11 @@ class DebtRecordUpdate(BaseModel):
     due_date: Optional[date] = None
     status: Optional[Literal["ACTIVA", "CANCELADA", "VENCIDA"]] = None
     notes: Optional[str] = None
+    installment_mode: Optional[Literal["FIXED", "SALARY_PERCENT"]] = None
+    base_salary: Optional[float] = Field(default=None, gt=0)
+    installment_salary_percent: Optional[float] = Field(default=None, gt=0, le=100)
+    salary_increase_percent: Optional[float] = Field(default=None, ge=0)
+    salary_increase_interval_months: Optional[int] = Field(default=None, ge=1)
 
 
 class DebtPaymentCreate(BaseModel):
@@ -2217,11 +2231,24 @@ async def reopen_month_endpoint(
     year_month: str,
     request: ReopenMonthRequest,
     db: Session = Depends(get_db),
-    current_user: DBUser = Depends(require_role(["ADMIN"]))
+    current_user: DBUser = Depends(get_current_user)
 ):
-    """Reopen a closed monthly period with a required reason (admin or writer who closed it)"""
+    """Reopen a closed monthly period with a required reason.
+
+    Admins may reopen any period. Writers may reopen only periods they closed themselves.
+    """
     from services.month_service import reopen_month as svc_reopen_month
+
+    # Determine admin status
     is_admin = any((getattr(role, "name", "").upper() == "ADMIN") for role in (current_user.roles or []))
+
+    # If user is not admin, ensure they have WRITER role — otherwise deny
+    if not is_admin:
+        has_writer = any((getattr(role, "name", "").upper() == "WRITER") for role in (current_user.roles or []))
+        if not has_writer:
+            raise HTTPException(status_code=403, detail="Not enough permissions")
+
+    # Delegate to service (service will enforce ownership check for non-admins)
     return svc_reopen_month(year_month, current_user.id, current_user.username, request.reason, db, is_admin=is_admin)
 
 

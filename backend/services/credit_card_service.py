@@ -471,12 +471,14 @@ class CreditCardService:
             raise ValueError("Credit card not found for cash advance debt generation")
 
         amount_ars = self._get_purchase_amount_in_ars(purchase)
-        debt_total = round(float(amount_ars) + float(purchase.cash_advance_fee or 0.0), 2)
+        fee_amount = self._calculate_cash_advance_fee_amount(purchase)
+        debt_total = round(float(amount_ars) + fee_amount, 2)
         target_year, target_month = self._get_cash_advance_target_period(purchase)
         due_date = self._calculate_period_due_date(purchase.card_id, target_year, target_month)
 
         detail = (
-            f"Extraccion TC {card.card_name}: monto ${amount_ars:,.2f} + comision ${float(purchase.cash_advance_fee or 0.0):,.2f} "
+            f"Extraccion TC {card.card_name}: monto ${amount_ars:,.2f} + comision ${fee_amount:,.2f} "
+            f"({float(purchase.cash_advance_fee or 0.0):.2f}%) "
             f"[cash_advance:{purchase.id}:{target_year}-{target_month:02d}]"
         )
 

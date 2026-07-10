@@ -79,10 +79,13 @@ def _count_projection_months(record_id):
     return months
 
 
+TEST_DELETE_PREFIX = "[TEST-DELETE] "
+
+
 def test_create_without_due_date_defaults_next_month_and_generates_12(service, seeded_user_id):
     rec = service.create_debt_record(
         {
-            "debt_name": "TEST_12",
+            "debt_name": f"{TEST_DELETE_PREFIX}TEST_12",
             "debt_type": "PERSONAL",
             "principal_amount": 1200000,
             "outstanding_amount": 1200000,
@@ -108,7 +111,7 @@ def test_create_without_due_date_defaults_next_month_and_generates_12(service, s
 def test_projection_count_matches_remaining_installments(service, seeded_user_id):
     rec = service.create_debt_record(
         {
-            "debt_name": "TEST_REMAINING",
+            "debt_name": f"{TEST_DELETE_PREFIX}TEST_REMAINING",
             "debt_type": "PERSONAL",
             "principal_amount": 600000,
             "outstanding_amount": 600000,
@@ -127,7 +130,7 @@ def test_projection_count_matches_remaining_installments(service, seeded_user_id
 def test_reconcile_restores_missing_projection_rows(service, seeded_user_id):
     rec = service.create_debt_record(
         {
-            "debt_name": "TEST_RECONCILE",
+            "debt_name": f"{TEST_DELETE_PREFIX}TEST_RECONCILE",
             "debt_type": "PERSONAL",
             "principal_amount": 300000,
             "outstanding_amount": 300000,
@@ -161,7 +164,7 @@ def test_reconcile_restores_missing_projection_rows(service, seeded_user_id):
 def test_projection_amount_applies_annual_interest_annuity(service, seeded_user_id):
     rec = service.create_debt_record(
         {
-            "debt_name": "TEST_INTEREST_ANNUITY",
+            "debt_name": f"{TEST_DELETE_PREFIX}TEST_INTEREST_ANNUITY",
             "debt_type": "PERSONAL",
             "principal_amount": 5000000,
             "outstanding_amount": 5000000,
@@ -188,7 +191,7 @@ def test_projection_amount_applies_annual_interest_annuity(service, seeded_user_
 def test_add_partial_payment_reconciles_outstanding_and_installments(service, seeded_user_id):
     rec = service.create_debt_record(
         {
-            "debt_name": "TEST_PAYMENT_PARTIAL",
+            "debt_name": f"{TEST_DELETE_PREFIX}TEST_PAYMENT_PARTIAL",
             "debt_type": "PERSONAL",
             "principal_amount": 1200000,
             "outstanding_amount": 1200000,
@@ -216,7 +219,7 @@ def test_add_partial_payment_reconciles_outstanding_and_installments(service, se
 def test_add_full_payment_cancels_debt(service, seeded_user_id):
     rec = service.create_debt_record(
         {
-            "debt_name": "TEST_PAYMENT_FULL",
+            "debt_name": f"{TEST_DELETE_PREFIX}TEST_PAYMENT_FULL",
             "debt_type": "PERSONAL",
             "principal_amount": 500000,
             "outstanding_amount": 500000,
@@ -239,3 +242,75 @@ def test_add_full_payment_cancels_debt(service, seeded_user_id):
     assert updated["pending_installments"] == pytest.approx(0.0, rel=1e-9)
     assert updated["current_installment"] == pytest.approx(6.0, rel=1e-9)
     assert updated["status"] == "CANCELADA"
+
+
+def test_card_extraction_single_installment_projects_in_due_month(service, seeded_user_id):
+    """Extraccion TC 1 cuota: debe proyectarse en el mes de la primera cuota (mayo)."""
+    rec = service.create_debt_record(
+        {
+            "debt_name": f"{TEST_DELETE_PREFIX}Extraccion TC mayo sergio",
+            "debt_type": "TARJETA",
+            "debt_source": "BANCO",
+            "creditor": "Banco Galicia",
+            "principal_amount": 3500000,
+            "outstanding_amount": 3500000,
+            "annual_interest_rate": 6.9,
+            "total_installments": 1,
+            "current_installment": 1,
+            "pending_installments": 1,
+            "start_date": "2026-05-01",
+            "due_date": "2026-05-15",
+        },
+        user_id=seeded_user_id,
+    )
+
+    months = _count_projection_months(rec["id"])
+    assert months == ["2026-05"], (
+        f"Expected projection in 2026-05 for debt-record {rec['id']} "
+        f"({rec['debt_name']}); got {months}. Delete with debt-record id={rec['id']}."
+    )
+
+    records = service.get_debt_records_with_projection(user_id=seeded_user_id)
+    target = next(r for r in records if r["id"] == rec["id"])
+    assert "2026-05" in target.get("projection_months", [])
+
+
+def test_salary_percent_installments_increase_every_n_months(service, seeded_user_id):
+    """Cuota = z% sueldo; sueldo sube x% cada n meses."""
+    rec = service.create_debt_record(
+        {
+            "debt_name": f"{TEST_DELETE_PREFIX}Prestamo sueldo variable",
+            "debt_type": "PERSONAL",
+            "principal_amount": 5000000,
+            "outstanding_amount": 5000000,
+            "total_installments": 12,
+            "current_installment": 1,
+            "start_date": "2026-01-01",
+            "due_date": "2026-01-15",
+            "installment_mode": "SALARY_PERCENT",
+            "base_salary": 1000000,
+            "installment_salary_percent": 30,
+            "salary_increase_percent": 10,
+            "salary_increase_interval_months": 6,
+        },
+        user_id=seeded_user_id,
+    )
+
+    db = SessionLocal()
+    projections = (
+        db.query(BudgetItem)
+        .filter(BudgetItem.debt_record_id == rec["id"])
+        .order_by(BudgetItem.version_source_month.asc())
+        .all()
+    )
+    db.close()
+
+    assert len(projections) == 12
+    # Cuota 1-6: 30% de 1.000.000 = 300.000
+    assert projections[0].monto_total == pytest.approx(300000, rel=1e-9)
+    assert projections[5].monto_total == pytest.approx(300000, rel=1e-9)
+    # Cuota 7+: 30% de 1.100.000 = 330.000
+    assert projections[6].monto_total == pytest.approx(330000, rel=1e-9)
+    assert projections[11].monto_total == pytest.approx(330000, rel=1e-9)
+
+    assert f"debt-record {rec['id']}" in projections[0].detalle

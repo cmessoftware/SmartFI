@@ -1,10 +1,16 @@
 import axios from 'axios';
 
-// Read API URL from runtime config (window.ENV) or build-time env variable or default to localhost
-const API_URL = window.ENV?.VITE_API_URL || import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Runtime (Docker/nginx) > build-time env > dev proxy (same origin) > IPv4 fallback.
+// Use 127.0.0.1 instead of localhost: on Windows, localhost:8000 can hit WSL/Docker via IPv6 and hang.
+const API_URL =
+  window.ENV?.VITE_API_URL ||
+  (import.meta.env.DEV
+    ? ''
+    : (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'));
 
 const api = axios.create({
   baseURL: API_URL,
+  timeout: 15000,
 });
 
 // Add token to requests
@@ -222,6 +228,13 @@ const toDebtRecordPayloadFromBudgetForm = (debt) => {
     due_date: debt.fecha_vencimiento || null,
     status: outstanding <= 0 ? 'CANCELADA' : 'ACTIVA',
     notes: debt.notes || debt.detalle || null,
+    installment_mode: debt.installment_mode || 'FIXED',
+    base_salary: parseNullableNumber(debt.base_salary),
+    installment_salary_percent: parseNullableNumber(debt.installment_salary_percent),
+    salary_increase_percent: parseNullableNumber(debt.salary_increase_percent),
+    salary_increase_interval_months: debt.salary_increase_interval_months != null && debt.salary_increase_interval_months !== ''
+      ? parseInt(debt.salary_increase_interval_months, 10)
+      : null,
   };
 };
 
@@ -240,9 +253,12 @@ const mapProjectedDebtRecordToUi = (record) => {
   const currentInstallment = toNumber(record.current_installment, 0);
   const annualInterestRate = toNumber(record.annual_interest_rate, 0);
   const projectionInstallment = toNumber(projection.monto_total, 0);
-  const estimatedPayment = annualInterestRate > 0
-    ? principalAmount * (1 + (annualInterestRate / 100))
-    : principalAmount;
+  const isSalaryPercent = (record.installment_mode || 'FIXED') === 'SALARY_PERCENT';
+  const estimatedPayment = isSalaryPercent && projectionInstallment > 0
+    ? projectionInstallment
+    : annualInterestRate > 0
+      ? principalAmount * (1 + (annualInterestRate / 100))
+      : principalAmount;
   const paidFromOutstanding = Math.max(0, principalAmount - outstandingAmount);
   const paidByInstallmentProgress =
     totalInstallments > 0 && currentInstallment > 0
@@ -267,6 +283,11 @@ const mapProjectedDebtRecordToUi = (record) => {
     current_installment: record.current_installment,
     pending_installments: record.pending_installments,
     notes: record.notes || '',
+    installment_mode: record.installment_mode || 'FIXED',
+    base_salary: record.base_salary,
+    installment_salary_percent: record.installment_salary_percent,
+    salary_increase_percent: record.salary_increase_percent,
+    salary_increase_interval_months: record.salary_increase_interval_months,
     fecha,
     fecha_vencimiento: fechaVencimiento,
     tipo: uiTypeFromDebtType(record.debt_type),
@@ -284,6 +305,7 @@ const mapProjectedDebtRecordToUi = (record) => {
     projection_count: toNumber(record.projection_count, 0),
     projection_months: Array.isArray(record.projection_months) ? record.projection_months : Object.keys(projectionByMonth),
     projection_by_month: projectionByMonth,
+    projections: projectionList,
   };
 };
 
