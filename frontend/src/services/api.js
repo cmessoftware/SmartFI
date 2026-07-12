@@ -2,11 +2,16 @@ import axios from 'axios';
 
 // Runtime (Docker/nginx) > build-time env > dev proxy (same origin) > IPv4 fallback.
 // Use 127.0.0.1 instead of localhost: on Windows, localhost:8000 can hit WSL/Docker via IPv6 and hang.
-const API_URL =
-  window.ENV?.VITE_API_URL ||
-  (import.meta.env.DEV
-    ? ''
-    : (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'));
+function resolveApiUrl() {
+  const runtime = window.ENV?.VITE_API_URL?.trim();
+  if (runtime) return runtime;
+  if (import.meta.env.DEV) return '';
+  const built = import.meta.env.VITE_API_URL?.trim();
+  if (built) return built;
+  return 'http://127.0.0.1:8000';
+}
+
+const API_URL = resolveApiUrl();
 
 const api = axios.create({
   baseURL: API_URL,

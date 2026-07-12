@@ -41,8 +41,15 @@ RUN echo 'window.ENV = { VITE_API_URL: "${VITE_API_URL}" };' > /usr/share/nginx/
 # Create startup script
 RUN echo '#!/bin/sh' > /docker-entrypoint.sh && \
     echo 'set -e' >> /docker-entrypoint.sh && \
-    echo 'echo "Configuring API URL: ${VITE_API_URL:-http://localhost:8000}"' >> /docker-entrypoint.sh && \
+    echo 'if [ -z "$VITE_API_URL" ]; then' >> /docker-entrypoint.sh && \
+    echo '  echo "ERROR: VITE_API_URL is not set. Configure it in Render (smartfi-frontend -> Environment)."' >> /docker-entrypoint.sh && \
+    echo '  exit 1' >> /docker-entrypoint.sh && \
+    echo 'fi' >> /docker-entrypoint.sh && \
+    echo 'echo "Configuring API URL: $VITE_API_URL"' >> /docker-entrypoint.sh && \
     echo 'envsubst < /usr/share/nginx/html/env-config.js.template > /usr/share/nginx/html/env-config.js' >> /docker-entrypoint.sh && \
+    echo 'if ! grep -q "env-config.js" /usr/share/nginx/html/index.html; then' >> /docker-entrypoint.sh && \
+    echo '  sed -i '"'"'s|<head>|<head>\n    <script src="/env-config.js"></script>|'"'"' /usr/share/nginx/html/index.html' >> /docker-entrypoint.sh && \
+    echo 'fi' >> /docker-entrypoint.sh && \
     echo 'nginx -g "daemon off;"' >> /docker-entrypoint.sh && \
     chmod +x /docker-entrypoint.sh
 
