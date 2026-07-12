@@ -131,7 +131,10 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
       )}
       
       {currentView === 'add' && (
-        <TransactionForm addTransaction={handleAddTransaction} />
+        <TransactionForm
+          addTransaction={handleAddTransaction}
+          onGoToCsvImport={() => setCurrentView('import')}
+        />
       )}
       
       {currentView === 'import' && (
@@ -155,8 +158,12 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
         <AdminPanel />
       )}
 
+      {currentView === 'budget' && (
+        <DebtManager key={`${currentView}-${debtRefreshKey}`} mode="budget" canEdit={canEdit} isAdmin={isAdmin} />
+      )}
+
       {currentView === 'debts' && (
-        <DebtManager key={`${currentView}-${debtRefreshKey}`} canEdit={canEdit} isAdmin={isAdmin} />
+        <DebtManager key={`${currentView}-${debtRefreshKey}`} mode="debts" canEdit={canEdit} isAdmin={isAdmin} />
       )}
 
       {currentView === 'credit-cards' && (

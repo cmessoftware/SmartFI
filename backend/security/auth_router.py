@@ -1,5 +1,5 @@
 """Auth API router — login, refresh, logout, change-password, me."""
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from typing import Optional
@@ -28,6 +28,7 @@ class RefreshRequest(BaseModel):
 @router.post("/login")
 async def login(
     request: Request,
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
@@ -46,7 +47,25 @@ async def login(
             detail=str(e),
             headers={"WWW-Authenticate": "Bearer"},
         )
+    except Exception as e:
+        # Unexpected error — return readable response instead of empty 500
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+    # Ensure CORS headers are present on the actual POST response as a fallback
+    origin = request.headers.get("origin")
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        # Let caches vary by origin
+        response.headers["Vary"] = "Origin"
+
     return result
+
+
+@router.options("/login")
+async def login_options():
+    """Respond to CORS preflight requests for the login endpoint."""
+    return Response(status_code=200)
 
 
 @router.post("/refresh")

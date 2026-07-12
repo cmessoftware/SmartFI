@@ -1,10 +1,21 @@
 import axios from 'axios';
 
-// Read API URL from runtime config (window.ENV) or build-time env variable or default to localhost
-const API_URL = window.ENV?.VITE_API_URL || import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Runtime (Docker/nginx) > build-time env > dev proxy (same origin) > IPv4 fallback.
+// Use 127.0.0.1 instead of localhost: on Windows, localhost:8000 can hit WSL/Docker via IPv6 and hang.
+function resolveApiUrl() {
+  const runtime = window.ENV?.VITE_API_URL?.trim();
+  if (runtime) return runtime;
+  if (import.meta.env.DEV) return '';
+  const built = import.meta.env.VITE_API_URL?.trim();
+  if (built) return built;
+  return 'http://127.0.0.1:8000';
+}
+
+const API_URL = resolveApiUrl();
 
 const api = axios.create({
   baseURL: API_URL,
+  timeout: 15000,
 });
 
 // Add token to requests
@@ -150,6 +161,176 @@ export const monthsAPI = {
   getBudgetItems: (yearMonth, includeCloneInfo = false) =>
     api.get(`/api/months/${yearMonth}/budget-items?include_clone_info=${includeCloneInfo}`),
   getMonths: () => api.get('/api/months?include_status=true'),
+};
+
+const toNumber = (value, fallback = 0) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const roundCurrency = (value) => Math.round((toNumber(value, 0) + Number.EPSILON) * 100) / 100;
+
+const debtTypeFromUiType = (tipo = '') => {
+  const value = String(tipo || '').toLowerCase();
+  if (value.includes('tarjeta')) return 'TARJETA';
+  if (value.includes('pr') && value.includes('stamo')) return 'PRESTAMO';
+  if (value.includes('hipoteca')) return 'HIPOTECA';
+  if (value.includes('personal')) return 'PERSONAL';
+  return 'OTRO';
+};
+
+const uiTypeFromDebtType = (debtType = '') => {
+  const map = {
+    TARJETA: 'Tarjeta',
+    PRESTAMO: 'Préstamo',
+    HIPOTECA: 'Hipoteca',
+    PERSONAL: 'Personal',
+    OTRO: 'Otro',
+  };
+  return map[debtType] || 'Otro';
+};
+
+const budgetStatusFromDebtRecord = (status, outstandingAmount) => {
+  if (status === 'VENCIDA') return 'VENCIDA';
+  if (status === 'CANCELADA' || toNumber(outstandingAmount, 0) <= 0) return 'PAGADA';
+  return 'PENDIENTE';
+};
+
+const toDebtRecordPayloadFromBudgetForm = (debt) => {
+  const montoTotal = toNumber(debt.monto_total, 0);
+  const montoEjecutado = toNumber(debt.monto_ejecutado ?? debt.monto_pagado, 0);
+  const outstanding = Math.max(0, montoTotal - montoEjecutado);
+
+  const debtName = String(
+    debt.debt_name || debt.detalle || `${debt.tipo || 'Deuda'} ${debt.categoria || ''}`
+  ).trim();
+
+  const parseNullableNumber = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const debtType = debt.debt_type || debtTypeFromUiType(debt.tipo);
+  const annualInterestRate = parseNullableNumber(debt.annual_interest_rate);
+  const totalInstallments = parseNullableNumber(debt.total_installments);
+  const currentInstallment = parseNullableNumber(debt.current_installment);
+  const pendingInstallments = parseNullableNumber(debt.pending_installments);
+
+  return {
+    debt_name: debtName,
+    debt_type: debtType,
+    debt_source: debt.debt_source || null,
+    creditor: debt.creditor || debt.categoria || null,
+    currency: debt.currency || 'ARS',
+    principal_amount: montoTotal,
+    outstanding_amount: outstanding,
+    annual_interest_rate: annualInterestRate,
+    total_installments: totalInstallments,
+    current_installment: currentInstallment,
+    pending_installments: pendingInstallments,
+    start_date: debt.fecha || null,
+    due_date: debt.fecha_vencimiento || null,
+    status: outstanding <= 0 ? 'CANCELADA' : 'ACTIVA',
+    notes: debt.notes || debt.detalle || null,
+    installment_mode: debt.installment_mode || 'FIXED',
+    base_salary: parseNullableNumber(debt.base_salary),
+    installment_salary_percent: parseNullableNumber(debt.installment_salary_percent),
+    salary_increase_percent: parseNullableNumber(debt.salary_increase_percent),
+    salary_increase_interval_months: debt.salary_increase_interval_months != null && debt.salary_increase_interval_months !== ''
+      ? parseInt(debt.salary_increase_interval_months, 10)
+      : null,
+  };
+};
+
+const mapProjectedDebtRecordToUi = (record) => {
+  const projection = record.projection_current || {};
+  const projectionList = Array.isArray(record.projections) ? record.projections : [];
+  const projectionByMonth = projectionList.reduce((acc, item) => {
+    if (item?.version_source_month) {
+      acc[item.version_source_month] = item;
+    }
+    return acc;
+  }, {});
+  const principalAmount = toNumber(record.principal_amount, toNumber(record.outstanding_amount, 0));
+  const outstandingAmount = toNumber(record.outstanding_amount, principalAmount);
+  const totalInstallments = toNumber(record.total_installments, 0);
+  const currentInstallment = toNumber(record.current_installment, 0);
+  const annualInterestRate = toNumber(record.annual_interest_rate, 0);
+  const projectionInstallment = toNumber(projection.monto_total, 0);
+  const isSalaryPercent = (record.installment_mode || 'FIXED') === 'SALARY_PERCENT';
+  const estimatedPayment = isSalaryPercent && projectionInstallment > 0
+    ? projectionInstallment
+    : annualInterestRate > 0
+      ? principalAmount * (1 + (annualInterestRate / 100))
+      : principalAmount;
+  const paidFromOutstanding = Math.max(0, principalAmount - outstandingAmount);
+  const paidByInstallmentProgress =
+    totalInstallments > 0 && currentInstallment > 0
+      ? estimatedPayment * Math.min(Math.max(currentInstallment / totalInstallments, 0), 1)
+      : 0;
+  const totalPaid = paidFromOutstanding > 0 ? paidFromOutstanding : paidByInstallmentProgress;
+  const montoEjecutado = roundCurrency(totalPaid);
+  const fecha = projection.fecha || record.start_date || record.due_date || null;
+  const fechaVencimiento = projection.fecha_vencimiento || record.due_date || fecha;
+
+  return {
+    id: record.id,
+    debt_record_id: record.id,
+    debt_name: record.debt_name || '',
+    debt_type: record.debt_type || 'OTRO',
+    debt_source: record.debt_source || null,
+    creditor: record.creditor || null,
+    currency: record.currency || 'ARS',
+    outstanding_amount: outstandingAmount,
+    annual_interest_rate: record.annual_interest_rate,
+    total_installments: record.total_installments,
+    current_installment: record.current_installment,
+    pending_installments: record.pending_installments,
+    notes: record.notes || '',
+    installment_mode: record.installment_mode || 'FIXED',
+    base_salary: record.base_salary,
+    installment_salary_percent: record.installment_salary_percent,
+    salary_increase_percent: record.salary_increase_percent,
+    salary_increase_interval_months: record.salary_increase_interval_months,
+    fecha,
+    fecha_vencimiento: fechaVencimiento,
+    tipo: uiTypeFromDebtType(record.debt_type),
+    categoria: record.creditor || 'Deudas',
+    detalle: record.debt_name || '',
+    monto_total: principalAmount,
+    monto_pagado: montoEjecutado,
+    monto_ejecutado: montoEjecutado,
+    estimated_payment: roundCurrency(estimatedPayment),
+    status: budgetStatusFromDebtRecord(record.status, record.outstanding_amount),
+    tipo_presupuesto: 'OBLIGATION',
+    tipo_flujo: 'Ingreso',
+    expense_type: 'VARIABLE',
+    debt_source: record.debt_source || record.creditor || null,
+    projection_count: toNumber(record.projection_count, 0),
+    projection_months: Array.isArray(record.projection_months) ? record.projection_months : Object.keys(projectionByMonth),
+    projection_by_month: projectionByMonth,
+    projections: projectionList,
+  };
+};
+
+export const debtRecordsAPI = {
+  getProjectedDebts: (status) => {
+    const request = status
+      ? api.get('/api/debt-records/projected', { params: { status } })
+      : api.get('/api/debt-records/projected');
+
+    return request.then((response) => ({
+      ...response,
+      data: (response.data || []).map(mapProjectedDebtRecordToUi),
+    }));
+  },
+  createDebt: (debt) => api.post('/api/debt-records', toDebtRecordPayloadFromBudgetForm(debt)),
+  updateDebt: (id, debt) => api.put(`/api/debt-records/${id}`, toDebtRecordPayloadFromBudgetForm(debt)),
+  deleteDebt: (id) => api.delete(`/api/debt-records/${id}`),
+  getPayments: (id) => api.get(`/api/debt-records/${id}/payments`),
+  addPayment: (id, payload) => api.post(`/api/debt-records/${id}/payments`, payload),
+  deletePayment: (paymentId) => api.delete(`/api/debt-records/payments/${paymentId}`),
 };
 
 export const debtsAPI = {

@@ -9,7 +9,9 @@ function CreditCardCSVImport({ cardId, cardName, onImportSuccess, onClose }) {
     fecha: '',
     descripcion: '',
     detalle: '',
-    importe: ''
+    importe: '',
+    tipo_movimiento: '',
+    comision: ''
   });
   const [previewData, setPreviewData] = useState([]);
   const [formattedPurchases, setFormattedPurchases] = useState([]);
@@ -18,22 +20,24 @@ function CreditCardCSVImport({ cardId, cardName, onImportSuccess, onClose }) {
   const [importResult, setImportResult] = useState(null);
 
   const requiredFields = ['fecha', 'descripcion', 'importe'];
-  const optionalFields = ['detalle'];
+  const optionalFields = ['detalle', 'tipo_movimiento', 'comision'];
 
   const fieldLabels = {
     fecha: 'Fecha',
     descripcion: 'Descripción',
     detalle: 'Detalle (cuotas)',
-    importe: 'Importe'
+    importe: 'Importe',
+    tipo_movimiento: 'Tipo Movimiento (normal/cash_advance)',
+    comision: 'Comisión extracción'
   };
 
   const downloadTemplate = () => {
-    const headers = ['fecha', 'Codigo', 'Descripcion', 'Detalle', 'Importe'];
+    const headers = ['fecha', 'Codigo', 'Descripcion', 'Detalle', 'Importe', 'Tipo Movimiento', 'Comision'];
     const exampleRows = [
-      ['09/02/2026', '834023', 'VISA PLAN V', '2-12 (TNA 84,00)', '43946.21'],
-      ['14/02/2026', '2723', 'MERPAGO BELLEZAPERFECTA', 'Cuota', '2381.66'],
-      ['19/02/2026', '077', 'LIBRERIA LA MILAGROSA', '', '10000.00'],
-      ['20/02/2026', '1', 'AUTOPISTA DEL OESTE', '', '1677.86']
+      ['09/02/2026', '834023', 'VISA PLAN V', '2-12 (TNA 84,00)', '43946.21', 'normal', '0'],
+      ['14/02/2026', '2723', 'MERPAGO BELLEZAPERFECTA', 'Cuota', '2381.66', 'normal', '0'],
+      ['19/02/2026', '077', 'EXTRACCION CAJERO', '', '10000.00', 'cash_advance', '1200.00'],
+      ['20/02/2026', '1', 'AUTOPISTA DEL OESTE', '', '1677.86', 'normal', '0']
     ];
 
     const csvContent = [
@@ -131,13 +135,15 @@ function CreditCardCSVImport({ cardId, cardName, onImportSuccess, onClose }) {
           setRawRows(results.data);
 
           // Auto-map columns by matching common names
-          const autoMapping = { fecha: '', descripcion: '', detalle: '', importe: '' };
+          const autoMapping = { fecha: '', descripcion: '', detalle: '', importe: '', tipo_movimiento: '', comision: '' };
           for (const h of headers) {
             const lower = h.toLowerCase().trim();
             if (lower === 'fecha' || lower === 'date') autoMapping.fecha = h;
             else if (lower === 'descripcion' || lower === 'description') autoMapping.descripcion = h;
             else if (lower === 'detalle' || lower === 'detail') autoMapping.detalle = h;
             else if (lower === 'importe' || lower === 'monto' || lower === 'amount') autoMapping.importe = h;
+            else if (lower === 'tipo movimiento' || lower === 'tipo_movimiento' || lower === 'movement_type') autoMapping.tipo_movimiento = h;
+            else if (lower === 'comision' || lower === 'comisión' || lower === 'cash_advance_fee') autoMapping.comision = h;
           }
           setMapping(autoMapping);
 
@@ -190,6 +196,14 @@ function CreditCardCSVImport({ cardId, cardName, onImportSuccess, onClose }) {
 
           const detalleRaw = mapping.detalle ? row[mapping.detalle]?.trim() : '';
           const installmentInfo = parseInstallmentInfo(detalleRaw);
+          const movementRaw = mapping.tipo_movimiento ? String(row[mapping.tipo_movimiento] || '').trim().toLowerCase() : '';
+          const movementType = movementRaw === 'cash_advance' ? 'cash_advance' : 'normal';
+          const feeRaw = mapping.comision ? row[mapping.comision] : '';
+          const cashAdvanceFee = feeRaw ? parseAmount(feeRaw) : 0;
+          if (movementType === 'cash_advance' && (!cashAdvanceFee || isNaN(cashAdvanceFee) || cashAdvanceFee <= 0)) {
+            errors.push(`Fila ${index + 1}: comisión obligatoria para extracción`);
+            return;
+          }
 
           purchases.push({
             card_id: cardId,
@@ -199,6 +213,8 @@ function CreditCardCSVImport({ cardId, cardName, onImportSuccess, onClose }) {
             installments: 1, // Default: single payment
             interest_rate: 0,
             detalle_raw: detalleRaw,
+            movement_type: movementType,
+            cash_advance_fee: movementType === 'cash_advance' ? cashAdvanceFee : 0,
             installment_info: installmentInfo,
             _row: index + 1
           });
@@ -242,7 +258,9 @@ function CreditCardCSVImport({ cardId, cardName, onImportSuccess, onClose }) {
         purchase_date: p.purchase_date,
         installments: p.installments,
         interest_rate: p.interest_rate,
-        detalle: p.detalle_raw || ''
+        detalle: p.detalle_raw || '',
+        movement_type: p.movement_type || 'normal',
+        cash_advance_fee: p.cash_advance_fee || 0,
       }));
 
       const response = await creditCardAPI.bulkImportPurchases(cardId, payload);
@@ -268,7 +286,7 @@ function CreditCardCSVImport({ cardId, cardName, onImportSuccess, onClose }) {
   const resetImport = () => {
     setCsvHeaders([]);
     setRawRows([]);
-    setMapping({ fecha: '', descripcion: '', detalle: '', importe: '' });
+    setMapping({ fecha: '', descripcion: '', detalle: '', importe: '', tipo_movimiento: '', comision: '' });
     setPreviewData([]);
     setFormattedPurchases([]);
     setMessage(null);
@@ -344,6 +362,7 @@ function CreditCardCSVImport({ cardId, cardName, onImportSuccess, onClose }) {
                 <ul className="text-sm text-finly-textSecondary space-y-1">
                   <li>• Columnas requeridas: <strong>Fecha, Descripción, Importe</strong></li>
                   <li>• Columna opcional: <strong>Detalle</strong> (info de cuotas, ej: "2-12 (TNA 84,00)")</li>
+                  <li>• Opcional: <strong>Tipo Movimiento</strong> (normal/cash_advance) y <strong>Comision</strong></li>
                   <li>• Fecha: DD/MM/YYYY, DD.MM.YY, DD.MM.YYYY, DD-MM-YYYY o YYYY-MM-DD</li>
                   <li>• Importe: 10000.00, 10.000,00, o 10000/00</li>
                   <li>• Las columnas se mapean manualmente después de cargar</li>

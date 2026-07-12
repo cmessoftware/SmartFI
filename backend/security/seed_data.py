@@ -65,7 +65,7 @@ DEFAULT_ROLES = {
             "categories.read",
             "settings.read",
             "accounts.read", "accounts.write",
-            "debt_records.read", "debt_records.write",
+            "debt_records.read", "debt_records.write", "debt_records.delete",
         ],
     },
     "READER": {

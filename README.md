@@ -9,7 +9,8 @@
 **Finly** es una aplicación moderna de finanzas personales que te permite:
 - 📊 Registrar ingresos y gastos con categorización
 - 📈 Visualizar reportes con gráficos interactivos
-- 💳 Gestionar presupuestos y compromisos financieros
+- 💳 Gestionar presupuestos
+- 💼 Gestionar compromisos financieros (Deudas) que no son de tarjeta de crédito
 - 📁 Importar/exportar transacciones desde CSV
 - ☁️ Sincronización con Google Sheets (opcional)
 - 🔒 Sistema de autenticación con roles (Admin, Writer, Reader)

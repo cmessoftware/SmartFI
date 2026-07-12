@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-06-02
+status: proposed
+gitea_milestone: debts-mvp
+gitea_issue: "#139,#140"
+branch: feature/dbt-feat-003-monthly-projection-fix

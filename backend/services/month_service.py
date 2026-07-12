@@ -212,10 +212,11 @@ def reopen_month(
             detail={"code": "REASON_REQUIRED", "message": "El motivo debe tener al menos 10 caracteres"},
         )
 
-    period = db.query(MonthlyPeriod).filter(
-        MonthlyPeriod.year_month == year_month,
-        MonthlyPeriod.user_id == admin_user_id,
-    ).first()
+    query = db.query(MonthlyPeriod).filter(MonthlyPeriod.year_month == year_month)
+    # Admins may operate on any user's period; writers only on their own
+    if not is_admin:
+        query = query.filter(MonthlyPeriod.user_id == admin_user_id)
+    period = query.first()
 
     if not period or period.status not in (MonthPeriodStatus.CLOSED, MonthPeriodStatus.REOPENED):
         raise HTTPException(

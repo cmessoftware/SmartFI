@@ -1,0 +1,261 @@
+import { useState, useEffect, useMemo } from 'react';
+import { debtsAPI, transactionsAPI } from '../services/api';
+import { useToast } from './ToastContainer';
+
+const getInitialDate = (yearMonth) => {
+  if (typeof yearMonth === 'string' && /^\d{4}-\d{2}$/.test(yearMonth)) {
+    return `${yearMonth}-01`;
+  }
+  return new Date().toISOString().split('T')[0];
+};
+
+const buildInitialFormData = (yearMonth) => ({
+  fecha: getInitialDate(yearMonth),
+  tipo: 'Servicios',
+  categoria: 'Personal',
+  monto_total: '',
+  monto_pagado: '0',
+  detalle: '',
+  fecha_vencimiento: '',
+  tipo_presupuesto: 'OBLIGATION',
+  tipo_flujo: 'Gasto',
+  expense_type: 'VARIABLE',
+  monto_ejecutado: '0',
+  estimated_payment: ''
+});
+
+const getCategoryOption = (category) => {
+  if (category == null) return null;
+
+  if (typeof category === 'string') {
+    const value = category.trim();
+    if (!value) return null;
+    return { value, label: value };
+  }
+
+  if (typeof category === 'object') {
+    const raw = category.name ?? category.label ?? category.value ?? category.categoria ?? category.id;
+    const value = raw != null ? String(raw).trim() : '';
+    if (!value) return null;
+    return { value, label: value };
+  }
+
+  const value = String(category).trim();
+  return value ? { value, label: value } : null;
+};
+
+export default function NewBudgetItemModal({ isOpen, onClose, onSuccess, yearMonth }) {
+  const toast = useToast();
+
+  const tiposGasto = [
+    'Servicios',
+    'Alimentacion',
+    'Transporte',
+    'Vivienda',
+    'Educacion',
+    'Salud',
+    'Entretenimiento',
+    'Seguros',
+    'Impuestos',
+    'Prestamo',
+    'Tarjeta',
+    'Otro'
+  ];
+
+  const tiposIngreso = [
+    'Sueldos',
+    'Honorarios',
+    'Alquileres',
+    'Inversiones',
+    'Freelance',
+    'Ventas',
+    'Otro'
+  ];
+
+  const [formData, setFormData] = useState(() => buildInitialFormData(yearMonth));
+  const [categories, setCategories] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setFormData(buildInitialFormData(yearMonth));
+      loadCategories();
+    }
+  }, [isOpen, yearMonth]);
+
+  const categoryOptions = useMemo(() => {
+    const map = new Map();
+    for (const category of categories) {
+      const option = getCategoryOption(category);
+      if (!option) continue;
+      const key = option.value.toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, option);
+      }
+    }
+    if (!map.size) {
+      map.set('otro', { value: 'Otro', label: 'Otro' });
+    }
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, 'es', { sensitivity: 'base' }));
+  }, [categories]);
+
+  const loadCategories = async () => {
+    try {
+      const response = await transactionsAPI.getCategories();
+      setCategories(response.data || []);
+    } catch (error) {
+      console.error('Error loading categories:', error);
+      setCategories(['Personal', 'Vivienda', 'Transporte', 'Educacion', 'Salud', 'Otro']);
+    }
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+
+    if (name === 'tipo_flujo') {
+      setFormData((prev) => ({
+        ...prev,
+        tipo_flujo: value,
+        tipo: value === 'Ingreso' ? tiposIngreso[0] : tiposGasto[0]
+      }));
+      return;
+    }
+
+    if (name === 'monto_total') {
+      setFormData((prev) => ({
+        ...prev,
+        monto_total: value,
+        estimated_payment: (!prev.estimated_payment || prev.estimated_payment === prev.monto_total)
+          ? value
+          : prev.estimated_payment
+      }));
+      return;
+    }
+
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!formData.monto_total || parseFloat(formData.monto_total) <= 0) {
+      toast.warning('Ingrese un monto valido');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await debtsAPI.createDebt(formData);
+      toast.success('Item de presupuesto creado correctamente');
+      setFormData(buildInitialFormData(yearMonth));
+      onSuccess();
+      onClose();
+    } catch (error) {
+      toast.error('Error al crear item de presupuesto');
+      console.error('Error creating budget item:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClose = () => {
+    if (loading) return;
+    setFormData(buildInitialFormData(yearMonth));
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-finly-text">Nuevo Item de Presupuesto</h2>
+          <button
+            onClick={handleClose}
+            disabled={loading}
+            className="text-gray-500 hover:text-gray-700 text-2xl disabled:opacity-50"
+          >
+            x
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">Fecha *</label>
+              <input type="date" name="fecha" value={formData.fecha} onChange={handleChange} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary" required />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">Tipo de {formData.tipo_flujo} *</label>
+              <select name="tipo" value={formData.tipo} onChange={handleChange} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary" required>
+                {(formData.tipo_flujo === 'Ingreso' ? tiposIngreso : tiposGasto).map((tipo) => (
+                  <option key={tipo} value={tipo}>{tipo}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">Tipo de Presupuesto *</label>
+              <select name="tipo_presupuesto" value={formData.tipo_presupuesto} onChange={handleChange} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary" required>
+                <option value="OBLIGATION">Obligacion (Deuda/Compromiso)</option>
+                <option value="VARIABLE">Variable (Flexible)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">Tipo de Flujo *</label>
+              <select name="tipo_flujo" value={formData.tipo_flujo} onChange={handleChange} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary" required>
+                <option value="Gasto">Gasto</option>
+                <option value="Ingreso">Ingreso</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">Recurrencia *</label>
+              <select name="expense_type" value={formData.expense_type} onChange={handleChange} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary" required>
+                <option value="FIJO">Fijo</option>
+                <option value="VARIABLE">Variable</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">Categoria *</label>
+              <select name="categoria" value={formData.categoria} onChange={handleChange} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary" required>
+                {categoryOptions.map((category) => (
+                  <option key={category.value} value={category.value}>{category.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">Monto Total (ARS) *</label>
+              <input type="number" name="monto_total" value={formData.monto_total} onChange={handleChange} step="0.01" min="0" placeholder="0.00" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary" required />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">Monto a Pagar (ARS)</label>
+              <input type="number" name="estimated_payment" value={formData.estimated_payment} onChange={handleChange} step="0.01" min="0" placeholder={formData.monto_total || '0.00'} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary" />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">Fecha Vencimiento</label>
+              <input type="date" name="fecha_vencimiento" value={formData.fecha_vencimiento} onChange={handleChange} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary" />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-finly-text mb-2">Detalle</label>
+              <textarea name="detalle" value={formData.detalle} onChange={handleChange} rows="3" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary" placeholder="Descripcion del item de presupuesto..." />
+            </div>
+          </div>
+
+          <div className="mt-6 flex gap-3 justify-end">
+            <button type="button" onClick={handleClose} disabled={loading} className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50">Cancelar</button>
+            <button type="submit" disabled={loading} className="bg-finly-primary text-white px-6 py-3 rounded-lg hover:bg-finly-secondary transition-colors disabled:opacity-50">{loading ? 'Guardando...' : 'Guardar Item'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { transactionsAPI, debtsAPI } from '../services/api';
 
-function TransactionForm({ addTransaction }) {
+function TransactionForm({ addTransaction, onGoToCsvImport }) {
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
     type: 'Gasto',
@@ -102,9 +102,22 @@ function TransactionForm({ addTransaction }) {
   return (
     <div className="max-w-2xl mx-auto">
       <div className="bg-white rounded-xl shadow-md p-8">
-        <h2 className="text-2xl font-bold text-finly-text mb-6">
-          Cargar Gasto/Ingreso
-        </h2>
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-2xl font-bold text-finly-text">
+            Cargar Gasto/Ingreso
+          </h2>
+          {onGoToCsvImport && (
+            <button
+              type="button"
+              onClick={onGoToCsvImport}
+              className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 font-semibold text-white transition hover:bg-green-700"
+              title="Ir a carga masiva por CSV"
+            >
+              <span>📥</span>
+              <span>Carga Masiva CSV</span>
+            </button>
+          )}
+        </div>
 
         {message && (
           <div className={`mb-6 p-4 rounded-lg ${

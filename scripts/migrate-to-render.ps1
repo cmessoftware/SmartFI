@@ -11,8 +11,40 @@ param(
     [switch]$DryRun,
     
     [Parameter(Mandatory=$false)]
-    [switch]$SkipBackup
+    [switch]$SkipBackup,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$ImportOnly,
+
+    [Parameter(Mandatory=$false)]
+    [string]$BackupFile
 )
+
+function Resolve-PostgresTool {
+    param([string]$ToolName)
+
+    $cmd = Get-Command $ToolName -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+
+    $roots = @(
+        (Join-Path ${env:ProgramFiles} "PostgreSQL"),
+        (Join-Path ${env:ProgramFiles(x86)} "PostgreSQL")
+    )
+    foreach ($root in $roots) {
+        if (-not (Test-Path $root)) { continue }
+        $match = Get-ChildItem -Path $root -Directory -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending |
+            ForEach-Object { Join-Path $_.FullName "bin\$ToolName.exe" } |
+            Where-Object { Test-Path $_ } |
+            Select-Object -First 1
+        if ($match) { return $match }
+    }
+
+    return $null
+}
+
+$psqlPath = Resolve-PostgresTool -ToolName "psql"
+$pgDumpPath = Resolve-PostgresTool -ToolName "pg_dump"
 
 Write-Host "🚀 Finly Database Migration: Local → Render" -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
@@ -26,7 +58,18 @@ $LocalUser = "admin"
 $LocalPassword = "admin123"
 $BackupDir = Join-Path $PSScriptRoot "..\backups"
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$BackupFile = Join-Path $BackupDir "local_backup_${Timestamp}.sql"
+if (-not $BackupFile) {
+    $BackupFile = Join-Path $BackupDir "local_backup_${Timestamp}.sql"
+}
+
+# Allow URL from env (NEON_DATABASE_URL or DATABASE_URL pointing to Neon)
+if (-not $RenderDatabaseUrl) {
+    if ($env:NEON_DATABASE_URL) {
+        $RenderDatabaseUrl = $env:NEON_DATABASE_URL
+    } elseif ($env:DATABASE_URL -match 'neon\.tech') {
+        $RenderDatabaseUrl = $env:DATABASE_URL
+    }
+}
 
 # Create backup directory if it doesn't exist
 if (-not (Test-Path $BackupDir)) {
@@ -36,10 +79,10 @@ if (-not (Test-Path $BackupDir)) {
 
 # Check if Render Database URL is provided
 if (-not $RenderDatabaseUrl) {
-    Write-Host "⚠️  Render Database URL not provided." -ForegroundColor Yellow
+    Write-Host "⚠️  Database URL not provided." -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "Please provide the Render PostgreSQL connection URL:" -ForegroundColor Yellow
-    Write-Host "Example: postgresql://user:password@host:port/database" -ForegroundColor Gray
+    Write-Host "Set `$env:NEON_DATABASE_URL or pass -RenderDatabaseUrl" -ForegroundColor Yellow
+    Write-Host "Example: postgresql://user:password@host:port/database?sslmode=require" -ForegroundColor Gray
     Write-Host ""
     $RenderDatabaseUrl = Read-Host "Enter Render Database URL"
     
@@ -68,6 +111,7 @@ if ($DryRun) {
 }
 
 # Step 1: Check if Docker is running (for local database)
+if (-not $ImportOnly) {
 Write-Host "🔍 Step 1: Checking local database..." -ForegroundColor Cyan
 try {
     $dockerStatus = docker ps --filter "name=finly-postgres" --format "{{.Status}}" 2>&1
@@ -82,8 +126,26 @@ try {
     Write-Host "❌ Unable to check Docker status: $_" -ForegroundColor Red
     exit 1
 }
+}
 
 # Step 2: Export local database
+if ($ImportOnly) {
+    if (-not (Test-Path $BackupFile)) {
+        $latest = Get-ChildItem -Path $BackupDir -Filter "local_backup_*.sql" -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+        if ($latest) {
+            $BackupFile = $latest.FullName
+            Write-Host "📦 Using existing backup: $BackupFile" -ForegroundColor Cyan
+        } else {
+            Write-Host "❌ ImportOnly requested but no backup file found in $BackupDir" -ForegroundColor Red
+            exit 1
+        }
+    } else {
+        Write-Host "📦 Using backup: $BackupFile" -ForegroundColor Cyan
+    }
+    Write-Host ""
+} else {
 Write-Host "📦 Step 2: Exporting local database..." -ForegroundColor Cyan
 $env:PGPASSWORD = $LocalPassword
 
@@ -113,13 +175,14 @@ if ($DryRun) {
         exit 1
     }
 }
+}
 
 # Step 3: Show data summary
-if (-not $DryRun) {
+if (-not $DryRun -and -not $ImportOnly) {
     Write-Host "📊 Step 3: Database Summary..." -ForegroundColor Cyan
     try {
         $transactionsCount = docker exec -e PGPASSWORD=$LocalPassword finly-postgres psql -h localhost -p 5432 -U $LocalUser -d $LocalDatabase -t -c "SELECT COUNT(*) FROM transactions;" 2>&1
-        $debtsCount = docker exec -e PGPASSWORD=$LocalPassword finly-postgres psql -h localhost -p 5432 -U $LocalUser -d $LocalDatabase -t -c "SELECT COUNT(*) FROM debts;" 2>&1
+        $debtsCount = docker exec -e PGPASSWORD=$LocalPassword finly-postgres psql -h localhost -p 5432 -U $LocalUser -d $LocalDatabase -t -c "SELECT COUNT(*) FROM budget_items;" 2>&1
         $categoriesCount = docker exec -e PGPASSWORD=$LocalPassword finly-postgres psql -h localhost -p 5432 -U $LocalUser -d $LocalDatabase -t -c "SELECT COUNT(*) FROM categories;" 2>&1
         $usersCount = docker exec -e PGPASSWORD=$LocalPassword finly-postgres psql -h localhost -p 5432 -U $LocalUser -d $LocalDatabase -t -c "SELECT COUNT(*) FROM users;" 2>&1
         
@@ -145,11 +208,8 @@ if (-not $SkipBackup) {
         Write-Host "   Backing up Render database..." -ForegroundColor Gray
         
         try {
-            # Check if pg_dump is available locally
-            $pgDumpAvailable = Get-Command pg_dump -ErrorAction SilentlyContinue
-            
-            if ($pgDumpAvailable) {
-                pg_dump "$RenderDatabaseUrl" --clean --if-exists --no-owner --no-acl > $renderBackupFile
+            if ($pgDumpPath) {
+                & $pgDumpPath "$RenderDatabaseUrl" --clean --if-exists --no-owner --no-acl > $renderBackupFile
                 if ($LASTEXITCODE -eq 0) {
                     Write-Host "✅ Render backup created: $renderBackupFile" -ForegroundColor Green
                 } else {
@@ -194,18 +254,17 @@ Write-Host ""
 Write-Host "   Importing to Render..." -ForegroundColor Gray
 
 try {
-    # Check if psql is available
-    $psqlAvailable = Get-Command psql -ErrorAction SilentlyContinue
-    
-    if (-not $psqlAvailable) {
+    if (-not $psqlPath) {
         Write-Host "❌ psql command not found" -ForegroundColor Red
-        Write-Host "   Please install PostgreSQL client tools" -ForegroundColor Yellow
-        Write-Host "   Download from: https://www.postgresql.org/download/windows/" -ForegroundColor Gray
+        Write-Host "   Install PostgreSQL client tools or reopen the terminal after install." -ForegroundColor Yellow
+        Write-Host "   Expected location: C:\Program Files\PostgreSQL\*\bin\psql.exe" -ForegroundColor Gray
         exit 1
     }
-    
-    # Import the backup file to Render
-    Get-Content $BackupFile | psql "$RenderDatabaseUrl" 2>&1 | Out-Null
+
+    Write-Host "   Using psql: $psqlPath" -ForegroundColor Gray
+
+    # Import the backup file to Render/Neon
+    Get-Content $BackupFile | & $psqlPath "$RenderDatabaseUrl" 2>&1 | Out-Null
     
     if ($LASTEXITCODE -eq 0) {
         Write-Host "✅ Database imported successfully to Render!" -ForegroundColor Green
@@ -224,7 +283,7 @@ try {
 Write-Host "🔍 Step 6: Verifying migration..." -ForegroundColor Cyan
 try {
     $verifyQuery = "SELECT COUNT(*) FROM transactions;"
-    $renderCount = psql "$RenderDatabaseUrl" -t -c "$verifyQuery" 2>&1
+    $renderCount = & $psqlPath "$RenderDatabaseUrl" -t -c "$verifyQuery" 2>&1
     
     if ($renderCount -match "\d+") {
         Write-Host "✅ Verification successful" -ForegroundColor Green

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:preview": "vite build && vite preview --port 5173",
     "build": "vite build",
     "preview": "vite preview",
     "backlog:credit-card": "node -e \"const fs=require('fs');const p=require('path').resolve('..','docs','SmartFI-V1','SmartFI_CREDIT_CARD_MODULE.backlog.json');const data=JSON.parse(fs.readFileSync(p,'utf8'));for (const item of data.items){console.log([item.id,item.type,item.priority,item.status,item.title].join(' | '));}\"",

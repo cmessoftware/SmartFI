@@ -7,6 +7,82 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 
 ## [Unreleased]
 
+### Agregado
+
+- **Módulo Deudas — cuotas por porcentaje de sueldo (DBT-FEAT-004 parcial)**
+  - Modo de cuota `SALARY_PERCENT`: cuota = z% del sueldo base, con aumento x% cada n meses
+  - Campos nuevos en `debt_records`: `installment_mode`, `base_salary`, `installment_salary_percent`, `salary_increase_percent`, `salary_increase_interval_months`
+  - Toggle y formulario en `NewDebtModal.jsx` / `EditDebtModal.jsx` con vista previa de cuota estimada
+  - Proyección mensual en Presupuesto calcula cuota variable según índice de cuota
+  - Migración Alembic: `b2c3d4e5f6a7_add_salary_percent_installment_fields.py`
+
+- **Módulo Deudas — registro de pagos parcial/total (DBT-FEAT-004)**
+  - Endpoint `POST /api/debt-records/{id}/payments` con reconciliación de saldo, cuotas fraccionarias y estado
+  - Modal "Registrar Pago" en `DebtManager.jsx` con validación de monto y refresco automático de tabla
+  - Cuotas fraccionarias con precisión de 2 decimales (ej. pago de 250.000 sobre cuota de 100.000 → 3.5/12)
+  - Estado `CANCELADA` al liquidar saldo completo
+
+- **Proyección de deudas — mejoras (DBT-FEAT-003)**
+  - Proyección inicia en `due_date` (fecha primera cuota), no en `start_date`
+  - Extracción TC de 1 cuota se proyecta en el mes de vencimiento
+  - Reconciliación automática de filas de proyección faltantes al consultar deudas
+  - Anualidad con interés aplicada al monto de cuota fija
+
+- **Documentación**
+  - Guía de prueba manual UI para DBT-FEAT-004 en `SmartFI_DEBTS_MODULE.md`
+
+### Modificado
+
+- **`DebtManager.jsx`**
+  - Integración con `debtRecordsAPI` para pagos y proyecciones mensuales
+  - Selector de mes de proyección con detección de mes actual/referencia
+  - Resumen por mes con `total_estimated_payment` desde proyecciones
+
+- **`backend/services/debt_record_service.py`**
+  - Lógica de pagos parciales/totales con recálculo de `current_installment` y `pending_installments`
+  - Validación de campos `SALARY_PERCENT` en create/update
+  - Cálculo de cuota por índice con aumentos salariales compuestos
+
+- **`backend/main.py`**
+  - Modelos Pydantic con campos de cuota por sueldo y endpoint de pagos
+
+- **`backend/database/database.py`**
+  - Enum `InstallmentMode` y columnas de cuota variable en `DebtRecord`
+  - Carga de `.env` desde raíz del proyecto; puerto PostgreSQL por defecto 5433
+
+- **`backend/services/month_service.py`**
+  - Admins pueden reabrir periodos de cualquier usuario; writers solo los propios
+
+- **`backend/security/auth_router.py`**
+  - Headers CORS explícitos en respuesta de login y handler OPTIONS para preflight
+
+- **`frontend/vite.config.js`**
+  - Host `127.0.0.1`, CSP en dev para HMR, proxy apuntando a `127.0.0.1:8000`
+
+- **`frontend/src/components/Login.jsx`**
+  - Mensajes de error diferenciados para timeout y backend inactivo
+
+- **`scripts/start.ps1`**
+  - Detección de puertos ocupados (8000/5173) con opción de liberar proceso previo
+  - Arranque más robusto de backend y frontend
+
+- **`frontend/src/services/api.js`**
+  - Métodos `debtRecordsAPI.addPayment`, `getProjected` y campos de cuota variable
+
+### Corregido
+
+- **Migración cash advance**
+  - `f9a4c2e7b1d3`: migración idempotente con verificación de columnas existentes
+
+- **Proyección extracción tarjeta**
+  - Deuda de 1 cuota con `due_date` en mayo ya no se proyecta en mes incorrecto
+
+### Técnico
+
+- **Tests**
+  - `test_debt_record_projection_service.py`: casos de anualidad, pago parcial/total, cuota por sueldo variable y extracción TC
+  - Ejecución: `conda run -n finly pytest tests/test_debt_record_projection_service.py -v`
+
 ## [1.1.0] - 2026-04-02
 
 ### Agregado
