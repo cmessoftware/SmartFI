@@ -108,15 +108,21 @@ if (-not $Force) {
 }
 
 Write-Host ""
+Write-Host "Resetting Neon public schema..." -ForegroundColor Cyan
+try {
+    Reset-NeonPublicSchema -PsqlPath $psqlPath -DatabaseUrl $neonUrl
+} catch {
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    exit 1
+}
+
 Write-Host "Importing backup to Neon..." -ForegroundColor Cyan
 
-Get-Content $resolvedBackup | & $psqlPath $neonUrl 2>&1 | Tee-Object -Variable importOutput | Out-Null
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Import failed (exit code $LASTEXITCODE)." -ForegroundColor Red
-    if ($importOutput) {
-        Write-Host ($importOutput | Select-Object -Last 20 | Out-String)
-    }
+try {
+    Invoke-PsqlFile -PsqlPath $psqlPath -DatabaseUrl $neonUrl -SqlFile $resolvedBackup | Out-Null
+} catch {
+    Write-Host "Import failed." -ForegroundColor Red
+    Write-Host ($_.Exception.Message | Select-Object -Last 30 | Out-String)
     exit 1
 }
 
@@ -128,10 +134,18 @@ try {
     $transactions = Invoke-NeonQuery -PsqlPath $psqlPath -DatabaseUrl $neonUrl -Query "SELECT COUNT(*) FROM transactions;"
     $users = Invoke-NeonQuery -PsqlPath $psqlPath -DatabaseUrl $neonUrl -Query "SELECT COUNT(*) FROM users;"
     $budgetItems = Invoke-NeonQuery -PsqlPath $psqlPath -DatabaseUrl $neonUrl -Query "SELECT COUNT(*) FROM budget_items;"
+    $sergioExists = Invoke-NeonQuery -PsqlPath $psqlPath -DatabaseUrl $neonUrl -Query "SELECT COUNT(*) FROM users WHERE username = 'sergio';"
 
     Write-Host "  Transactions: $transactions" -ForegroundColor Gray
     Write-Host "  Users: $users" -ForegroundColor Gray
     Write-Host "  Budget items: $budgetItems" -ForegroundColor Gray
+    Write-Host "  sergio present: $(if ([int]$sergioExists -gt 0) { 'yes' } else { 'NO' })" -ForegroundColor Gray
+
+    if ([int]$users -lt 2 -or [int]$sergioExists -eq 0) {
+        Write-Host ""
+        Write-Host "Import finished but expected users are missing. Check errors above." -ForegroundColor Red
+        exit 1
+    }
 } catch {
     Write-Host "  Could not verify counts: $($_.Exception.Message)" -ForegroundColor Yellow
 }

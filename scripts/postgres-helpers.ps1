@@ -85,6 +85,17 @@ function Format-RedactedDbUrl {
     return ($DatabaseUrl -replace '://([^:@/]+):([^@/]+)@', '://$1:***@')
 }
 
+function Set-PgPasswordFromUrl {
+    param([string]$DatabaseUrl)
+
+    if ($DatabaseUrl -match 'postgres(?:ql)?://[^:/@]+:([^@]+)@') {
+        $env:PGPASSWORD = [System.Uri]::UnescapeDataString($matches[1])
+        return
+    }
+
+    Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+}
+
 function Test-PostgresUrl {
     param([string]$DatabaseUrl)
 
@@ -137,10 +148,50 @@ function Invoke-NeonQuery {
         [string]$Query
     )
 
+    Set-PgPasswordFromUrl -DatabaseUrl $DatabaseUrl
     $result = & $PsqlPath $DatabaseUrl -t -A -c $Query 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw ($result | Out-String).Trim()
     }
 
     return ($result | Out-String).Trim()
+}
+
+function Reset-NeonPublicSchema {
+    param(
+        [string]$PsqlPath,
+        [string]$DatabaseUrl
+    )
+
+    $sql = @"
+DROP SCHEMA IF EXISTS public CASCADE;
+CREATE SCHEMA public;
+GRANT ALL ON SCHEMA public TO PUBLIC;
+GRANT ALL ON SCHEMA public TO neondb_owner;
+"@
+
+    Set-PgPasswordFromUrl -DatabaseUrl $DatabaseUrl
+    & $PsqlPath $DatabaseUrl -v ON_ERROR_STOP=1 -c $sql 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to reset public schema before import."
+    }
+}
+
+function Invoke-PsqlFile {
+    param(
+        [string]$PsqlPath,
+        [string]$DatabaseUrl,
+        [string]$SqlFile
+    )
+
+    # psql -f avoids PowerShell pipe issues that break COPY ... FROM stdin blocks.
+    Set-PgPasswordFromUrl -DatabaseUrl $DatabaseUrl
+    $output = & $PsqlPath $DatabaseUrl -v ON_ERROR_STOP=1 -f $SqlFile 2>&1
+    $text = ($output | Out-String).Trim()
+
+    if ($LASTEXITCODE -ne 0) {
+        throw $text
+    }
+
+    return $text
 }
