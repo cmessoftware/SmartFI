@@ -71,6 +71,7 @@ Write-Host ""
 
 Write-Host "Exporting Neon database..." -ForegroundColor Cyan
 
+Set-PgPasswordFromUrl -DatabaseUrl $neonUrl
 & $pgDumpPath $neonUrl --clean --if-exists --no-owner --no-acl -f $OutputFile
 
 if ($LASTEXITCODE -ne 0) {

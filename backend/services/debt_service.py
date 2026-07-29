@@ -161,6 +161,37 @@ class DebtService:
             print(f"Error adding debt: {e}")
             return None
 
+    def _load_installment_metadata(self, db, budget_item_ids):
+        """Batch-load installment plan stats to avoid N+1 queries on list endpoints."""
+        if not budget_item_ids:
+            return {}
+
+        plans = db.query(InstallmentPlan).filter(
+            InstallmentPlan.budget_item_id.in_(budget_item_ids)
+        ).all()
+        if not plans:
+            return {}
+
+        plan_by_item_id = {plan.budget_item_id: plan for plan in plans}
+        plan_ids = [plan.id for plan in plans]
+
+        paid_rows = db.query(
+            InstallmentScheduleItem.plan_id,
+            func.count(InstallmentScheduleItem.id),
+        ).filter(
+            InstallmentScheduleItem.plan_id.in_(plan_ids),
+            InstallmentScheduleItem.status == InstallmentStatus.PAID,
+        ).group_by(InstallmentScheduleItem.plan_id).all()
+        paid_by_plan_id = {plan_id: int(count or 0) for plan_id, count in paid_rows}
+
+        metadata = {}
+        for item_id, plan in plan_by_item_id.items():
+            metadata[item_id] = {
+                'paid_installments': paid_by_plan_id.get(plan.id, 0),
+                'total_installments': plan.number_of_installments,
+            }
+        return metadata
+
     def get_all_debts(self, user_id=None):
         """Get all budget items from database"""
         try:
@@ -169,6 +200,7 @@ class DebtService:
             query = self._apply_user_scope(query, BudgetItem, user_id)
             budget_items = query.order_by(BudgetItem.fecha_vencimiento.desc()).all()
             self._sync_budget_items_with_transactions(db, budget_items, user_id=user_id)
+            installment_meta = self._load_installment_metadata(db, [bi.id for bi in budget_items])
             
             result = []
             for budget_item in budget_items:
@@ -200,15 +232,8 @@ class DebtService:
                     'updated_at': budget_item.updated_at.isoformat() if budget_item.updated_at else None
                 })
 
-                # Check for linked installment plan
-                plan = db.query(InstallmentPlan).filter(InstallmentPlan.budget_item_id == budget_item.id).first()
-                if plan:
-                    paid_count = db.query(InstallmentScheduleItem).filter(
-                        InstallmentScheduleItem.plan_id == plan.id,
-                        InstallmentScheduleItem.status == InstallmentStatus.PAID
-                    ).count()
-                    result[-1]['paid_installments'] = paid_count
-                    result[-1]['total_installments'] = plan.number_of_installments
+                if budget_item.id in installment_meta:
+                    result[-1].update(installment_meta[budget_item.id])
 
             return result
         except Exception as e:

@@ -1,10 +1,10 @@
 services:
-  # Backend API
+  # Backend API — Starter keeps the instance always-on (no free-tier cold starts).
   - type: web
     name: smartfi-api
     runtime: docker
     region: oregon
-    plan: free
+    plan: starter
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     envVars:
@@ -23,16 +23,21 @@ services:
       - key: FRONTEND_URL
         sync: false  # Configure after frontend deploys
 
-  # Frontend Static Site
+  # Frontend — Static Site (free CDN, no spin-down). Replaces Docker/nginx web service.
+  # If smartfi-frontend already exists as Docker, create this as a new static service
+  # or delete the old one and sync the blueprint again.
   - type: web
     name: smartfi-frontend
-    runtime: docker
-    region: oregon
-    plan: free
-    dockerfilePath: ./frontend/Dockerfile
-    dockerContext: ./frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build:render
+    staticPublishPath: ./dist
     envVars:
       - key: VITE_API_URL
-        sync: false  # Configure with your backend URL
+        sync: false  # e.g. https://smartfi-api.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
 
 # Database is hosted on Neon (external) — configure DATABASE_URL in Render dashboard

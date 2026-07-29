@@ -13,8 +13,12 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://admin:admin123@localhost:5433/fin_per_db")
 
+_engine_kwargs = {"pool_pre_ping": True, "pool_recycle": 300}
+if "neon.tech" in DATABASE_URL:
+    _engine_kwargs["connect_args"] = {"connect_timeout": 10}
+
 # Create engine
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+engine = create_engine(DATABASE_URL, **_engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 

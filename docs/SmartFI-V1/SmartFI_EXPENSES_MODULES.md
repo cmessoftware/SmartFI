@@ -21,30 +21,39 @@
 
 ## Bugs (Resumen)
 
-| ID | Prioridad | Estado | Resumen |
-|---|---|---|---|
-| EXP-BUG-001 | Alta | ✅ Resuelto | Error al editar asignación de item de presupuesto por uso de id temporal (`Date.now()`) en vez de id real de DB |
-| EXP-BUG-002 | Alta | ✅ Resuelto | Error 422 por desalineación de campos entre frontend (inglés) y modelo Pydantic (español) |
-| EXP-BUG-003 | Media | ✅ Resuelto | No aparecía selector para asignar gasto a item de presupuesto por filtro de mes incorrecto |
-| EXP-BUG-004 | Media | ✅ Resuelto | Al editar gasto no se veían items nuevos por falta de recarga de datos en modal |
-| EXP-BUG-005 | Alta | ✅ Resuelto | Cálculo de total a pagar incluía ingresos por falta de filtro `tipo_flujo = GASTO` |
-| EXP-BUG-006 | Alta | ✅ Resuelto | Error 500 al editar transacción por longitud de `detail` (`VARCHAR(50)`), migrado a `TEXT` |
-| EXP-BUG-007 | Alta | ✅ Resuelto | Error al borrar gasto (500 intermitente en `DELETE /api/transactions/{id}`) |
-| EXP-BUG-008 | Alta | ✅ Resuelto | Error al importar desde CSV |
-| EXP-BUG-009 | Alta | ✅ Resuelto | Error en alta masiva desde CSV (incluye respuestas 401 intermitentes) |
-| EXP-BUG-010 | Alta | ✅ Resuelto | Al editar un gasto no persistía la vinculación a item de presupuesto tras recargar/cambiar de vista |
-| EXP-BUG-011 | Alta | ✅ Resuelto | Inconsistencia en abril 2026: total de ingresos en panel no coincidía con suma de ingresos en tabla/CSV |
-| EXP-BUG-012 | Baja |📋 Backlog | **Datos sucios en combo categorias** | Limpiar categorias mal cargadas, en altas masivas considerar solo las categorias cargadas en modulo admin, sino usar categoria (sin clasificar), crearla sino existe.|
-| EXP-BUG-013 | Alta |✅ Resuelto| **No coincide el reporte post cierre con el reporte de mes** |parece que esta sumando gastos y presupuesto de cuotas a vencern el futuro, o hay un calculo mas de fechas, o ambos. |
-| EXP-BUG-014 | Alta | ✅ Resuelto | Opción de carga masiva eliminada |En la pantalla de carga de gastos/ingresos se eliminó opción de carga masiva por csv |
-| EXP-BUG-015 | Alta |✅ Resuelto |En Deudas, `monto_total` tomaba el valor de la cuota proyectada. Fix revisión: `monto_total` usa siempre `principal_amount` del debt-record y `monto_a_pagar` (`estimated_payment`) se calcula como total con interés anual (`principal_amount * (1 + annual_interest_rate / 100)`). 
+Notas:
+|Ambiente | Comentario |
+|---|---|
+| DEV | Ambiente DEV del usuario, PC de desarrollo  puerto 5173|
+| TEST | Ambiente en docker  puerto 3000 | 
+| PROD  | Ambiente Render + Neon |
+
+| ID | Prioridad | Ambiente | Estado | Resumen |
+|---|---|---|---|---|
+| EXP-BUG-001 | Alta | DEV | ✅ Resuelto | Error al editar asignación de item de presupuesto por uso de id temporal (`Date.now()`) en vez de id real de DB |
+| EXP-BUG-002 | Alta | DEV |✅ Resuelto | Error 422 por desalineación de campos entre frontend (inglés) y modelo Pydantic (español) |
+| EXP-BUG-003 | Media | DEV | ✅ Resuelto | No aparecía selector para asignar gasto a item de presupuesto por filtro de mes incorrecto |
+| EXP-BUG-004 | Media | DEV | ✅ Resuelto | Al editar gasto no se veían items nuevos por falta de recarga de datos en modal |
+| EXP-BUG-005 | Alta | DEV | ✅ Resuelto | Cálculo de total a pagar incluía ingresos por falta de filtro `tipo_flujo = GASTO` |
+| EXP-BUG-006 | Alta | DEV |✅ Resuelto | Error 500 al editar transacción por longitud de `detail` (`VARCHAR(50)`), migrado a `TEXT` |
+| EXP-BUG-007 | Alta | DEV |✅ Resuelto | Error al borrar gasto (500 intermitente en `DELETE /api/transactions/{id}`) |
+| EXP-BUG-008 | Alta | DEV |✅ Resuelto | Error al importar desde CSV |
+| EXP-BUG-009 | Alta | DEV |✅ Resuelto | Error en alta masiva desde CSV (incluye respuestas 401 intermitentes) |
+| EXP-BUG-010 | Alta | DEV |✅ Resuelto | Al editar un gasto no persistía la vinculación a item de presupuesto tras recargar/cambiar de vista |
+| EXP-BUG-011 | Alta | DEV | ✅ Resuelto | Inconsistencia en abril 2026: total de ingresos en panel no coincidía con suma de ingresos en tabla/CSV |
+| EXP-BUG-012 | Baja | DEV |📋 Backlog |  **Datos sucios en combo categorias** | Limpiar categorias mal cargadas, en altas masivas considerar solo las categorias cargadas en modulo admin, sino usar categoria (sin clasificar), crearla sino existe.|
+| EXP-BUG-013 | Alta | DEV |✅ Resuelto| **No coincide el reporte post cierre con el reporte de mes** |parece que esta sumando gastos y presupuesto de cuotas a vencern el futuro, o hay un calculo mas de fechas, o ambos. |
+| EXP-BUG-014 | Alta | DEV | ✅ Resuelto | Opción de carga masiva eliminada |En la pantalla de carga de gastos/ingresos se eliminó opción de carga masiva por csv |
+| EXP-BUG-015 | Alta | DEV |✅ Resuelto |En Deudas, `monto_total` tomaba el valor de la cuota proyectada. Fix revisión: `monto_total` usa siempre `principal_amount` del debt-record y `monto_a_pagar` (`estimated_payment`) se calcula como total con interés anual (`principal_amount * (1 + annual_interest_rate / 100)`). 
 Revisión 1:✅ Resuelto  ![alt text](image-38.png) - Monto total incorrecto, Monto total a pagar incorecto (tanto que es menos que el monto solicitado) 
 Revisión 2:✅ Resuelto  En ejecutado aparace $0 en vez del monto ya pagado de la deuda. ![alt text](image-39.png)
 Ahora se calcula desde la deuda real (`principal_amount - outstanding_amount`) y no desde la proyección mensual. 
 |
-| EXP-BUG-016 | Baja |📋 Todo | cuando cargo Cuota actual (X, proxima a pagar) se cambia a numero decimal. Por ejemplo cargo 4 y se autoasigna 3.98|
-| EXP-BUG-017 | Alta | ✅ Resuelto | WRITER puede reabrir únicamente los meses que cerró él mismo. Implementación: `services.month_service.reopen_month` y endpoint `/api/months/{year_month}/reopen` — control de permisos y motivo requerido (≥10 chars). |
-
+| EXP-BUG-016 | Baja | DEV |📋 Todo | cuando cargo Cuota actual (X, proxima a pagar) se cambia a numero decimal. Por ejemplo cargo 4 y se autoasigna 3.98|
+| EXP-BUG-017 | Alta | DEV | ✅ Resuelto | WRITER puede reabrir únicamente los meses que cerró él mismo. Implementación: `services.month_service.reopen_month` y endpoint `/api/months/{year_month}/reopen` — control de permisos y motivo requerido (≥10 chars). |
+| EXP-BUG-018 | Alta | PROD | 📋 Todo | Cuando creo o edito un gasto/ingreso el combo que muestra items de presupuestos muestra daots duplicados image.png 
+1.  Analizar si se puede depurar la base.
+2.  Si es un bug de código informar antes de tocar algo.|
 
 
 **Resumen:** 14 mejoras totales, 11 implementadas (79%), 1 en progreso (7%), 2 en backlog (14%)
@@ -119,7 +128,7 @@ EXP-BUG-001. ~~Prioridad: Alta~~ ✅ RESUELTO — El frontend usaba `id: Date.no
 
  <details>
     <summary>Error al editar asignación de item de presupuesto
-    api.js:58  PUT http://localhost:8000/api/transactions/1775000505766 500 (Internal Server Error)
+    api.js:58  PUT http://DEVhost:8000/api/transactions/1775000505766 500 (Internal Server Error)
     dispatchXhrRequest @ axios.js?v=00a09b6a:1784
     xhr @ axios.js?v=00a09b6a:1649
     dispatchRequest @ axios.js?v=00a09b6a:2210

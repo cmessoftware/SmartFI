@@ -12,10 +12,12 @@ function resolveApiUrl() {
 }
 
 const API_URL = resolveApiUrl();
+// Render cold start + Neon latency can exceed 15s on first heavy requests.
+const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS) || 45000;
 
 const api = axios.create({
   baseURL: API_URL,
-  timeout: 15000,
+  timeout: API_TIMEOUT_MS,
 });
 
 // Add token to requests

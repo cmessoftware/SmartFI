@@ -159,7 +159,7 @@ if ($DryRun) {
         $output = Invoke-Expression $exportCmd 2>&1
         
         if ($LASTEXITCODE -eq 0) {
-            $output | Out-File -FilePath $BackupFile -Encoding UTF8
+            $output | Out-File -FilePath $BackupFile -Encoding utf8NoBOM
             $fileSize = (Get-Item $BackupFile).Length / 1KB
             Write-Host "✅ Database exported successfully" -ForegroundColor Green
             Write-Host "   File: $BackupFile" -ForegroundColor Gray

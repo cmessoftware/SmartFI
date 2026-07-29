@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import text, extract, func
 from database.database import Transaction as DBTransaction, Category, User as DBUser, Debt as DBDebt, MonthClosing, FlowType, TransactionType
@@ -208,7 +208,9 @@ class DatabaseService:
             query = db.query(DBTransaction)
             if user_id is not None:
                 query = query.filter(DBTransaction.user_id == user_id)
-            transactions = query.order_by(DBTransaction.date.desc()).all()
+            transactions = query.options(
+                joinedload(DBTransaction.category)
+            ).order_by(DBTransaction.date.desc()).all()
             
             result = []
             for t in transactions:
