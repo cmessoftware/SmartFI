@@ -169,8 +169,17 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
     onClose();
   };
 
+  const isCashAdvance = formData.movement_type === 'cash_advance';
+  const amountValue = parseFloat(formData.amount || '0');
+  const feePercentValue = parseFloat(formData.cash_advance_fee || '0');
+  const feeAmountValue = isCashAdvance && amountValue > 0 && feePercentValue > 0
+    ? (amountValue * feePercentValue) / 100
+    : 0;
+  const totalExpenseValue = amountValue + feeAmountValue;
+  const effectivePlanAmount = isCashAdvance ? totalExpenseValue : amountValue;
+
   const calculateMonthlyPayment = () => {
-    const amount = parseFloat(formData.amount);
+    const amount = effectivePlanAmount;
     const installments = parseInt(formData.installments);
     const interestRate = parseFloat(formData.interest_rate);
 
@@ -196,13 +205,6 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
 
   const monthlyPayment = calculateMonthlyPayment();
   const totalWithInterest = getTotalWithInterest();
-  const isCashAdvance = formData.movement_type === 'cash_advance';
-  const amountValue = parseFloat(formData.amount || '0');
-  const feePercentValue = parseFloat(formData.cash_advance_fee || '0');
-  const feeAmountValue = isCashAdvance && amountValue > 0 && feePercentValue > 0
-    ? (amountValue * feePercentValue) / 100
-    : 0;
-  const totalExpenseValue = amountValue + feeAmountValue;
 
   if (!isOpen || (!card && !purchase)) return null;
 
@@ -411,24 +413,28 @@ export default function PurchaseModal({ isOpen, card, purchase, onClose, onSucce
           {/* Cálculo de Cuotas */}
           {monthlyPayment && (
             <div className="mt-6 bg-indigo-50 border border-indigo-200 rounded-lg p-4">
-              <h3 className="font-semibold text-indigo-900 mb-3">Resumen del Plan de Cuotas</h3>
+              <h3 className="font-semibold text-indigo-900 mb-3">
+                {isCashAdvance ? 'Resumen de Extracción' : 'Resumen del Plan de Cuotas'}
+              </h3>
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <p className="text-gray-600">Cuota Mensual:</p>
+                  <p className="text-gray-600">{isCashAdvance ? 'Total a pagar:' : 'Cuota Mensual:'}</p>
                   <p className="text-lg font-bold text-indigo-900">{new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(monthlyPayment)}</p>
                 </div>
                 <div>
-                  <p className="text-gray-600">Total con Intereses:</p>
+                  <p className="text-gray-600">{isCashAdvance ? 'Extracción + comisión:' : 'Total con Intereses:'}</p>
                   <p className="text-lg font-bold text-indigo-900">{new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(totalWithInterest)}</p>
                 </div>
                 <div>
-                  <p className="text-gray-600">Monto Original:</p>
-                  <p className="text-sm font-medium">{new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(parseFloat(formData.amount))}</p>
+                  <p className="text-gray-600">{isCashAdvance ? 'Monto extraído:' : 'Monto Original:'}</p>
+                  <p className="text-sm font-medium">{new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(amountValue)}</p>
                 </div>
                 <div>
-                  <p className="text-gray-600">Intereses Totales:</p>
-                  <p className="text-sm font-medium text-red-600">
-                    {new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(totalWithInterest - parseFloat(formData.amount))}
+                  <p className="text-gray-600">{isCashAdvance ? 'Comisión:' : 'Intereses Totales:'}</p>
+                  <p className={`text-sm font-medium ${isCashAdvance ? 'text-amber-700' : 'text-red-600'}`}>
+                    {new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(
+                      isCashAdvance ? feeAmountValue : totalWithInterest - amountValue
+                    )}
                   </p>
                 </div>
               </div>

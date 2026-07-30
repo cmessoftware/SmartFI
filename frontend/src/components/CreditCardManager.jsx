@@ -10,6 +10,19 @@ import CreditCardCSVImport from './CreditCardCSVImport';
 import CreditCardPaymentModal from './CreditCardPaymentModal';
 import { transactionsAPI } from '../services/api';
 
+function getPurchaseDisplayTotal(purchase) {
+  if (purchase.total_with_fees != null) {
+    return purchase.total_with_fees;
+  }
+  const base = purchase.currency === 'USD'
+    ? (purchase.amount_in_pesos ?? purchase.total_amount)
+    : purchase.total_amount;
+  if (purchase.movement_type === 'cash_advance' && purchase.cash_advance_fee > 0) {
+    return base + (base * purchase.cash_advance_fee / 100);
+  }
+  return base;
+}
+
 export default function CreditCardManager({ canEdit, isAdmin = false, setCurrentView, refreshTransactions }) {
   const [cards, setCards] = useState([]);
   const [selectedCard, setSelectedCard] = useState(null);
@@ -188,14 +201,19 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
       if (purchase.installment_plan?.id) {
         await loadInstallmentSchedule(purchase.installment_plan.id);
       } else {
+        const totalWithFees = getPurchaseDisplayTotal(purchase);
+        const feeAmount = purchase.cash_advance_fee_amount
+          ?? (purchase.movement_type === 'cash_advance'
+            ? totalWithFees - (purchase.currency === 'USD' ? purchase.amount_in_pesos : purchase.total_amount)
+            : 0);
         // Single-cuota purchase without a plan: show synthetic schedule entry
         setInstallmentSchedule([{
           id: `synth-${purchase.id}`,
           installment_number: 1,
           due_date: purchase.purchase_date,
           principal_amount: purchase.total_amount,
-          interest_amount: 0,
-          total_installment_amount: purchase.total_amount,
+          interest_amount: feeAmount,
+          total_installment_amount: totalWithFees,
           status: 'PENDING'
         }]);
       }
@@ -848,8 +866,15 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
                         </div>
                         <div className="text-right">
                           <p className="font-bold text-gray-800">
-                            {purchase.currency === 'USD' ? `USD ${purchase.total_amount.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : formatCurrency(purchase.total_amount)}
+                            {purchase.currency === 'USD'
+                              ? `USD ${purchase.total_amount.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
+                              : formatCurrency(getPurchaseDisplayTotal(purchase))}
                           </p>
+                          {purchase.movement_type === 'cash_advance' && purchase.cash_advance_fee > 0 && (
+                            <p className="text-xs text-amber-700 mt-0.5">
+                              Extracción {formatCurrency(purchase.total_amount)} + comisión {purchase.cash_advance_fee}%
+                            </p>
+                          )}
                           {purchase.currency === 'USD' && purchase.amount_in_pesos && (
                             <p className="text-xs text-blue-600">≈ {formatCurrency(purchase.amount_in_pesos)}</p>
                           )}
@@ -1028,6 +1053,7 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
                 <div className="bg-white rounded-xl shadow-lg p-6">
                   <p className="text-sm text-gray-500 mb-1">Total con Intereses</p>
                   <p className="text-2xl font-bold text-indigo-700">{formatCurrency(purchasesSummary.total_with_interest)}</p>
+                  <p className="text-xs text-gray-400 mt-1">Incluye comisiones de extracciones</p>
                 </div>
               </div>
 

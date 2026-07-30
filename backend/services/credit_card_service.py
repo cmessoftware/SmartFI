@@ -37,6 +37,17 @@ class CreditCardService:
         fee_percent = float(purchase.cash_advance_fee or 0.0)
         return round(float(base_amount_ars) * fee_percent / 100.0, 2)
 
+    def _get_purchase_effective_total(self, purchase: CreditCardPurchase, plan: InstallmentPlan = None) -> float:
+        """Total cost of a purchase in ARS, including cash-advance commission when applicable."""
+        if plan is None:
+            plan = self.db.query(InstallmentPlan).filter(
+                InstallmentPlan.purchase_id == purchase.id
+            ).first()
+        base = float(plan.total_amount if plan else self._get_purchase_amount_in_ars(purchase))
+        if (purchase.movement_type or 'normal') == 'cash_advance':
+            return round(base + self._calculate_cash_advance_fee_amount(purchase), 2)
+        return round(base, 2)
+
     def _upsert_cash_advance_debt(self, purchase: CreditCardPurchase, card: CreditCard, fee_amount: float):
         """Create or update the derived BudgetItem for a cash advance purchase."""
         due_date = self._calculate_cash_advance_due_date(purchase.purchase_date, card.due_day)
@@ -640,6 +651,8 @@ class CreditCardService:
                             'plan_type': plan.plan_type.value if plan.plan_type else None
                         }
                 
+                is_cash_advance = (purchase.movement_type or 'normal') == 'cash_advance'
+                fee_amount = self._calculate_cash_advance_fee_amount(purchase) if is_cash_advance else 0.0
                 result.append({
                     'id': purchase.id,
                     'card_id': purchase.card_id,
@@ -647,6 +660,8 @@ class CreditCardService:
                     'transaction_id': purchase.transaction_id,
                     'purchase_date': purchase.purchase_date.strftime('%Y-%m-%d'),
                     'total_amount': purchase.total_amount,
+                    'total_with_fees': self._get_purchase_effective_total(purchase, plan),
+                    'cash_advance_fee_amount': fee_amount,
                     'category': purchase.category,
                     'description': purchase.description,
                     'installments': purchase.installments,
@@ -662,9 +677,6 @@ class CreditCardService:
                     'currency': purchase.currency or 'ARS',
                     'exchange_rate': purchase.exchange_rate,
                     'amount_in_pesos': purchase.amount_in_pesos,
-                    'movement_type': purchase.movement_type or 'normal',
-                    'cash_advance_fee': purchase.cash_advance_fee or 0.0,
-                    'derived_debt_id': purchase.derived_debt_id,
                     'created_at': purchase.created_at.isoformat() if purchase.created_at else None
                 })
             
@@ -1645,7 +1657,8 @@ class CreditCardService:
                 desc = p.description or 'Sin descripción'
                 plan = self.db.query(InstallmentPlan)\
                     .filter(InstallmentPlan.purchase_id == p.id).first()
-                plan_total = plan.total_amount if plan else p.total_amount
+                plan_total = self._get_purchase_effective_total(p, plan)
+                base_amount = self._get_purchase_amount_in_ars(p)
                 
                 if desc not in by_description:
                     by_description[desc] = {
@@ -1655,9 +1668,9 @@ class CreditCardService:
                         'total_with_interest': 0
                     }
                 by_description[desc]['count'] += 1
-                by_description[desc]['total_original'] += p.total_amount
+                by_description[desc]['total_original'] += base_amount
                 by_description[desc]['total_with_interest'] += plan_total
-                total_amount += p.total_amount
+                total_amount += base_amount
                 total_with_interest += plan_total
             
             return {
