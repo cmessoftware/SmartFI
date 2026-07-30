@@ -17,6 +17,9 @@ __pycache__/
 credentials.json
 backend/credentials.json
 
+# Backup files
+backups/
+
 # Build outputs
 dist/
 build/
