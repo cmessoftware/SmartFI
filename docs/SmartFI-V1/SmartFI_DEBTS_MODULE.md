@@ -68,6 +68,7 @@ Estado sincronizado con Gitea (2026-06-01):
 | DBT-FEAT-010 | feature | alta | DBT-FEAT-009 | TDB | ⏳ Todo | Implementar regla anti-duplicado contable entre CC, EXP y DBT para evitar doble computo del mismo pasivo. |
 | DBT-FEAT-011 | feature | alta | DBT-FEAT-009 | TDB | ⏳ Todo | Conciliacion de pagos parciales de CC contra deuda reflejada en EXP y rollover de remanente al siguiente periodo de tarjeta. |
 | DBT-FEAT-012 | feature | media | DBT-FEAT-006 | TDB | ⏳ Todo | Dashboard unificado de deuda (CC + no CC) por origen, fuente, vencimiento y estado, sin mezclar fuentes canonicas. |
+| DBT-FEAT-013 | feature | media | | TDB | ✅ Done | Junto al resumen del periodo TC muestra comisiones acumuladas de extracciones en efectivo (`cash_advance_commission_total` en API + UI en CreditCardManager). |
 
 ### Analisis de coherencia (DBT-FEAT-004 a DBT-FEAT-008)
 

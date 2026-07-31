@@ -690,6 +690,18 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
                 <p className="text-sm text-gray-500">Items</p>
                 <p className="text-2xl font-bold text-indigo-600">{periodData.installment_count}</p>
               </div>
+              {(periodData.cash_advance_count || 0) > 0 && (
+                <div>
+                  <p className="text-sm text-gray-500">Comisiones extracciones</p>
+                  <p className="text-2xl font-bold text-amber-700">
+                    {formatCurrency(periodData.cash_advance_commission_total || 0)}
+                  </p>
+                  <p className="text-xs text-amber-600 mt-0.5">
+                    {periodData.cash_advance_count} extracción{periodData.cash_advance_count !== 1 ? 'es' : ''} ·{' '}
+                    {formatCurrency(periodData.cash_advance_extraction_total || 0)} extraídos
+                  </p>
+                </div>
+              )}
             </div>
             {canEdit && (
               <div className="flex flex-wrap gap-2">
