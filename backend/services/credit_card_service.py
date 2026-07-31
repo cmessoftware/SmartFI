@@ -48,7 +48,22 @@ class CreditCardService:
             return round(base + self._calculate_cash_advance_fee_amount(purchase), 2)
         return round(base, 2)
 
-    def _upsert_cash_advance_debt(self, purchase: CreditCardPurchase, card: CreditCard, fee_amount: float):
+    def _summarize_period_cash_advances(self, purchases: list) -> dict:
+        """Aggregate extraction amounts and commission fees for cash advances in a billing period."""
+        extraction_total = 0.0
+        commission_total = 0.0
+        count = 0
+        for purchase in purchases:
+            if (purchase.movement_type or 'normal') != 'cash_advance':
+                continue
+            count += 1
+            extraction_total += self._get_purchase_amount_in_ars(purchase)
+            commission_total += self._calculate_cash_advance_fee_amount(purchase)
+        return {
+            'count': count,
+            'extraction_total': round(extraction_total, 2),
+            'commission_total': round(commission_total, 2),
+        }
         """Create or update the derived BudgetItem for a cash advance purchase."""
         due_date = self._calculate_cash_advance_due_date(purchase.purchase_date, card.due_day)
         detalle = f"Extraccion {card.card_name}"
@@ -1329,8 +1344,11 @@ class CreditCardService:
             
             # 2. Standalone 1-cuota purchases (same month as purchase date)
             standalone = self._get_standalone_purchases_for_period(card_id, year, month)
+            cash_advance_summary = self._summarize_period_cash_advances(standalone)
             for p in standalone:
                 amount_ars = self._get_purchase_amount_in_ars(p)
+                is_cash_advance = (p.movement_type or 'normal') == 'cash_advance'
+                fee_amount = self._calculate_cash_advance_fee_amount(p) if is_cash_advance else 0.0
                 items.append({
                     'id': p.id,
                     'purchase_id': p.id,
@@ -1344,6 +1362,7 @@ class CreditCardService:
                     'purchase_currency': p.currency or 'ARS',
                     'movement_type': p.movement_type or 'normal',
                     'cash_advance_fee': float(p.cash_advance_fee or 0.0),
+                    'cash_advance_fee_amount': fee_amount,
                     'derived_debt_id': p.derived_debt_id,
                     'item_type': 'single',
                 })
@@ -1411,6 +1430,9 @@ class CreditCardService:
                 'payment_transactions': payment_transactions,
                 'budget_registered': period_budget is not None,
                 'budget_item_id': period_budget.id if period_budget else None,
+                'cash_advance_count': cash_advance_summary['count'],
+                'cash_advance_extraction_total': cash_advance_summary['extraction_total'],
+                'cash_advance_commission_total': cash_advance_summary['commission_total'],
             }
         except Exception as e:
             self.db.rollback()
