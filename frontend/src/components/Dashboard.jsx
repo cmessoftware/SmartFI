@@ -151,6 +151,7 @@ function Dashboard({ currentView, user, transactions, addTransaction, addMultipl
           onGoToNewTransaction={() => setCurrentView('add')}
           canEdit={canEdit}
           isAdmin={isAdmin}
+          loading={loading}
         />
       )}
       

@@ -10,6 +10,20 @@ import CreditCardCSVImport from './CreditCardCSVImport';
 import CreditCardPaymentModal from './CreditCardPaymentModal';
 import { transactionsAPI } from '../services/api';
 
+function LoadingOverlay({ label }) {
+  return (
+    <div
+      className="absolute inset-0 bg-white/75 flex flex-col items-center justify-center z-10 min-h-[12rem]"
+      role="status"
+      aria-live="polite"
+      aria-label={label}
+    >
+      <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-finly-primary" aria-hidden="true" />
+      <p className="text-gray-500 mt-4 text-sm">{label}</p>
+    </div>
+  );
+}
+
 function getPurchaseDisplayTotal(purchase) {
   if (purchase.total_with_fees != null) {
     return purchase.total_with_fees;
@@ -52,6 +66,10 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
   const [periodYear, setPeriodYear] = useState(null);
   const [periodMonth, setPeriodMonth] = useState(null);
   const [minimumPayment, setMinimumPayment] = useState('');
+  const [cardsLoading, setCardsLoading] = useState(true);
+  const [periodLoading, setPeriodLoading] = useState(false);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -59,12 +77,15 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
   }, [showInactive]);
 
   const loadCards = async () => {
+    setCardsLoading(true);
     try {
       const response = await creditCardAPI.getCreditCards(!showInactive);
       setCards(response.data || []);
     } catch (error) {
       toast.error('Error al cargar tarjetas de crédito');
       console.error('Error loading credit cards:', error);
+    } finally {
+      setCardsLoading(false);
     }
   };
 
@@ -221,12 +242,15 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
   };
 
   const loadInstallmentSchedule = async (planId) => {
+    setScheduleLoading(true);
     try {
       const response = await creditCardAPI.getInstallmentSchedule(planId);
       setInstallmentSchedule(response.data || []);
     } catch (error) {
       toast.error('Error al cargar cronograma de cuotas');
       console.error('Error loading installment schedule:', error);
+    } finally {
+      setScheduleLoading(false);
     }
   };
 
@@ -319,12 +343,15 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
   };
 
   const loadPurchasesSummary = async (cardId) => {
+    setSummaryLoading(true);
     try {
       const response = await creditCardAPI.getPurchasesSummary(cardId);
       setPurchasesSummary(response.data);
     } catch (error) {
       toast.error('Error al cargar resumen de gastos');
       console.error('Error loading purchases summary:', error);
+    } finally {
+      setSummaryLoading(false);
     }
   };
 
@@ -335,6 +362,7 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
   };
 
   const loadPeriodData = async (cardId, year, month) => {
+    setPeriodLoading(true);
     try {
       const response = await creditCardAPI.getCardPeriodInstallments(cardId, year, month);
       setPeriodData(response.data);
@@ -342,6 +370,8 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
     } catch (error) {
       setPeriodData(null);
       setMinimumPayment('');
+    } finally {
+      setPeriodLoading(false);
     }
   };
 
@@ -484,7 +514,9 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
           </div>
 
           {/* Cards Grid */}
-          {cards.length === 0 ? (
+          <div className="relative min-h-[12rem]">
+            {cardsLoading && <LoadingOverlay label="Cargando tarjetas..." />}
+            {!cardsLoading && cards.length === 0 ? (
             <div className="bg-white rounded-lg shadow-md p-12 text-center">
               <div className="text-6xl mb-4">💳</div>
               <p className="text-xl text-gray-500 mb-2">No hay tarjetas registradas</p>
@@ -492,7 +524,7 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
                 <p className="text-gray-400">Haz clic en "Nueva Tarjeta" para comenzar</p>
               )}
             </div>
-          ) : (
+          ) : !cardsLoading && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {cards.map((card) => (
                 <div
@@ -561,6 +593,7 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
               ))}
             </div>
           )}
+          </div>
         </>
       )}
 
@@ -568,16 +601,17 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
       {viewMode === 'detail' && selectedCard && !summaryView && (
         <>
         {/* Period Budget Registration */}
-        {periodData && (
-          <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+        {(periodData || periodLoading) && (
+          <div className="bg-white rounded-xl shadow-lg p-6 mb-6 relative">
+            {periodLoading && <LoadingOverlay label="Cargando resumen del período..." />}
             {/* Period Navigation & Header */}
             <div className="flex justify-between items-start mb-4">
               <h3 className="text-lg font-bold text-gray-800">📅 Resumen del Período</h3>
               <div className="flex items-center gap-2">
-                <button onClick={() => handlePeriodChange(-1)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600 text-lg">◀</button>
+                <button onClick={() => handlePeriodChange(-1)} disabled={periodLoading} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600 text-lg disabled:opacity-50">◀</button>
                 <div className="text-center min-w-[220px]">
                   <span className="font-bold text-gray-800 text-lg">
-                    {periodData.period_start && periodData.period_end
+                    {periodData?.period_start && periodData?.period_end
                       ? (() => {
                           const ps = new Date(periodData.period_start + 'T12:00:00');
                           const pe = new Date(periodData.period_end + 'T12:00:00');
@@ -589,9 +623,12 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
                     }
                   </span>
                 </div>
-                <button onClick={() => handlePeriodChange(1)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600 text-lg">▶</button>
+                <button onClick={() => handlePeriodChange(1)} disabled={periodLoading} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600 text-lg disabled:opacity-50">▶</button>
               </div>
             </div>
+
+            {periodData && (
+            <>
 
             {/* Period Info Block (11.8) */}
             {periodData.period_start && (
@@ -782,6 +819,8 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
                 </div>
               </div>
             )}
+            </>
+            )}
           </div>
         )}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -850,10 +889,11 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
             )}
 
             {/* Purchases List */}
-            <div className="bg-white rounded-xl shadow-lg p-6">
+            <div className="bg-white rounded-xl shadow-lg p-6 relative">
+              {periodLoading && <LoadingOverlay label="Cargando compras del período..." />}
               <h3 className="text-lg font-bold text-gray-800 mb-4">Compras del Período</h3>
               
-              {filteredPurchases.length === 0 ? (
+              {!periodLoading && filteredPurchases.length === 0 ? (
                 <div className="text-center py-8 text-gray-400">
                   <p>No hay compras en este período</p>
                 </div>
@@ -929,7 +969,8 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
           </div>
 
           {/* RIGHT COLUMN: Installment Schedule */}
-          <div className="bg-white rounded-xl shadow-lg p-6">
+          <div className="bg-white rounded-xl shadow-lg p-6 relative">
+            {scheduleLoading && <LoadingOverlay label="Cargando cronograma..." />}
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center gap-4">
                 <h3 className="text-lg font-bold text-gray-800">Cronograma de Cuotas</h3>
@@ -958,9 +999,11 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
                 <div className="text-5xl mb-3">📅</div>
                 <p>Selecciona una compra para ver el cronograma</p>
               </div>
+            ) : scheduleLoading ? (
+              <div className="text-center py-12 text-gray-400" aria-hidden="true" />
             ) : installmentSchedule.length === 0 ? (
               <div className="text-center py-12 text-gray-400">
-                <p>Cargando cronograma...</p>
+                <p>Sin cuotas para esta compra</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -1049,8 +1092,9 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
 
       {/* SUMMARY VIEW */}
       {viewMode === 'detail' && selectedCard && summaryView && (
-        <div className="space-y-6">
-          {purchasesSummary ? (
+        <div className="space-y-6 relative min-h-[12rem]">
+          {summaryLoading && <LoadingOverlay label="Cargando resumen total..." />}
+          {!summaryLoading && purchasesSummary ? (
             <>
               {/* Summary Cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1138,7 +1182,7 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
                 </div>
 
                 {/* Table */}
-                <div className="bg-white rounded-xl shadow-lg p-6">
+                <div className="bg-white rounded-xl shadow-lg p-6 relative">
                   <h3 className="text-lg font-bold text-gray-800 mb-4">Detalle por Descripción</h3>
                   <div className="overflow-x-auto">
                     <table className="w-full">
@@ -1175,11 +1219,11 @@ export default function CreditCardManager({ canEdit, isAdmin = false, setCurrent
                 </div>
               </div>
             </>
-          ) : (
+          ) : !summaryLoading ? (
             <div className="bg-white rounded-xl shadow-lg p-12 text-center text-gray-400">
-              <p>Cargando resumen...</p>
+              <p>No hay datos de resumen</p>
             </div>
-          )}
+          ) : null}
         </div>
       )}
 
