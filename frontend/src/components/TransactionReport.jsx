@@ -17,13 +17,27 @@ import NewDebtModal from './NewDebtModal';
 
 ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
+function LoadingOverlay({ label }) {
+  return (
+    <div
+      className="absolute inset-0 bg-white/75 flex flex-col items-center justify-center z-10 min-h-[12rem]"
+      role="status"
+      aria-live="polite"
+      aria-label={label}
+    >
+      <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-finly-primary" aria-hidden="true" />
+      <p className="text-gray-500 mt-4 text-sm">{label}</p>
+    </div>
+  );
+}
+
 const parseComparableDate = (value) => {
   const iso = toISODate(value);
   const date = new Date(`${iso}T00:00:00`);
   return Number.isNaN(date.getTime()) ? 0 : date.getTime();
 };
 
-function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMultipleTransactions, onGoToNewTransaction, canEdit = false, isAdmin = false }) {
+function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMultipleTransactions, onGoToNewTransaction, canEdit = false, isAdmin = false, loading = false }) {
   const toast = useToast();
   const chartColors = ['#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#22C55E', '#3B82F6', '#EF4444'];
   const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -683,7 +697,7 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
       )}
 
       {/* Transaction List / Actions */}
-      {(transactions.length > 0 || canModify) && (
+      {(transactions.length > 0 || canModify || loading) && (
         <div className="bg-white rounded-xl shadow-md p-6">
           <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
             <div className="flex flex-wrap items-center gap-3">
@@ -942,7 +956,8 @@ function TransactionReport({ transactions, onEdit, onDelete, onBulkDelete, addMu
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto relative">
+            {loading && <LoadingOverlay label="Cargando transacciones..." />}
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200">

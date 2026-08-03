@@ -16,32 +16,32 @@ Modelo de ticket
 
 | ID | Tipo | Prioridad |Issue Padre|Issue Gitea| Estado | Resumen |
 |---|---|---|---|---|---|---|
-| CC-FEAT-001 | Feature | Alta ||| ✅ Done | Registrar gastos del periodo actual de forma consistente con periodo de tarjeta (no mes calendario) |
-| CC-FEAT-002 | Feature | Alta ||| ⏳ Todo | Registrar monto total como item de presupuesto del mes siguiente al cierre |
-| CC-FEAT-003 | Feature | Alta ||| ✅ Done | Calculo de cuotas futuras para compras en cuotas |
-| CC-FEAT-004 | Feature | Media ||| ⏳ Todo | Calculo de montos ARS para compras en USD segun tipo de cambio |
-| CC-FEAT-005 | Feature | Media ||| ✅ Done | Implementar funcionalidad del punto 3 de FINLY_BUDGET_MODULE.md en pagina Presupuesto |
-| CC-FEAT-006 | Feature | Alta ||| ✅ Done | Registrar pago en Resumen de Tarjeta indicando monto e item de presupuesto |
-| CC-FEAT-007 | Feature | Media ||| ⏳ Todo | Opcion para registrar gasto de nuevo periodo y revisar regresion de visibilidad de botones |
-| CC-FEAT-008 | Feature | Alta ||| ✅ Done | Agregar opcion para editar pago registrado desde Resumen del Periodo |
-| CC-FEAT-009 | Feature | Baja ||| ⏳ Todo | Paginacion de compras del periodo (5 lineas) |
-| CC-FEAT-010 | Feature | Alta ||| ✅ Done | Los periodos no son meses calendario; agregar opcion de definir rango de fechas del periodo |
-| CC-FEAT-011 | Feature | Alta ||| ✅ Done | Visualizacion y manejo de periodos de tarjeta (period_start, period_end, closing_date, due_date) |
-| CC-FEAT-012 | Feature | Alta ||| ⏳ Todo | Validar pagos fuera de periodo, sugerir periodo correcto y confirmar movimiento |
-| CC-FEAT-013 | Feature | Alta ||| ⏳ Todo | En importacion CSV, fecha de cierre debe imputar al periodo cuyo cierre coincide |
-| CC-FEAT-014 | Feature | Media ||| ⏳ Todo | Ordenar y filtrar compras del periodo por monto |
-| CC-FEAT-015 | Feature | Media ||| ⏳ Todo | Agrupar lista por compras en cuotas y luego compras 1 cuota |
-| CC-FEAT-016 | Feature | Baja ||| ⏳ Todo | Icono tooltip para detalle de item |
-| CC-FEAT-017 | Feature | Alta ||| ⏳ Todo | Bloquear cargas manual/csv fuera de ventana cierre-vencimiento, con override por rol |
-| CC-FEAT-018 | Feature | Alta ||| ⏳ Todo | Si CSV contiene items fuera de politica del periodo, rechazar lote completo |
-| CC-FEAT-020 | Feature | Baja ||| ⏳ Todo | Ocultar combo tipo de plan en Nueva Compra |
-| CC-FEAT-021 | Feature | Baja ||| ⏳ Todo | Agregar textbox detalle (20 caracteres) en Nueva Compra |
-| CC-FEAT-022 | Feature | Alta ||| ✅ Done | USD al periodo siguiente con campo `billing_date` (propuesta Opcion A) |
-| CC-FEAT-023 | Feature | Alta ||| ⏳ Todo | Al registrar pagos del resumen actual, proyectarlos automaticamente en el periodo siguiente como movimientos negativos tipo "SU PAGO EN PESOS" para estimar el proximo resumen |
-| CC-FEAT-024 | Feature | Alta ||#125| ✅ Done | Extracciones de tarjeta con impacto dual: gasto actual + deuda |
-| CC-FEAT-025 | Feature | Alta ||| ⏳ Todo | En pagos parciales, trasladar saldo remanente al pendiente del siguiente período y recalcularlo ante nuevos pagos del período actual |
-
-**Resumen:** 24 features, 11 completadas (46%), 13 pendientes (54%)
+| CC-FEAT-001 | FEAT | Alta ||| ✅ Done | Registrar gastos del periodo actual de forma consistente con periodo de tarjeta (no mes calendario) |
+| CC-FEAT-002 | FEAT | Alta ||| ⏳ Todo | Registrar monto total como item de presupuesto del mes siguiente al cierre |
+| CC-FEAT-003 | FEAT | Alta ||| ✅ Done | Calculo de cuotas futuras para compras en cuotas |
+| CC-FEAT-004 | FEAT | Media ||| ⏳ Todo | Calculo de montos ARS para compras en USD segun tipo de cambio |
+| CC-FEAT-005 | FEAT | Media ||| ✅ Done | Implementar funcionalidad del punto 3 de FINLY_BUDGET_MODULE.md en pagina Presupuesto |
+| CC-FEAT-006 | FEAT | Alta ||| ✅ Done | Registrar pago en Resumen de Tarjeta indicando monto e item de presupuesto |
+| CC-FEAT-007 | FEAT | Media ||| ⏳ Todo | Opcion para registrar gasto de nuevo periodo y revisar regresion de visibilidad de botones |
+| CC-FEAT-008 | FEAT | Alta ||| ✅ Done | Agregar opcion para editar pago registrado desde Resumen del Periodo |
+| CC-FEAT-009 | FEAT | Baja ||| ⏳ Todo | Paginacion de compras del periodo (5 lineas) |
+| CC-FEAT-010 | FEAT | Alta ||| ✅ Done | Los periodos no son meses calendario; agregar opcion de definir rango de fechas del periodo |
+| CC-FEAT-011 | FEAT | Alta ||| ✅ Done | Visualizacion y manejo de periodos de tarjeta (period_start, period_end, closing_date, due_date) |
+| CC-FEAT-012 | FEAT | Alta ||| ⏳ Todo | Validar pagos fuera de periodo, sugerir periodo correcto y confirmar movimiento |
+| CC-FEAT-013 | FEAT | Alta ||| ⏳ Todo | En importacion CSV, fecha de cierre debe imputar al periodo cuyo cierre coincide |
+| CC-FEAT-014 | FEAT | Media ||| ⏳ Todo | Ordenar y filtrar compras del periodo por monto |
+| CC-FEAT-015 | FEAT | Media ||| ⏳ Todo | Agrupar lista por compras en cuotas y luego compras 1 cuota |
+| CC-FEAT-016 | FEAT | Baja ||| ⏳ Todo | Icono tooltip para detalle de item |
+| CC-FEAT-017 | FEAT | Alta ||| ⏳ Todo | Bloquear cargas manual/csv fuera de ventana cierre-vencimiento, con override por rol |
+| CC-FEAT-018 | FEAT | Alta ||| ⏳ Todo | Si CSV contiene items fuera de politica del periodo, rechazar lote completo |
+| CC-FEAT-020 | FEAT | Baja ||| ⏳ Todo | Ocultar combo tipo de plan en Nueva Compra |
+| CC-FEAT-021 | FEAT | Baja ||| ⏳ Todo | Agregar textbox detalle (20 caracteres) en Nueva Compra |
+| CC-FEAT-022 | FEAT | Alta ||| ✅ Done | USD al periodo siguiente con campo `billing_date` (propuesta Opcion A) |
+| CC-FEAT-023 | FEAT | Alta ||| ⏳ Todo | Al registrar pagos del resumen actual, proyectarlos automaticamente en el periodo siguiente como movimientos negativos tipo "SU PAGO EN PESOS" para estimar el proximo resumen |
+| CC-FEAT-024 | FEAT | Alta ||#125| ✅ Done | Extracciones de tarjeta con impacto dual: gasto actual + deuda |
+| CC-FEAT-025 | FEAT | Alta ||| ⏳ Todo | En pagos parciales, trasladar saldo remanente al pendiente del siguiente período y recalcularlo ante nuevos pagos del período actual |
+| CC-FEAT-026 | FEAT | Baja ||| ✅ Done | Spinner de carga en tablas y listas de tarjeta de crédito (`CreditCardManager`) |
+**Resumen:** 25 features, 12 completadas (48%), 13 pendientes (52%)
 
 ## Bugs Pendientes
 

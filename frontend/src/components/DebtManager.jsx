@@ -14,6 +14,20 @@ import NewBudgetItemModal from './NewBudgetItemModal';
 
 ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
+function LoadingOverlay({ label }) {
+  return (
+    <div
+      className="absolute inset-0 bg-white/75 flex flex-col items-center justify-center z-10 min-h-[12rem]"
+      role="status"
+      aria-live="polite"
+      aria-label={label}
+    >
+      <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-finly-primary" aria-hidden="true" />
+      <p className="text-gray-500 mt-4 text-sm">{label}</p>
+    </div>
+  );
+}
+
 const MONTH_NAMES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
@@ -872,8 +886,8 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
         </div>
       )}
 
-      {/* Resumen de deudas */}
-      {summary && (
+      {/* Resumen de deudas / presupuesto */}
+      {!debtsLoading && (
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div className="bg-white p-4 rounded-lg shadow-sm border">
             <p className="text-sm text-gray-600">{isDebtMode ? 'Deudas del Mes' : 'Presupuesto del Mes'}</p>
@@ -900,7 +914,7 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
       )}
 
       {/* Gráficos reutilizados de Reportes para Presupuestos */}
-      {displayedDebts.length > 0 && !showCSVImport && (
+      {!debtsLoading && displayedDebts.length > 0 && !showCSVImport && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Gráfica de Gastos por Categoría */}
           <div className="bg-white rounded-xl shadow-md p-6">
@@ -1335,8 +1349,9 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
         </div>
       )}
 
-      {/* Lista de deudas */}
-      <div className="bg-white rounded-lg shadow-md border overflow-hidden">
+      {/* Lista de deudas / presupuesto */}
+      <div className="bg-white rounded-lg shadow-md border overflow-hidden relative">
+        {debtsLoading && <LoadingOverlay label={`Cargando ${viewLabel}...`} />}
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -1347,7 +1362,7 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
                       type="checkbox"
                       checked={allDebtsSelected}
                       onChange={toggleSelectAllDebts}
-                      aria-label="Seleccionar todos los items de presupuesto"
+                      aria-label={`Seleccionar todos los items de ${viewLabel}`}
                     />
                   </th>
                 )}
@@ -1383,13 +1398,13 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
               {paginatedDebts.length === 0 ? (
                 <tr>
                   <td colSpan={canEdit ? "14" : "13"} className="px-4 py-8 text-center text-gray-500">
-                    {debtsLoading
-                      ? `Cargando ${viewLabel}...`
-                      : debts.length === 0
-                      ? (isDebtMode ? 'No hay deudas registradas' : 'No hay items de presupuesto registrados')
-                      : isDebtMode
-                        ? `No hay cuotas en ${MONTH_NAMES[filterMonth - 1]} ${filterYear}. Cambia el mes arriba.`
-                        : 'No hay resultados para los filtros aplicados'}
+                    {!debtsLoading && (
+                      debts.length === 0
+                        ? (isDebtMode ? 'No hay deudas registradas' : 'No hay items de presupuesto registrados')
+                        : isDebtMode
+                          ? `No hay cuotas en ${MONTH_NAMES[filterMonth - 1]} ${filterYear}. Cambia el mes arriba.`
+                          : 'No hay resultados para los filtros aplicados'
+                    )}
                   </td>
                 </tr>
               ) : (
@@ -1414,7 +1429,7 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
                             type="checkbox"
                             checked={selectedDebtIds.includes(debt.id)}
                             onChange={() => toggleDebtSelection(debt.id)}
-                            aria-label={`Seleccionar presupuesto ${debt.id}`}
+                            aria-label={`Seleccionar ${viewLabel} ${debt.id}`}
                           />
                         </td>
                       )}

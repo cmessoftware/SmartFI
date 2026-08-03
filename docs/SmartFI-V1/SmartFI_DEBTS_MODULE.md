@@ -56,19 +56,20 @@ Estado sincronizado con Gitea (2026-06-01):
 
 | ID | Tipo | Prioridad |Issue Padre|Issue Gitea| Estado | Resumen |
 |---|---|---|---|---|---|---|
-| DBT-FEAT-001 | feature | alta | DEBTS-MVP | #135 (BE), #136 (FE) | ✅ Done | Definir `debt-records` como fuente de verdad e integrar contratos API con Presupuesto (BE validado, FE integrado en vista de Deudas). |
-| DBT-FEAT-002 | feature | alta | DBT-FEAT-001 | #137 (BE), #138 (FE) | ✅ Done | Implementar alta de deuda no tarjeta con campos completos: interes anual, cuotas, cuota actual, cuotas pendientes, fuente y comentarios (BE + FE consolidados). |
-| DBT-FEAT-003 | feature | alta | DBT-FEAT-001 | #139 (BE), #140 (FE) | ✅ Done | Proyeccion automatica en Presupuesto por mes calendario (cuota X/Y) al crear deuda, con reconciliacion de proyecciones faltantes y cobertura de pruebas en `backend/tests/test_debt_record_projection_service.py`. |
-| DBT-FEAT-004 | feature | alta | DBT-FEAT-001 | #141 (BE), #142 (FE) | ⏳ Todo | Registrar pago parcial/total y reconciliar saldo + cuotas pendientes fraccionarias en `debt-records`. |
-| DBT-FEAT-005 | feature | alta | DBT-FEAT-004 | #143 (BE), #144 (FE) | ⏳ Todo | Aplicar regla de cuotas fraccionarias con precision fija de 2 decimales en backend y frontend. |
-| DBT-FEAT-006 | feature | media | DBT-FEAT-001 | #145 (BE), #146 (FE) | ⏳ Todo | Exponer dashboard de deudas por fuente (total historico) con grafico de torta. |
-| DBT-FEAT-007 | feature | media | DBT-FEAT-001 | #147 (BE), #148 (FE) | ⏳ Todo | Exponer dashboard de deudas por fuente del mes actual con grafico de torta. |
-| DBT-FEAT-008 | feature | media | DBT-FEAT-001 | #149 (BE), #150 (FE) | ⏳ Todo | Exponer variacion de deuda mes a mes (ventana 12 meses centrada en mes actual) con barras + linea. |
-| DBT-FEAT-009 | feature | alta | DBT-FEAT-001 | TDB | ⏳ Todo | Integrar trazabilidad CC->EXP sin duplicar fuente canonica: registrar espejo operacional en EXP para compras CC con `source_module/source_id` y referencia de periodo de tarjeta. |
-| DBT-FEAT-010 | feature | alta | DBT-FEAT-009 | TDB | ⏳ Todo | Implementar regla anti-duplicado contable entre CC, EXP y DBT para evitar doble computo del mismo pasivo. |
-| DBT-FEAT-011 | feature | alta | DBT-FEAT-009 | TDB | ⏳ Todo | Conciliacion de pagos parciales de CC contra deuda reflejada en EXP y rollover de remanente al siguiente periodo de tarjeta. |
-| DBT-FEAT-012 | feature | media | DBT-FEAT-006 | TDB | ⏳ Todo | Dashboard unificado de deuda (CC + no CC) por origen, fuente, vencimiento y estado, sin mezclar fuentes canonicas. |
-| DBT-FEAT-013 | feature | media | | TDB | ✅ Done | Junto al resumen del periodo TC muestra comisiones acumuladas de extracciones en efectivo (`cash_advance_commission_total` en API + UI en CreditCardManager). |
+| DBT-FEAT-001 | FEAT | alta | DEBTS-MVP | #135 (BE), #136 (FE) | ✅ Done | Definir `debt-records` como fuente de verdad e integrar contratos API con Presupuesto (BE validado, FE integrado en vista de Deudas). |
+| DBT-FEAT-002 | FEAT | alta | DBT-FEAT-001 | #137 (BE), #138 (FE) | ✅ Done | Implementar alta de deuda no tarjeta con campos completos: interes anual, cuotas, cuota actual, cuotas pendientes, fuente y comentarios (BE + FE consolidados). |
+| DBT-FEAT-003 | FEAT | alta | DBT-FEAT-001 | #139 (BE), #140 (FE) | ✅ Done | Proyeccion automatica en Presupuesto por mes calendario (cuota X/Y) al crear deuda, con reconciliacion de proyecciones faltantes y cobertura de pruebas en `backend/tests/test_debt_record_projection_service.py`. |
+| DBT-FEAT-004 | FEAT | alta | DBT-FEAT-001 | #141 (BE), #142 (FE) | ⏳ Todo | Registrar pago parcial/total y reconciliar saldo + cuotas pendientes fraccionarias en `debt-records`. |
+| DBT-FEAT-005 | FEAT | alta | DBT-FEAT-004 | #143 (BE), #144 (FE) | ⏳ Todo | Aplicar regla de cuotas fraccionarias con precision fija de 2 decimales en backend y frontend. |
+| DBT-FEAT-006 | FEAT | media | DBT-FEAT-001 | #145 (BE), #146 (FE) | ⏳ Todo | Exponer dashboard de deudas por fuente (total historico) con grafico de torta. |
+| DBT-FEAT-007 | FEAT | media | DBT-FEAT-001 | #147 (BE), #148 (FE) | ⏳ Todo | Exponer dashboard de deudas por fuente del mes actual con grafico de torta. |
+| DBT-FEAT-008 | FEAT | media | DBT-FEAT-001 | #149 (BE), #150 (FE) | ⏳ Todo | Exponer variacion de deuda mes a mes (ventana 12 meses centrada en mes actual) con barras + linea. |
+| DBT-FEAT-009 | FEAT | alta | DBT-FEAT-001 | TDB | ⏳ Todo | Integrar trazabilidad CC->EXP sin duplicar fuente canonica: registrar espejo operacional en EXP para compras CC con `source_module/source_id` y referencia de periodo de tarjeta. |
+| DBT-FEAT-010 | FEAT | alta | DBT-FEAT-009 | TDB | ⏳ Todo | Implementar regla anti-duplicado contable entre CC, EXP y DBT para evitar doble computo del mismo pasivo. |
+| DBT-FEAT-011 | FEAT | alta | DBT-FEAT-009 | TDB | ⏳ Todo | Conciliacion de pagos parciales de CC contra deuda reflejada en EXP y rollover de remanente al siguiente periodo de tarjeta. |
+| DBT-FEAT-012 | FEAT | media | DBT-FEAT-006 | TDB | ⏳ Todo | Dashboard unificado de deuda (CC + no CC) por origen, fuente, vencimiento y estado, sin mezclar fuentes canonicas. |
+| DBT-FEAT-013 | FEAT | media | | TDB | ✅ Done | Junto al resumen del periodo TC muestra comisiones acumuladas de extracciones en efectivo (`cash_advance_commission_total` en API + UI en CreditCardManager). |
+| DBT-FEAT-014 | FEAT | baja | | TDB | ✅ Done | Spinner de carga en tabla de deudas (`DebtManager` modo debts) |
 
 ### Analisis de coherencia (DBT-FEAT-004 a DBT-FEAT-008)
 

@@ -4,29 +4,23 @@
 
 | ID | Estado | Resumen | Objetivo |
 |---|---|---|---|
-| EXP-FEAT-001 | ✅ Implementado | Páginas con tamaño de 25 lineas cada una. Paginación con controles Anterior/Siguiente y números de página | Mejorar navegabilidad de transacciones |
-| EXP-FEAT-002 | ✅ Implementado | Tanto en carga individual como masiva, categoria es campo obligatorio | Garantizar data quality |
-| EXP-FEAT-003 | ✅ Implementado | Filtro por mes. Por defecto mostrar gastos del mes actual | Agrupar transactions por período |
-| EXP-FEAT-004 | ✅ Implementado | En asignación de presupuesto, mostrar solo items del mes del gasto | Mantener consistencia temporal |
-| EXP-FEAT-005 | ✅ Implementado | Selector de mes/año con navegación ◀ ▶ y botón "Hoy" en Reportes | UX consistente entre vistas |
-| EXP-FEAT-006 | ✅ Implementado | Normalización de categorías: tabla categories con FK en transactions | Estructura relacional limpia |
-| EXP-FEAT-007 | ✅ Implementado | Campos de transactions renombrados a inglés (date, type, amount, etc.) | Estandarizar nomenclatura |
-| EXP-FEAT-008 | ✅ Implementado | Filtro por Detalle en pantalla de Reportes (búsqueda partial) | Facilitar búsqueda de transacciones |
-| EXP-FEAT-009 | ✅ Implementado | Opción de Importar CSV integrada en pantalla de Reportes | Consolidar acciones en un lugar |
-| EXP-FEAT-010 | ✅ Implementado | Se eliminó opción "Importar CSV" del sidebar | Evitar confusión y duplicación |
-| EXP-FEAT-011 | ✅ Implementado | Layout de acciones en Reportes: Nuevo Item \| Importar CSV \| Exportar CSV \| Mostrar solo seleccionadas \| Eliminar | Interfaz limpia y consistente |
+| EXP-FEAT-001 | ✅ Done | Páginas con tamaño de 25 lineas cada una. Paginación con controles Anterior/Siguiente y números de página | Mejorar navegabilidad de transacciones |
+| EXP-FEAT-002 | ✅ Done | Tanto en carga individual como masiva, categoria es campo obligatorio | Garantizar data quality |
+| EXP-FEAT-003 | ✅ Done | Filtro por mes. Por defecto mostrar gastos del mes actual | Agrupar transactions por período |
+| EXP-FEAT-004 | ✅ Done | En asignación de presupuesto, mostrar solo items del mes del gasto | Mantener consistencia temporal |
+| EXP-FEAT-005 | ✅ Done | Selector de mes/año con navegación ◀ ▶ y botón "Hoy" en Reportes | UX consistente entre vistas |
+| EXP-FEAT-006 | ✅ Done | Normalización de categorías: tabla categories con FK en transactions | Estructura relacional limpia |
+| EXP-FEAT-007 | ✅ Done | Campos de transactions renombrados a inglés (date, type, amount, etc.) | Estandarizar nomenclatura |
+| EXP-FEAT-008 | ✅ Done | Filtro por Detalle en pantalla de Reportes (búsqueda partial) | Facilitar búsqueda de transacciones |
+| EXP-FEAT-009 | ✅ Done | Opción de Importar CSV integrada en pantalla de Reportes | Consolidar acciones en un lugar |
+| EXP-FEAT-010 | ✅ Done | Se eliminó opción "Importar CSV" del sidebar | Evitar confusión y duplicación |
+| EXP-FEAT-011 | ✅ Done | Layout de acciones en Reportes: Nuevo Item \| Importar CSV \| Exportar CSV \| Mostrar solo seleccionadas \| Eliminar | Interfaz limpia y consistente |
 | EXP-FEAT-012 | 🔄 In Progress | **Cierre de mes contable:** congelar mes para evitar cambios accidentales | Mantener integridad de períodos cerrados |
 | EXP-FEAT-013 | 📋 Backlog | **Apertura de nuevo mes:** carryover de saldo e ítems de presupuesto clonables | Facilitar transición entre períodos |
 | EXP-FEAT-014 | 📋 Backlog | **Panel comparativo de cierres:** gráficos multi-mes con alertas de desvío | Visualizar tendencias y tomar decisiones |
+| EXP-FEAT-015 | ✅ Done | Spinner de carga en tabla de gastos/ingresos | Feedback visual durante carga/sincronización |
 
 ## Bugs (Resumen)
-
-Notas:
-|Ambiente | Comentario |
-|---|---|
-| DEV | Ambiente DEV del usuario, PC de desarrollo  puerto 5173|
-| TEST | Ambiente en docker  puerto 3000 | 
-| PROD  | Ambiente Render + Neon |
 
 | ID | Prioridad | Ambiente | Estado | Resumen |
 |---|---|---|---|---|
@@ -49,14 +43,14 @@ Revisión 1:✅ Resuelto  ![alt text](image-38.png) - Monto total incorrecto, Mo
 Revisión 2:✅ Resuelto  En ejecutado aparace $0 en vez del monto ya pagado de la deuda. ![alt text](image-39.png)
 Ahora se calcula desde la deuda real (`principal_amount - outstanding_amount`) y no desde la proyección mensual. 
 |
-| EXP-BUG-016 | Baja | DEV |📋 Todo | cuando cargo Cuota actual (X, proxima a pagar) se cambia a numero decimal. Por ejemplo cargo 4 y se autoasigna 3.98|
+| EXP-BUG-016 | Baja | DEV |⏳ Todo | cuando cargo Cuota actual (X, proxima a pagar) se cambia a numero decimal. Por ejemplo cargo 4 y se autoasigna 3.98|
 | EXP-BUG-017 | Alta | DEV | ✅ Resuelto | WRITER puede reabrir únicamente los meses que cerró él mismo. Implementación: `services.month_service.reopen_month` y endpoint `/api/months/{year_month}/reopen` — control de permisos y motivo requerido (≥10 chars). |
-| EXP-BUG-018 | Alta | PROD | 📋 Todo | Cuando creo o edito un gasto/ingreso el combo que muestra items de presupuestos muestra daots duplicados image.png 
+| EXP-BUG-018 | Alta | PROD | ⏳ Todo | Cuando creo o edito un gasto/ingreso el combo que muestra items de presupuestos muestra daots duplicados image.png 
 1.  Analizar si se puede depurar la base.
 2.  Si es un bug de código informar antes de tocar algo.|
 
 
-**Resumen:** 14 mejoras totales, 11 implementadas (79%), 1 en progreso (7%), 2 en backlog (14%)
+**Resumen:** 15 mejoras totales, 12 implementadas (80%), 1 en progreso (7%), 2 en backlog (13%)
 
 ## OpenSpec Changes
 
