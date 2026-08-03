@@ -12,8 +12,9 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8')
 
-from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, status
+from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from typing import Optional, List, Literal
 from datetime import datetime, timedelta, date
 from pydantic import BaseModel, Field
@@ -79,12 +80,15 @@ allowed_origins = [
     "http://localhost:5173",  # Local development (Vite)
     "http://localhost:5174",  # Alternative local port
     "http://localhost:3000",  # Docker frontend
+    "https://smartfi-frontend.onrender.com",  # Production (Render)
 ]
 
-# Add production frontend URL if configured
+# Add production frontend URL if configured (may differ from default above)
 frontend_url = os.getenv("FRONTEND_URL")
-if frontend_url:
+if frontend_url and frontend_url not in allowed_origins:
     allowed_origins.append(frontend_url)
+    print(f"✅ CORS configured for production: {frontend_url}")
+elif frontend_url:
     print(f"✅ CORS configured for production: {frontend_url}")
 
 app.add_middleware(
@@ -96,6 +100,15 @@ app.add_middleware(
     # Also allow any localhost origin (different ports) via regex to avoid CORS issues in dev
     allow_origin_regex=r"^http://(localhost|127\.0\.0\.1)(:\\d+)?$",
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Return JSON 500 so CORS middleware can attach headers (avoids opaque browser CORS errors)."""
+    if isinstance(exc, HTTPException):
+        raise exc
+    print(f"❌ Unhandled error on {request.method} {request.url.path}: {exc}")
+    return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 # Health check endpoint
 @app.get("/api/health")
@@ -2117,9 +2130,15 @@ async def update_debt_record(
     payload = data.dict(exclude_unset=True)
     if not payload:
         raise HTTPException(status_code=400, detail="No fields provided to update")
-    result = debt_record_service.update_debt_record(
-        record_id=record_id, data=payload, user_id=current_user.id
-    )
+    try:
+        result = debt_record_service.update_debt_record(
+            record_id=record_id, data=payload, user_id=current_user.id
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        print(f"❌ Error updating debt record {record_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     if not result:
         raise HTTPException(status_code=404, detail="Debt record not found")
     return result
@@ -2133,7 +2152,11 @@ async def delete_debt_record(
     """Delete a debt record and all its payments."""
     if not debt_record_service:
         raise HTTPException(status_code=503, detail="Debt Record service not configured")
-    ok = debt_record_service.delete_debt_record(record_id=record_id, user_id=current_user.id)
+    try:
+        ok = debt_record_service.delete_debt_record(record_id=record_id, user_id=current_user.id)
+    except Exception as e:
+        print(f"❌ Error deleting debt record {record_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     if not ok:
         raise HTTPException(status_code=404, detail="Debt record not found")
     return {"message": "Debt record deleted successfully"}
