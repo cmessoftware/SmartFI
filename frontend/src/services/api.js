@@ -356,6 +356,7 @@ export const debtsAPI = {
       target_year: targetYear,
     }),
   getCloneLineage: (itemId) => api.get(`/api/budget-items/${itemId}/clone-lineage`),
+  importBudgetCsv: (items) => api.post('/api/budget-items/import-csv', items),
 };
 
 export const creditCardAPI = {

@@ -64,57 +64,6 @@ class CreditCardService:
             'extraction_total': round(extraction_total, 2),
             'commission_total': round(commission_total, 2),
         }
-        """Create or update the derived BudgetItem for a cash advance purchase."""
-        due_date = self._calculate_cash_advance_due_date(purchase.purchase_date, card.due_day)
-        detalle = f"Extraccion {card.card_name}"
-
-        debt = None
-        if purchase.derived_debt_id:
-            debt = self.db.query(BudgetItem).filter(BudgetItem.id == purchase.derived_debt_id).first()
-
-        if not debt:
-            debt = BudgetItem(
-                fecha=purchase.purchase_date.isoformat(),
-                tipo="Tarjeta de Credito",
-                categoria="Tarjeta de Credito",
-                monto_total=round(float(fee_amount), 2),
-                monto_pagado=0.0,
-                detalle=detalle,
-                fecha_vencimiento=due_date.isoformat(),
-                status=DebtStatus.PENDIENTE,
-                tipo_presupuesto=BudgetType.OBLIGATION,
-                tipo_flujo=FlowType.GASTO,
-                expense_type=ExpenseType.VARIABLE,
-                monto_ejecutado=0.0,
-                estimated_payment=round(float(fee_amount), 2),
-                user_id=card.user_id,
-            )
-            self.db.add(debt)
-            self.db.flush()
-            purchase.derived_debt_id = debt.id
-        else:
-            debt.fecha = purchase.purchase_date.isoformat()
-            debt.tipo = "Tarjeta de Credito"
-            debt.categoria = "Tarjeta de Credito"
-            debt.detalle = detalle
-            debt.monto_total = round(float(fee_amount), 2)
-            debt.estimated_payment = round(float(fee_amount), 2)
-            debt.fecha_vencimiento = due_date.isoformat()
-            debt.tipo_presupuesto = BudgetType.OBLIGATION
-            debt.tipo_flujo = FlowType.GASTO
-            debt.expense_type = ExpenseType.VARIABLE
-            debt.user_id = card.user_id
-            if (debt.monto_pagado or 0) <= 0:
-                debt.monto_pagado = 0.0
-                debt.monto_ejecutado = 0.0
-                debt.status = DebtStatus.PENDIENTE
-            elif (debt.monto_pagado or 0) >= debt.monto_total:
-                debt.status = DebtStatus.PAGADA
-                debt.monto_ejecutado = debt.monto_pagado
-            else:
-                debt.status = DebtStatus.PAGO_PARCIAL
-                debt.monto_ejecutado = debt.monto_pagado
-            debt.updated_at = datetime.utcnow()
 
     def _resolve_cash_advance_category_id(self) -> int:
         """Get or create a category suitable for credit-card cash advances."""

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Papa from 'papaparse';
 import { decodeCsvFile } from '../utils/csvEncoding';
+import { debtsAPI } from '../services/api';
 
 function BudgetCSVImport({ onImportSuccess }) {
   const [csvHeaders, setCsvHeaders] = useState([]);
@@ -164,21 +165,8 @@ function BudgetCSVImport({ onImportSuccess }) {
 
     setIsImporting(true);
     try {
-      const response = await fetch('http://localhost:8000/api/budget-items/import-csv', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify(window.formattedBudgets)
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Error al importar presupuestos');
-      }
-
-      const result = await response.json();
+      const response = await debtsAPI.importBudgetCsv(window.formattedBudgets);
+      const result = response.data;
       
       setMessage({ 
         type: 'success', 
@@ -199,7 +187,7 @@ function BudgetCSVImport({ onImportSuccess }) {
     } catch (error) {
       setMessage({ 
         type: 'error', 
-        text: `❌ Error: ${error.message}` 
+        text: `❌ Error: ${error.response?.data?.detail || error.message}` 
       });
     } finally {
       setIsImporting(false);

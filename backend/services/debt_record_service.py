@@ -345,7 +345,7 @@ class DebtRecordService:
                     estimated_payment=per_installment_amount,
                     status=DebtStatus.PENDIENTE,
                     tipo_presupuesto=BudgetType.OBLIGATION,
-                    tipo_flujo=FlowType.INGRESO,
+                    tipo_flujo=FlowType.GASTO,
                     expense_type=ExpenseType.VARIABLE,
                     debt_source=record.debt_source or record.creditor,
                     debt_quota_number=quota,
@@ -550,9 +550,13 @@ class DebtRecordService:
             record.due_date = self._add_months(record.start_date, 1)
 
         record.updated_at = datetime.utcnow()
-        self._upsert_budget_projection(record)
-        self.db.commit()
-        self.db.refresh(record)
+        try:
+            self._upsert_budget_projection(record)
+            self.db.commit()
+            self.db.refresh(record)
+        except Exception:
+            self.db.rollback()
+            raise
         return self._record_to_dict(record)
 
     def delete_debt_record(self, record_id: int, user_id: int) -> bool:
@@ -572,7 +576,11 @@ class DebtRecordService:
             self.db.delete(projection)
 
         self.db.delete(record)
-        self.db.commit()
+        try:
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
         logger.info(f"🗑️ DebtRecord {record_id} deleted by user {user_id}")
         return True
 
