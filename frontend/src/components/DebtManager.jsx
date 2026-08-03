@@ -548,15 +548,19 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
         const montoTotal = Number(debt.monto_total || 0);
         const montoEjecutado = Number(debt.monto_ejecutado ?? debt.monto_pagado ?? 0);
         const remaining = Math.max(0, montoTotal - montoEjecutado);
+        const isGasto = (debt.tipo_flujo || 'Gasto') === 'Gasto';
 
         acc.total_debts += 1;
-        acc.total_estimated_payment += Number(debt.estimated_payment ?? debt.monto_total ?? 0);
 
-        if (debt.status === 'VENCIDA') {
-          acc.overdue_count += 1;
-          acc.overdue_amount += remaining;
-        } else if (debt.status !== 'PAGADA') {
-          acc.pending_amount += remaining;
+        if (isGasto) {
+          acc.total_estimated_payment += Number(debt.estimated_payment ?? debt.monto_total ?? 0);
+
+          if (debt.status === 'VENCIDA') {
+            acc.overdue_count += 1;
+            acc.overdue_amount += remaining;
+          } else if (debt.status !== 'PAGADA') {
+            acc.pending_amount += remaining;
+          }
         }
 
         return acc;
