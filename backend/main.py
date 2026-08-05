@@ -881,6 +881,15 @@ async def delete_transaction(
         print(f"❌ Error deleting transaction: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+def _is_admin(user: DBUser) -> bool:
+    return any(r.name.upper() == "ADMIN" for r in user.roles)
+
+
+def _budget_user_scope(user: DBUser):
+    """Admin sees all family budget items; others only their own (+ legacy null user_id)."""
+    return None if _is_admin(user) else user.id
+
+
 # Debt routes
 @app.get("/api/debts")
 async def get_debts(current_user: DBUser = Depends(get_current_user)):
@@ -889,7 +898,7 @@ async def get_debts(current_user: DBUser = Depends(get_current_user)):
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
     try:
-        debts = debt_service.get_all_debts(user_id=current_user.id)
+        debts = debt_service.get_all_debts(user_id=_budget_user_scope(current_user))
         return debts
     except Exception as e:
         print(f"❌ Error getting debts: {e}")
@@ -902,7 +911,7 @@ async def get_debt_summary(current_user: DBUser = Depends(get_current_user)):
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
     try:
-        summary = debt_service.get_debt_summary(user_id=current_user.id)
+        summary = debt_service.get_debt_summary(user_id=_budget_user_scope(current_user))
         return summary
     except Exception as e:
         print(f"❌ Error getting debt summary: {e}")
@@ -1054,7 +1063,7 @@ async def get_debt(
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
     try:
-        debt = debt_service.get_debt_by_id(debt_id, user_id=current_user.id)
+        debt = debt_service.get_debt_by_id(debt_id, user_id=_budget_user_scope(current_user))
         if not debt:
             raise HTTPException(status_code=404, detail="Debt not found")
         return debt
@@ -1097,7 +1106,7 @@ async def update_debt(
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
     try:
-        success = debt_service.update_debt(debt_id, debt.dict(), user_id=current_user.id)
+        success = debt_service.update_debt(debt_id, debt.dict(), user_id=_budget_user_scope(current_user))
         if success:
             print(f"✅ Debt {debt_id} updated in PostgreSQL")
             return {"message": "Debt updated successfully", "debt": debt}
@@ -1119,7 +1128,10 @@ async def delete_debt(
     try:
         # Check if there are linked transactions first
         db = SessionLocal()
-        linked_count = db.query(DBTransaction).filter(DBTransaction.budget_item_id == debt_id, DBTransaction.user_id == current_user.id).count()
+        linked_q = db.query(DBTransaction).filter(DBTransaction.budget_item_id == debt_id)
+        if not _is_admin(current_user):
+            linked_q = linked_q.filter(DBTransaction.user_id == current_user.id)
+        linked_count = linked_q.count()
         db.close()
         
         if linked_count > 0:
@@ -1128,7 +1140,7 @@ async def delete_debt(
                 detail=f"No se puede eliminar: hay {linked_count} transacción(es) vinculada(s). Elimínelas primero."
             )
         
-        success = debt_service.delete_debt(debt_id, user_id=current_user.id)
+        success = debt_service.delete_debt(debt_id, user_id=_budget_user_scope(current_user))
         if success:
             print(f"✅ Debt {debt_id} deleted from PostgreSQL")
             return {"message": "Debt deleted successfully", "id": debt_id}
@@ -1152,7 +1164,7 @@ async def get_budget_items(current_user: DBUser = Depends(get_current_user)):
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
     try:
-        debts = debt_service.get_all_debts(user_id=current_user.id)
+        debts = debt_service.get_all_debts(user_id=_budget_user_scope(current_user))
         return debts
     except Exception as e:
         print(f"❌ Error getting budget items: {e}")
@@ -1169,7 +1181,7 @@ async def get_budget_items_summary(
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
     try:
-        summary = debt_service.get_debt_summary(month=month, year=year, user_id=current_user.id)
+        summary = debt_service.get_debt_summary(month=month, year=year, user_id=_budget_user_scope(current_user))
         return summary
     except Exception as e:
         print(f"❌ Error getting budget items summary: {e}")
@@ -1219,7 +1231,7 @@ async def get_budget_item(
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
     try:
-        debt = debt_service.get_debt_by_id(item_id, user_id=current_user.id)
+        debt = debt_service.get_debt_by_id(item_id, user_id=_budget_user_scope(current_user))
         if not debt:
             raise HTTPException(status_code=404, detail="Budget item not found")
         return debt
@@ -1262,7 +1274,7 @@ async def update_budget_item(
         raise HTTPException(status_code=503, detail="Debt service not configured")
     
     try:
-        success = debt_service.update_debt(item_id, debt.dict(), user_id=current_user.id)
+        success = debt_service.update_debt(item_id, debt.dict(), user_id=_budget_user_scope(current_user))
         if success:
             print(f"✅ Budget item {item_id} updated in PostgreSQL")
             return {"message": "Budget item updated successfully", "debt": debt}
@@ -1284,7 +1296,10 @@ async def delete_budget_item(
     try:
         # Check if there are linked transactions first
         db = SessionLocal()
-        linked_count = db.query(DBTransaction).filter(DBTransaction.budget_item_id == item_id, DBTransaction.user_id == current_user.id).count()
+        linked_q = db.query(DBTransaction).filter(DBTransaction.budget_item_id == item_id)
+        if not _is_admin(current_user):
+            linked_q = linked_q.filter(DBTransaction.user_id == current_user.id)
+        linked_count = linked_q.count()
         db.close()
         
         if linked_count > 0:
@@ -1293,7 +1308,7 @@ async def delete_budget_item(
                 detail=f"No se puede eliminar: hay {linked_count} transacción(es) vinculada(s). Elimínelas primero."
             )
         
-        success = debt_service.delete_debt(item_id, user_id=current_user.id)
+        success = debt_service.delete_debt(item_id, user_id=_budget_user_scope(current_user))
         if success:
             print(f"✅ Budget item {item_id} deleted from PostgreSQL")
             return {"message": "Budget item deleted successfully", "id": item_id}
@@ -1951,10 +1966,6 @@ try:
 except Exception as e:
     print(f"⚠️ Bank Account service not available: {e}")
     bank_account_service = None
-
-
-def _is_admin(user: DBUser) -> bool:
-    return any(r.name.upper() == "ADMIN" for r in user.roles)
 
 
 @app.get("/api/accounts")

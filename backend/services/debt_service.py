@@ -238,7 +238,7 @@ class DebtService:
             return result
         except Exception as e:
             print(f"Error getting budget items: {e}")
-            return []
+            raise
 
     def get_debt_by_id(self, debt_id, user_id=None):
         """Get a specific budget item by ID"""

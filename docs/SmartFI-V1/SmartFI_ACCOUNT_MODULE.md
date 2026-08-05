@@ -1,15 +1,61 @@
 # Módulo: Administración de Cuentas Bancarias y Fintechs
 
-## Features y Bugs (IDs sincronizados)
+## Estado de implementación (revisión 2026-07-09)
+
+| Área | Progreso | Detalle |
+|------|----------|---------|
+| **Backend Fase 1** | 🔄 ~70% | Modelo, migración, servicio CRUD y API REST básica operativos |
+| **Frontend** | ⏳ 0% | Sin componentes, rutas ni entradas en sidebar |
+| **Transferencias (Fase 2)** | ⏳ 0% | Sin tabla `account_transfers`, servicio ni endpoints |
+| **Integración gastos (Fase 3–4)** | ⏳ 0% | Sin `source_account_id` en `transactions` ni `budget_items` |
+| **Dashboard familiar (Fase 5)** | ⏳ 0% | Sin endpoint `/summary` ni widgets |
+
+**Resumen:** 1 de 7 ítems con avance parcial (solo backend de ACC-FEAT-001). El módulo no es usable desde la UI; la API puede consumirse vía HTTP (Postman, scripts).
+
+### Archivos implementados (Fase 1 backend)
+
+| Archivo | Rol |
+|---------|-----|
+| `backend/database/database.py` | Modelo `BankAccount`, enum `AccountType` |
+| `backend/alembic/versions/ad1636edd0b9_add_bank_accounts_module.py` | Migración tabla `bank_accounts` |
+| `backend/services/bank_account_service.py` | CRUD + soft delete + filtro admin/writer |
+| `backend/main.py` (≈ líneas 1943–2044) | Endpoints `/api/accounts` |
+| `backend/security/seed_data.py` | Permisos `accounts.read`, `accounts.write`, `accounts.delete` |
+
+---
+
+## FEATs y Bugs (IDs sincronizados)
 
 | ID | Tipo | Prioridad | Estado | Resumen |
 |---|---|---|---|---|
-| ACC-FEAT-001 | Feature | Alta | 📋 Backlog | ABM de cuentas bancarias/fintech con ownership por `user_id` y soft delete |
-| ACC-FEAT-002 | Feature | Alta | 📋 Backlog | Transferencias internas atómicas entre cuentas (`account_transfers`) sin impacto en gasto/ingreso |
-| ACC-FEAT-003 | Feature | Media | 📋 Backlog | Integración de `source_account_id` en transacciones de gastos/ingresos |
-| ACC-FEAT-004 | Feature | Media | 📋 Backlog | Historial y trazabilidad de transferencias con filtros por fecha/titular |
-| ACC-FEAT-005 | Feature | Media | 📋 Backlog | Resumen consolidado familiar de saldos por cuenta y por moneda |
-| ACC-BUG-001 | Bug | Baja | 📋 Backlog | Sin bugs registrados aún en este módulo (placeholder para mantener convención de IDs) |
+| ACC-FEAT-001 | FEAT | Alta | 🔄 In Progress | ABM de cuentas bancarias/fintech con ownership por `user_id` y soft delete — **backend listo; falta UI y ajuste dedicado de saldo** |
+| ACC-FEAT-002 | FEAT | Alta | ⏳ Todo | Transferencias internas atómicas entre cuentas (`account_transfers`) sin impacto en gasto/ingreso |
+| ACC-FEAT-003 | FEAT | Media | ⏳ Todo | Integración de `source_account_id` en transacciones de gastos/ingresos |
+| ACC-FEAT-004 | FEAT | Media | ⏳ Todo | Historial y trazabilidad de transferencias con filtros por fecha/titular |
+| ACC-FEAT-005 | FEAT | Media | ⏳ Todo | Resumen consolidado familiar de saldos por cuenta y por moneda |
+| ACC-BUG-006 | BUG | Baja | ⏳ Todo | Sin bugs registrados aún en este módulo (placeholder para mantener convención de IDs) |
+| ACC-FEAT-007 | FEAT | Media | ⏳ Todo | Formulario de transferencias entre cuentas (origen, destino, motivo, fecha/hora) — depende de ACC-FEAT-002 |
+
+### Detalle ACC-FEAT-001 (parcial)
+
+**✅ Implementado**
+
+- Tabla `bank_accounts` con todos los campos documentados
+- Enum `AccountType`: `CUENTA_CORRIENTE`, `CAJA_AHORRO`, `BILLETERA_VIRTUAL`, `INVERSION`, `OTRO`
+- CRUD en `BankAccountService`: listar, obtener, crear, actualizar, desactivar (`is_active=False`)
+- Admin ve todas las cuentas; writer solo las propias (`user_id`)
+- Query param `active_only` (default `true`) en listado
+- Permisos sembrados y aplicados en endpoints
+
+**❌ Pendiente (Fase 1)**
+
+- UI: `AccountList`, `AccountForm`, entrada en `Sidebar.jsx`, cliente en `api.js`
+- Endpoint dedicado `PATCH /{id}/balance` (hoy el saldo se edita vía `PUT /{id}` con campo `balance`)
+- Audit log de ajustes manuales de saldo
+- Tests automatizados del servicio/API
+- Validación Pydantic tipada (hoy el body es `dict` genérico)
+
+---
 
 ## Descripción
 
@@ -37,24 +83,43 @@ Esto permite:
 - El admin (quien gestiona las finanzas familiares) ve el total consolidado de todas las cuentas.
 - Las transferencias entre cuentas de distintos miembros se identifican como **internas** y no generan gastos.
 
+**Estado actual:** la lógica admin vs writer está implementada en el backend (`get_accounts`, `get_account`, etc.). La vista consolidada familiar en UI aún no existe.
+
 ---
 
 ## Roles y Permisos
 
-| Operación                             | `admin` | `writer`           | `viewer` |
-|---------------------------------------|---------|--------------------|----------|
-| Ver todas las cuentas del sistema     | ✅       | ❌                  | ❌        |
-| Ver sus propias cuentas               | ✅       | ✅                  | ✅        |
-| Crear cuenta                          | ✅       | ✅ (solo propia)    | ❌        |
-| Editar cuenta                         | ✅       | ✅ (solo propia)    | ❌        |
-| Desactivar / eliminar cuenta          | ✅       | ✅ (solo propia)    | ❌        |
-| Ajustar saldo manualmente             | ✅       | ✅ (solo propia)    | ❌        |
-| Registrar transferencia interna       | ✅       | ✅ (desde su cuenta)| ❌        |
-| Ver transferencias (propias)          | ✅       | ✅                  | ✅        |
+| Operación                             | `admin` | `writer`           | `viewer` | Estado |
+|---------------------------------------|---------|--------------------|----------|--------|
+| Ver todas las cuentas del sistema     | ✅       | ❌                  | ❌        | ✅ Backend |
+| Ver sus propias cuentas               | ✅       | ✅                  | ✅        | ✅ Backend |
+| Crear cuenta                          | ✅       | ✅ (solo propia)    | ❌        | ✅ Backend |
+| Editar cuenta                         | ✅       | ✅ (solo propia)    | ❌        | ✅ Backend |
+| Desactivar / eliminar cuenta          | ✅       | ✅ (solo propia)    | ❌        | ✅ Backend |
+| Ajustar saldo manualmente             | ✅       | ✅ (solo propia)    | ❌        | 🔄 vía PUT (sin UI ni audit) |
+| Registrar transferencia interna       | ✅       | ✅ (desde su cuenta)| ❌        | ⏳ No implementado |
+| Ver transferencias (propias)          | ✅       | ✅                  | ✅        | ⏳ No implementado |
 
 **Regla de aislamiento para `writer`:** toda consulta y mutación filtra por `user_id = current_user.id`. Un writer nunca accede a cuentas ajenas. El `admin` puede omitir ese filtro (visión familiar consolidada).
 
-### Códigos de permiso sugeridos (tabla `permissions`, módulo `accounts`)
+### Permisos en código (`seed_data.py`)
+
+Implementación actual — permisos granulares por operación, no separados en `_own` / `_all`:
+
+```
+accounts.read    → listar/ver cuentas (admin: todas; writer/reader: propias)
+accounts.write   → crear y editar cuentas
+accounts.delete  → desactivar cuentas (soft delete)
+```
+
+Asignación por rol:
+- **ADMIN:** `accounts.read`, `accounts.write`, `accounts.delete`
+- **WRITER:** `accounts.read`, `accounts.write`
+- **READER:** `accounts.read`
+
+> **Nota de diseño:** el doc original proponía permisos `_own` / `_all` separados. La implementación simplifica a tres permisos y delega el alcance (propias vs todas) al servicio según rol `ADMIN`. Cuando se implementen transferencias, evaluar agregar `accounts.transfer`.
+
+### Permisos sugeridos (futuro, no implementados)
 
 ```
 accounts:read_own
@@ -71,27 +136,29 @@ accounts:transfer_all
 
 ## Modelo de Datos
 
-### Tabla `bank_accounts`
+### Tabla `bank_accounts` — ✅ implementada
 
-| Columna            | Tipo            | Descripción                                                     |
-|--------------------|-----------------|-----------------------------------------------------------------|
-| `id`               | Integer PK      | Identificador único                                             |
-| `user_id`          | FK → `users.id` | Titular de la cuenta (miembro de la familia)                    |
-| `account_name`     | String(100)     | Nombre descriptivo (ej.: "Brubank Principal", "BBVA ARS")       |
-| `institution_name` | String(100)     | Nombre del banco o fintech                                      |
-| `account_type`     | Enum            | `CUENTA_CORRIENTE`, `CAJA_AHORRO`, `BILLETERA_VIRTUAL`, `INVERSION`, `OTRO` |
-| `currency`         | String(3)       | `ARS`, `USD`, `USDT`, etc.                                      |
-| `balance`          | Float           | Saldo actual                                                    |
-| `is_active`        | Boolean         | Si la cuenta está activa                                        |
-| `cbu_cvu`          | String(22)      | CBU / CVU (opcional, solo almacenamiento local)                 |
-| `alias`            | String(50)      | Alias de transferencia (opcional)                               |
-| `notes`            | Text            | Notas libres                                                    |
-| `created_at`       | DateTime        |                                                                 |
-| `updated_at`       | DateTime        |                                                                 |
+| Columna            | Tipo            | Descripción                                                     | Estado |
+|--------------------|-----------------|-----------------------------------------------------------------|--------|
+| `id`               | Integer PK      | Identificador único                                             | ✅ |
+| `user_id`          | FK → `users.id` | Titular de la cuenta (miembro de la familia)                    | ✅ |
+| `account_name`     | String(100)     | Nombre descriptivo (ej.: "Brubank Principal", "BBVA ARS")       | ✅ |
+| `institution_name` | String(100)     | Nombre del banco o fintech                                      | ✅ |
+| `account_type`     | Enum            | `CUENTA_CORRIENTE`, `CAJA_AHORRO`, `BILLETERA_VIRTUAL`, `INVERSION`, `OTRO` | ✅ |
+| `currency`         | String(3)       | `ARS`, `USD`, `USDT`, etc.                                      | ✅ |
+| `balance`          | Float           | Saldo actual                                                    | ✅ |
+| `is_active`        | Boolean         | Si la cuenta está activa                                        | ✅ |
+| `cbu_cvu`          | String(22)      | CBU / CVU (opcional, solo almacenamiento local)                 | ✅ |
+| `alias`            | String(50)      | Alias de transferencia (opcional)                               | ✅ |
+| `notes`            | Text            | Notas libres                                                    | ✅ |
+| `created_at`       | DateTime        |                                                                 | ✅ |
+| `updated_at`       | DateTime        |                                                                 | ✅ |
 
-### Tabla `account_transfers` ← nueva, clave para conciliación
+Migración: `ad1636edd0b9_add_bank_accounts_module.py` (revision `ad1636edd0b9`).
 
-Esta tabla registra **únicamente movimientos entre cuentas internas** del grupo familiar. No genera transacciones de gasto/ingreso.
+### Tabla `account_transfers` — ⏳ no implementada
+
+Esta tabla registrará **únicamente movimientos entre cuentas internas** del grupo familiar. No generará transacciones de gasto/ingreso.
 
 | Columna              | Tipo                       | Descripción                                                      |
 |----------------------|----------------------------|------------------------------------------------------------------|
@@ -108,7 +175,7 @@ Esta tabla registra **únicamente movimientos entre cuentas internas** del grupo
 
 > **Por qué no usar `transactions` para esto:** la tabla `transactions` implica un gasto o ingreso real que afecta el presupuesto. Una transferencia interna tiene efecto neutro en las finanzas familiares totales. Mezclarlos distorsionaría los reportes de gasto mensual.
 
-### Enums
+### Enums — ✅ implementados
 
 ```python
 class AccountType(str, enum.Enum):
@@ -119,23 +186,28 @@ class AccountType(str, enum.Enum):
     OTRO               = "OTRO"
 ```
 
-> **Nota de migración:** crear vía Alembic con `alembic revision --autogenerate -m "add_bank_accounts_module"` después de agregar los modelos en `backend/database/database.py`.
-
 ---
 
 ## Cómo se Actualiza el Saldo
 
-### Ingreso acreditado en una cuenta
+> **Estado:** solo el ajuste manual vía API está disponible hoy. El resto es diseño objetivo para Fases 2–3.
+
+### Ajuste manual (Fase 1 — parcial)
+1. El usuario envía `PUT /api/accounts/{id}` con campo `balance`.
+2. El servicio persiste el nuevo saldo.
+3. ⏳ Falta: nota obligatoria, audit log y UI (`BalanceAdjustModal`).
+
+### Ingreso acreditado en una cuenta (Fase 3 — ⏳)
 1. El usuario registra una `Transaction` de tipo `Ingreso` y asigna `source_account_id` = su cuenta.
 2. El servicio suma el monto al `balance` de la cuenta.
 3. La transacción aparece en el módulo de gastos/ingresos del mes.
 
-### Gasto pagado desde una cuenta
+### Gasto pagado desde una cuenta (Fase 3 — ⏳)
 1. El usuario registra una `Transaction` de tipo `Gasto` y asigna `source_account_id` = su cuenta.
 2. El servicio resta el monto del `balance` de la cuenta.
 3. La transacción aparece en el módulo de gastos del mes y se puede vincular a un `budget_item`.
 
-### Transferencia entre cuentas familiares
+### Transferencia entre cuentas familiares (Fase 2 — ⏳)
 1. El usuario registra un `AccountTransfer` (from → to, monto, motivo).
 2. El servicio **en una sola transacción de BD**:
    - Resta `amount` del `balance` de `from_account`.
@@ -157,6 +229,8 @@ def register_transfer(db: Session, from_id: int, to_id: int, amount: float, ...)
 ---
 
 ## Casos de Uso y Conciliación
+
+> Escenarios de diseño; ninguno es operable end-to-end hasta completar Fases 2–3 y la UI.
 
 ### Caso 1: Transferencia para cubrir un gasto personal
 > Juan transfiere $50.000 de su Brubank a la Naranja X de María para que ella pague las expensas.
@@ -211,29 +285,59 @@ Esto permite registrar el tipo de cambio aplicado y auditar la operación.
 
 Prefijo base: `/api/accounts`
 
-| Método   | Ruta                    | Descripción                               | Permiso requerido         |
+### Implementados ✅
+
+| Método   | Ruta                    | Descripción                               | Permiso requerido    |
+|----------|-------------------------|-------------------------------------------|----------------------|
+| `GET`    | `/`                     | Lista cuentas (admin: todas; writer: propias). Query: `active_only` (default `true`) | `accounts.read` |
+| `GET`    | `/{id}`                 | Detalle de una cuenta                     | `accounts.read`      |
+| `POST`   | `/`                     | Crear cuenta (asigna `user_id` del token) | `accounts.write`     |
+| `PUT`    | `/{id}`                 | Editar cuenta (incluye `balance`)         | `accounts.write`     |
+| `DELETE` | `/{id}`                 | Desactivar cuenta (soft delete)           | `accounts.delete`    |
+
+Respuesta típica de cuenta:
+
+```json
+{
+  "id": 1,
+  "user_id": 2,
+  "account_name": "Brubank Principal",
+  "institution_name": "Brubank",
+  "account_type": "BILLETERA_VIRTUAL",
+  "currency": "ARS",
+  "balance": 150000.0,
+  "is_active": true,
+  "cbu_cvu": null,
+  "alias": "mi.brubank",
+  "notes": null,
+  "created_at": "2026-04-25T20:00:00",
+  "updated_at": "2026-04-25T20:00:00"
+}
+```
+
+### Planificados ⏳ (no existen en código)
+
+| Método   | Ruta                    | Descripción                               | Permiso sugerido         |
 |----------|-------------------------|-------------------------------------------|---------------------------|
-| `GET`    | `/`                     | Lista cuentas del usuario autenticado     | `accounts:read_own`       |
-| `GET`    | `/all`                  | Lista todas las cuentas (admin/familia)   | `accounts:read_all`       |
-| `GET`    | `/{id}`                 | Detalle de una cuenta                     | `accounts:read_own`       |
-| `POST`   | `/`                     | Crear cuenta                              | `accounts:write_own`      |
-| `PUT`    | `/{id}`                 | Editar cuenta                             | `accounts:write_own`      |
-| `PATCH`  | `/{id}/balance`         | Ajuste manual de saldo                    | `accounts:write_own`      |
-| `DELETE` | `/{id}`                 | Desactivar cuenta (soft delete)           | `accounts:delete_own`     |
-| `POST`   | `/transfers`            | Registrar transferencia interna           | `accounts:transfer_own`   |
-| `GET`    | `/transfers`            | Historial de transferencias (propias)     | `accounts:read_own`       |
-| `GET`    | `/transfers/all`        | Historial completo (admin)                | `accounts:read_all`       |
-| `GET`    | `/summary`              | Saldo total consolidado familiar (admin)  | `accounts:read_all`       |
+| `GET`    | `/all`                  | Alias explícito de listado admin (hoy cubierto por `GET /` con rol admin) | `accounts.read` |
+| `PATCH`  | `/{id}/balance`         | Ajuste manual de saldo con nota/audit     | `accounts.write`          |
+| `POST`   | `/transfers`            | Registrar transferencia interna           | `accounts.transfer` (nuevo) |
+| `GET`    | `/transfers`            | Historial de transferencias (propias)     | `accounts.read`           |
+| `GET`    | `/transfers/all`        | Historial completo (admin)                | `accounts.read`           |
+| `GET`    | `/summary`              | Saldo total consolidado familiar (admin)  | `accounts.read`           |
 
 ---
 
-## Frontend
+## Frontend — ⏳ no iniciado
 
-### Componentes sugeridos
+No hay referencias a cuentas en `frontend/` (sin componentes, sin `accountsAPI` en `api.js`, sin ítem en `Sidebar.jsx`).
+
+### Componentes sugeridos (pendientes)
+
 - `AccountList` — tarjetas con titular, institución, tipo, moneda y saldo actual
 - `AccountForm` — alta/edición
 - `BalanceAdjustModal` — ajuste manual de saldo con nota obligatoria
-- `TransferForm` — formulario para registrar transferencia entre cuentas; muestra saldo disponible en cuenta origen
+- `TransferForm` — formulario para registrar transferencia entre cuentas; muestra saldo disponible en cuenta origen (ACC-FEAT-007)
 - `TransferHistory` — listado de transferencias con from/to, monto, fecha y motivo
 - `FamilyBalanceSummary` — widget admin: saldo total ARS, total USD, por cuenta y por miembro
 
@@ -245,9 +349,9 @@ new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'USD' }).format(ba
 
 ---
 
-## Integración con Módulo de Gastos y Presupuesto
+## Integración con Módulo de Gastos y Presupuesto — ⏳ no iniciada
 
-### Cambio en `transactions`
+### Cambio en `transactions` (Fase 3)
 Agregar columna `source_account_id` (FK → `bank_accounts.id`, nullable en BD).
 
 **Regla de negocio:** `source_account_id` es **obligatorio en la UI** para todo gasto o ingreso nuevo registrado a partir de la Fase 3. El campo es nullable en la base de datos únicamente para preservar las transacciones históricas que existían antes de este módulo.
@@ -267,12 +371,12 @@ if transaction.type in ("Gasto", "Ingreso") and transaction.source_account_id is
 
 **Trazabilidad:** en los reportes de gastos, la cuenta de origen se muestra junto a cada transacción. Esto permite filtrar los gastos del mes por cuenta (ej.: "¿cuánto gasté desde Brubank en mayo?").
 
-### Cambio en `budget_items`
+### Cambio en `budget_items` (Fase 4)
 Agregar columna `source_account_id` (FK → `bank_accounts.id`, nullable):
 - Al planificar una obligación (ej.: cuota del préstamo) → se puede indicar desde qué cuenta se pagará.
 - Permite proyectar el saldo futuro de cada cuenta.
 
-### Reporte de saldo proyectado (Fase 3)
+### Reporte de saldo proyectado (Fase 5)
 Dado que el admin conoce:
 - Saldo actual de cada cuenta
 - Ingresos esperados del mes (`budget_items` tipo Ingreso)
@@ -284,21 +388,29 @@ Se puede calcular: `saldo_proyectado = saldo_actual + ingresos_esperados - gasto
 
 ## Plan de Implementación
 
-| Fase | Alcance                                                                 |
-|------|-------------------------------------------------------------------------|
-| 1    | CRUD de `bank_accounts`, permisos, saldo manual, UI básica              |
-| 2    | `account_transfers`: registro atómico, historial, validación de saldo   |
-| 3    | `source_account_id` en `transactions`: ajuste automático de saldo       |
-| 4    | `source_account_id` en `budget_items`: proyección de saldo por cuenta   |
-| 5    | Dashboard familiar: saldo consolidado, proyección, historial de movimientos |
+| Fase | Alcance                                                                 | Estado |
+|------|-------------------------------------------------------------------------|--------|
+| 1    | CRUD de `bank_accounts`, permisos, saldo manual, UI básica              | 🔄 Backend ~70%; UI 0% |
+| 2    | `account_transfers`: registro atómico, historial, validación de saldo   | ⏳ Todo |
+| 3    | `source_account_id` en `transactions`: ajuste automático de saldo       | ⏳ Todo |
+| 4    | `source_account_id` en `budget_items`: proyección de saldo por cuenta   | ⏳ Todo |
+| 5    | Dashboard familiar: saldo consolidado, proyección, historial de movimientos | ⏳ Todo |
+
+### Próximos pasos recomendados
+
+1. **Completar Fase 1:** UI mínima (`AccountList` + `AccountForm`), `accountsAPI` en frontend, entrada en sidebar.
+2. **Fase 2:** migración `account_transfers`, servicio atómico, endpoints `/transfers`, `TransferForm` (ACC-FEAT-002, ACC-FEAT-007).
+3. **Fase 3:** columna `source_account_id` en `transactions` + hook en creación/edición de gastos (ACC-FEAT-003).
 
 ---
 
 ## Consideraciones de Seguridad
 
-- **CBU/CVU/alias:** solo exponer en el detalle del propio usuario; nunca en listados generales.
-- **Soft delete:** `is_active = False`, preservar historial de transacciones y transferencias vinculadas.
-- **Operación atómica en transferencias:** usar `with_for_update()` y commit único para evitar inconsistencias de saldo si hay concurrencia.
-- **Audit log:** registrar en `audit_logs` ajustes manuales de saldo, creación/edición/desactivación de cuentas y toda transferencia.
-- **Aislamiento por `user_id`:** siempre filtrar en el servicio; el `admin` es el único que puede omitir el filtro.
-- **Validación de saldo:** antes de registrar una transferencia, verificar que `from_account.balance >= amount` (o emitir advertencia configurable si se permiten saldos negativos).
+| Consideración | Estado |
+|---------------|--------|
+| **CBU/CVU/alias:** solo exponer en detalle del propio usuario; nunca en listados generales | ⏳ Sin UI; API expone en listado (revisar al implementar frontend) |
+| **Soft delete:** `is_active = False`, preservar historial | ✅ Implementado |
+| **Operación atómica en transferencias:** `with_for_update()` + commit único | ⏳ Pendiente Fase 2 |
+| **Audit log:** ajustes manuales, CRUD de cuentas, transferencias | ⏳ No implementado |
+| **Aislamiento por `user_id`:** filtrar en servicio; admin omite filtro | ✅ Implementado |
+| **Validación de saldo:** antes de transferir, `from_account.balance >= amount` | ⏳ Pendiente Fase 2 |
