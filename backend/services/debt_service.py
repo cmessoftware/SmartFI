@@ -4,7 +4,7 @@ from database.database import (
     InstallmentPlan, InstallmentScheduleItem, InstallmentStatus
 )
 from datetime import datetime
-from sqlalchemy import func, case, or_
+from sqlalchemy import func, case, or_, text
 
 
 class DebtService:
@@ -12,10 +12,28 @@ class DebtService:
         self.db = None
 
     def _get_db(self):
-        """Get database session"""
+        """Get database session; recreate if a prior request left it in a failed state."""
+        if self.db is not None:
+            try:
+                self.db.execute(text("SELECT 1"))
+            except Exception:
+                self._invalidate_session()
         if self.db is None:
             self.db = SessionLocal()
         return self.db
+
+    def _invalidate_session(self):
+        """Rollback and discard a broken session so the next call starts clean."""
+        if self.db is not None:
+            try:
+                self.db.rollback()
+            except Exception:
+                pass
+            try:
+                self.db.close()
+            except Exception:
+                pass
+            self.db = None
 
     def _apply_user_scope(self, query, model, user_id=None):
         """Include legacy rows without owner to avoid hiding pre-auth budget items."""
@@ -27,10 +45,11 @@ class DebtService:
         """Check if database is connected"""
         try:
             db = self._get_db()
-            db.execute("SELECT 1")
+            db.execute(text("SELECT 1"))
             return True
         except Exception as e:
             print(f"Database connection error: {e}")
+            self._invalidate_session()
             return False
 
     def _calculate_status(self, budget_item, monto_ejecutado):
@@ -52,7 +71,7 @@ class DebtService:
             pass
         return DebtStatus.PENDIENTE
 
-    def _sync_budget_items_with_transactions(self, db, budget_items, user_id=None):
+    def _sync_budget_items_with_transactions(self, db, budget_items, user_id=None, persist=True):
         """Recompute monto_ejecutado from transactions linked via budget_item_id."""
         if not budget_items:
             return
@@ -91,8 +110,12 @@ class DebtService:
                 budget_item.updated_at = datetime.utcnow()
                 updated = True
 
-        if updated:
-            db.commit()
+        if updated and persist:
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
 
     def add_debt(self, debt_data, user_id=None):
         """Add a new debt to database"""
@@ -157,7 +180,7 @@ class DebtService:
             
             return budget_item.id
         except Exception as e:
-            db.rollback()
+            self._invalidate_session()
             print(f"Error adding debt: {e}")
             return None
 
@@ -199,7 +222,7 @@ class DebtService:
             query = db.query(BudgetItem)
             query = self._apply_user_scope(query, BudgetItem, user_id)
             budget_items = query.order_by(BudgetItem.fecha_vencimiento.desc()).all()
-            self._sync_budget_items_with_transactions(db, budget_items, user_id=user_id)
+            self._sync_budget_items_with_transactions(db, budget_items, user_id=user_id, persist=False)
             installment_meta = self._load_installment_metadata(db, [bi.id for bi in budget_items])
             
             result = []
@@ -235,8 +258,10 @@ class DebtService:
                 if budget_item.id in installment_meta:
                     result[-1].update(installment_meta[budget_item.id])
 
+            db.rollback()
             return result
         except Exception as e:
+            self._invalidate_session()
             print(f"Error getting budget items: {e}")
             raise
 
@@ -251,11 +276,11 @@ class DebtService:
             if not budget_item:
                 return None
 
-            self._sync_budget_items_with_transactions(db, [budget_item], user_id=user_id)
+            self._sync_budget_items_with_transactions(db, [budget_item], user_id=user_id, persist=False)
             
             monto_restante = budget_item.monto_total - (budget_item.monto_ejecutado or 0)
             
-            return {
+            result = {
                 'id': budget_item.id,
                 'fecha': budget_item.fecha,
                 'tipo': budget_item.tipo,
@@ -278,7 +303,10 @@ class DebtService:
                 'created_at': budget_item.created_at.isoformat() if budget_item.created_at else None,
                 'updated_at': budget_item.updated_at.isoformat() if budget_item.updated_at else None
             }
+            db.rollback()
+            return result
         except Exception as e:
+            self._invalidate_session()
             print(f"Error getting debt: {e}")
             return None
 
@@ -344,7 +372,7 @@ class DebtService:
             db.commit()
             return True
         except Exception as e:
-            db.rollback()
+            self._invalidate_session()
             print(f"Error updating debt: {e}")
             return False
 
@@ -369,7 +397,7 @@ class DebtService:
             db.commit()
             return True
         except Exception as e:
-            db.rollback()
+            self._invalidate_session()
             print(f"Error deleting debt: {e}")
             return False
 
@@ -401,7 +429,7 @@ class DebtService:
             db.commit()
             return True
         except Exception as e:
-            db.rollback()
+            self._invalidate_session()
             print(f"Error adding payment to debt: {e}")
             return False
 
@@ -435,7 +463,7 @@ class DebtService:
             db.commit()
             return True
         except Exception as e:
-            db.rollback()
+            self._invalidate_session()
             print(f"Error removing payment from debt: {e}")
             return False
 
@@ -455,7 +483,7 @@ class DebtService:
                 month_filter.append(or_(Debt.user_id == user_id, Debt.user_id.is_(None)))
 
             budget_items = db.query(Debt).filter(*month_filter).all()
-            self._sync_budget_items_with_transactions(db, budget_items, user_id=user_id)
+            self._sync_budget_items_with_transactions(db, budget_items, user_id=user_id, persist=False)
             
             # Filtro para excluir Ingresos de los montos a pagar
             gasto_filter = [Debt.tipo_flujo == FlowType.GASTO]
@@ -537,7 +565,7 @@ class DebtService:
                 *gasto_filter, *month_filter
             ).scalar() or 0
             
-            return {
+            summary = {
                 'total_debts': total_debts,
                 'total_amount': float(total_amount),
                 'total_paid': float(total_paid),
@@ -554,10 +582,12 @@ class DebtService:
                 'obligation_pending': float(obligation_pending),
                 'variable_pending': float(variable_pending)
             }
+            db.rollback()
+            return summary
         except Exception as e:
+            self._invalidate_session()
             print(f"Error getting debt summary: {e}")
-            return None
-
+            raise
 
 # Create global instance
 debt_service = DebtService()
