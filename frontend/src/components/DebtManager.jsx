@@ -35,15 +35,28 @@ const MONTH_NAMES = [
 
 const getYearMonthKey = (value) => {
   if (!value) return '';
-  const raw = String(value);
+  const raw = String(value).trim();
 
   // Prefer YYYY-MM from ISO-like values to avoid timezone shifts.
   const isoLike = raw.match(/^(\d{4})-(\d{2})/);
   if (isoLike) return `${isoLike[1]}-${isoLike[2]}`;
 
+  // DD/MM/YYYY (with optional single-digit day/month)
+  const dmy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dmy) {
+    return `${dmy[3]}-${dmy[2].padStart(2, '0')}`;
+  }
+
   const iso = toISODate(raw);
   return iso ? iso.slice(0, 7) : '';
 };
+
+const collectBudgetMonths = (debtList) =>
+  [...new Set(
+    debtList
+      .map((debt) => getYearMonthKey(debt.fecha_vencimiento || debt.fecha))
+      .filter(Boolean)
+  )].sort();
 
 const debtHasProjectionMonth = (debt, monthKey) =>
   Boolean(
@@ -134,7 +147,9 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
       const response = isDebtMode
         ? await debtRecordsAPI.getProjectedDebts()
         : await debtsAPI.getDebts();
-      setDebts(response.data || []);
+      const loaded = response.data || [];
+      setDebts(loaded);
+      console.log(`✅ Loaded ${loaded.length} ${viewLabel} items from API`);
     } catch (error) {
       const detail = error?.response?.data?.detail;
       toast.error(
@@ -148,9 +163,9 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
     }
   };
 
-  // In debt mode, default to the nearest month that actually has installment projections.
+  // Default to a month that actually has data when the current selection is empty.
   useEffect(() => {
-    if (!isDebtMode || monthFilterReady) return;
+    if (monthFilterReady) return;
 
     if (debts.length === 0) {
       setMonthFilterReady(true);
@@ -158,19 +173,32 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
     }
 
     const selectedKey = `${filterYear}-${String(filterMonth).padStart(2, '0')}`;
-    const monthKeys = collectProjectionMonths(debts);
 
-    if (!monthKeys.some((key) => debts.some((debt) => debtHasProjectionMonth(debt, key)))) {
-      setMonthFilterReady(true);
-      return;
-    }
+    if (isDebtMode) {
+      const monthKeys = collectProjectionMonths(debts);
 
-    if (!debts.some((debt) => debtHasProjectionMonth(debt, selectedKey))) {
-      const bestMonth = pickBestMonthKey(monthKeys, now);
-      if (bestMonth) {
-        const [yearPart, monthPart] = bestMonth.split('-');
-        setFilterYear(parseInt(yearPart, 10));
-        setFilterMonth(parseInt(monthPart, 10));
+      if (!monthKeys.some((key) => debts.some((debt) => debtHasProjectionMonth(debt, key)))) {
+        setMonthFilterReady(true);
+        return;
+      }
+
+      if (!debts.some((debt) => debtHasProjectionMonth(debt, selectedKey))) {
+        const bestMonth = pickBestMonthKey(monthKeys, now);
+        if (bestMonth) {
+          const [yearPart, monthPart] = bestMonth.split('-');
+          setFilterYear(parseInt(yearPart, 10));
+          setFilterMonth(parseInt(monthPart, 10));
+        }
+      }
+    } else {
+      const monthKeys = collectBudgetMonths(debts);
+      if (monthKeys.length > 0 && !monthKeys.includes(selectedKey)) {
+        const bestMonth = pickBestMonthKey(monthKeys, now);
+        if (bestMonth) {
+          const [yearPart, monthPart] = bestMonth.split('-');
+          setFilterYear(parseInt(yearPart, 10));
+          setFilterMonth(parseInt(monthPart, 10));
+        }
       }
     }
 
@@ -532,6 +560,11 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
         const year = parseInt(String(monthKey).slice(0, 4), 10);
         if (!Number.isNaN(year)) years.add(year);
       });
+    } else {
+      collectBudgetMonths(debts).forEach((monthKey) => {
+        const year = parseInt(String(monthKey).slice(0, 4), 10);
+        if (!Number.isNaN(year)) years.add(year);
+      });
     }
 
     return [...years].sort((a, b) => a - b);
@@ -880,6 +913,37 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
                 {(() => {
                   const bestMonth = pickBestMonthKey(projectionMonthKeys, now);
                   if (!bestMonth) return 'un mes con cuotas';
+                  const [yearPart, monthPart] = bestMonth.split('-');
+                  return `${MONTH_NAMES[parseInt(monthPart, 10) - 1]} ${yearPart}`;
+                })()}
+              </button>
+              ).
+            </>
+          )}
+        </div>
+      )}
+
+      {!isDebtMode && !debtsLoading && debts.length > 0 && monthScopedDebts.length === 0 && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl px-4 py-3 text-sm">
+          Hay {debts.length} ítem(s) de presupuesto cargados, pero ninguno corresponde a{' '}
+          <strong>{MONTH_NAMES[filterMonth - 1]} {filterYear}</strong>.
+          {collectBudgetMonths(debts).length > 0 && (
+            <>
+              {' '}Prueba otro mes (por ejemplo{' '}
+              <button
+                type="button"
+                className="underline font-semibold"
+                onClick={() => {
+                  const bestMonth = pickBestMonthKey(collectBudgetMonths(debts), now);
+                  if (!bestMonth) return;
+                  const [yearPart, monthPart] = bestMonth.split('-');
+                  setFilterYear(parseInt(yearPart, 10));
+                  setFilterMonth(parseInt(monthPart, 10));
+                }}
+              >
+                {(() => {
+                  const bestMonth = pickBestMonthKey(collectBudgetMonths(debts), now);
+                  if (!bestMonth) return 'un mes con datos';
                   const [yearPart, monthPart] = bestMonth.split('-');
                   return `${MONTH_NAMES[parseInt(monthPart, 10) - 1]} ${yearPart}`;
                 })()}
