@@ -526,6 +526,7 @@ class DebtRecord(Base):
     principal_amount = Column(Float, nullable=False)
     outstanding_amount = Column(Float, nullable=False)
     annual_interest_rate = Column(Float, nullable=True)
+    interest_vat_rate = Column(Float, nullable=False, default=21.0)
     total_installments = Column(Float, nullable=True)
     current_installment = Column(Float, nullable=True)
     pending_installments = Column(Float, nullable=True)
