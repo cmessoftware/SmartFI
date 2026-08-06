@@ -27,6 +27,7 @@ function EditDebtModal({ debt, onSave, onClose }) {
     fecha_vencimiento: '',
     monto_total: '',
     annual_interest_rate: '',
+    interest_vat_rate: '21',
     total_installments: '',
     current_installment: '',
     pending_installments: '',
@@ -55,6 +56,7 @@ function EditDebtModal({ debt, onSave, onClose }) {
       fecha_vencimiento: toISODate(debt.fecha_vencimiento) || '',
       monto_total: debt.monto_total != null ? String(debt.monto_total) : '',
       annual_interest_rate: debt.annual_interest_rate != null ? String(debt.annual_interest_rate) : '',
+      interest_vat_rate: debt.interest_vat_rate != null ? String(debt.interest_vat_rate) : '21',
       total_installments: debt.total_installments != null ? String(debt.total_installments) : '',
       current_installment: debt.current_installment != null ? String(debt.current_installment) : '',
       pending_installments: debt.pending_installments != null ? String(debt.pending_installments) : '',
@@ -127,6 +129,7 @@ function EditDebtModal({ debt, onSave, onClose }) {
       ...formData,
       monto_total: parseFloat(formData.monto_total),
       annual_interest_rate: toNullableNumber(formData.annual_interest_rate),
+      interest_vat_rate: toNullableNumber(formData.interest_vat_rate) ?? 21,
       total_installments: totalInstallments,
       current_installment: currentInstallment,
       pending_installments: toNullableNumber(formData.pending_installments),
@@ -262,6 +265,20 @@ function EditDebtModal({ debt, onSave, onClose }) {
                 onChange={handleChange}
                 step="0.01"
                 min="0"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">IVA sobre intereses (%)</label>
+              <input
+                type="number"
+                name="interest_vat_rate"
+                value={formData.interest_vat_rate}
+                onChange={handleChange}
+                step="0.01"
+                min="0"
+                max="100"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-finly-primary focus:border-transparent transition-all"
               />
             </div>

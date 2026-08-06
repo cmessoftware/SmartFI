@@ -228,6 +228,7 @@ const toDebtRecordPayloadFromBudgetForm = (debt) => {
     principal_amount: montoTotal,
     outstanding_amount: outstanding,
     annual_interest_rate: annualInterestRate,
+    interest_vat_rate: parseNullableNumber(debt.interest_vat_rate) ?? 21,
     total_installments: totalInstallments,
     current_installment: currentInstallment,
     pending_installments: pendingInstallments,
@@ -260,19 +261,10 @@ const mapProjectedDebtRecordToUi = (record) => {
   const currentInstallment = toNumber(record.current_installment, 0);
   const annualInterestRate = toNumber(record.annual_interest_rate, 0);
   const projectionInstallment = toNumber(projection.monto_total, 0);
-  const isSalaryPercent = (record.installment_mode || 'FIXED') === 'SALARY_PERCENT';
-  const estimatedPayment = isSalaryPercent && projectionInstallment > 0
-    ? projectionInstallment
-    : annualInterestRate > 0
-      ? principalAmount * (1 + (annualInterestRate / 100))
-      : principalAmount;
+  const estimatedPayment = projectionInstallment > 0 ? projectionInstallment : principalAmount;
   const paidFromOutstanding = Math.max(0, principalAmount - outstandingAmount);
-  const paidByInstallmentProgress =
-    totalInstallments > 0 && currentInstallment > 0
-      ? estimatedPayment * Math.min(Math.max(currentInstallment / totalInstallments, 0), 1)
-      : 0;
-  const totalPaid = paidFromOutstanding > 0 ? paidFromOutstanding : paidByInstallmentProgress;
-  const montoEjecutado = roundCurrency(totalPaid);
+  const projectionEjecutado = toNumber(projection.monto_ejecutado, 0);
+  const montoEjecutado = roundCurrency(projectionEjecutado > 0 ? projectionEjecutado : paidFromOutstanding);
   const fecha = projection.fecha || record.start_date || record.due_date || null;
   const fechaVencimiento = projection.fecha_vencimiento || record.due_date || fecha;
 
@@ -286,6 +278,7 @@ const mapProjectedDebtRecordToUi = (record) => {
     currency: record.currency || 'ARS',
     outstanding_amount: outstandingAmount,
     annual_interest_rate: record.annual_interest_rate,
+    interest_vat_rate: record.interest_vat_rate != null ? record.interest_vat_rate : 21,
     total_installments: record.total_installments,
     current_installment: record.current_installment,
     pending_installments: record.pending_installments,

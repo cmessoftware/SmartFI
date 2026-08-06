@@ -238,6 +238,7 @@ class DebtRecordCreate(BaseModel):
     principal_amount: float = Field(..., gt=0)
     outstanding_amount: Optional[float] = Field(default=None, ge=0)
     annual_interest_rate: Optional[float] = Field(default=None, ge=0)
+    interest_vat_rate: Optional[float] = Field(default=21.0, ge=0, le=100)
     total_installments: Optional[float] = Field(default=None, gt=0)
     current_installment: Optional[float] = Field(default=None, ge=0)
     pending_installments: Optional[float] = Field(default=None, ge=0)
@@ -261,6 +262,7 @@ class DebtRecordUpdate(BaseModel):
     principal_amount: Optional[float] = Field(default=None, gt=0)
     outstanding_amount: Optional[float] = Field(default=None, ge=0)
     annual_interest_rate: Optional[float] = Field(default=None, ge=0)
+    interest_vat_rate: Optional[float] = Field(default=21.0, ge=0, le=100)
     total_installments: Optional[float] = Field(default=None, gt=0)
     current_installment: Optional[float] = Field(default=None, ge=0)
     pending_installments: Optional[float] = Field(default=None, ge=0)
@@ -291,8 +293,21 @@ app.include_router(users_router)
 app.include_router(roles_router)
 
 # ── Seed default data on startup ─────────────────────────────
+def _run_db_migrations():
+    """Apply pending Alembic migrations (local dev + Render via start.sh)."""
+    try:
+        from alembic.config import Config
+        from alembic import command
+        alembic_ini = os.path.join(BASE_DIR, "alembic.ini")
+        command.upgrade(Config(alembic_ini), "head")
+        print("✅ Database migrations applied")
+    except Exception as e:
+        print(f"⚠️ Database migration failed: {e}")
+
+
 @app.on_event("startup")
 def on_startup():
+    _run_db_migrations()
     from security.seed_data import seed
     db = SessionLocal()
     try:

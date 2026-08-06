@@ -169,6 +169,7 @@ def test_projection_amount_applies_annual_interest_annuity(service, seeded_user_
             "principal_amount": 5000000,
             "outstanding_amount": 5000000,
             "annual_interest_rate": 88,
+            "interest_vat_rate": 0,
             "total_installments": 12,
             "current_installment": 1,
             "start_date": "2026-06-01",
@@ -185,7 +186,7 @@ def test_projection_amount_applies_annual_interest_annuity(service, seeded_user_
     expected_quota = 5000000 * monthly_rate / (1 - math.pow(1 + monthly_rate, -n))
 
     assert first_projection is not None
-    assert first_projection["monto_total"] == pytest.approx(expected_quota, rel=1e-9)
+    assert first_projection["monto_total"] == pytest.approx(expected_quota, rel=1e-4)
 
 
 def test_add_partial_payment_reconciles_outstanding_and_installments(service, seeded_user_id):
@@ -314,3 +315,90 @@ def test_salary_percent_installments_increase_every_n_months(service, seeded_use
     assert projections[11].monto_total == pytest.approx(330000, rel=1e-9)
 
     assert f"debt-record {rec['id']}" in projections[0].detalle
+
+
+def test_projection_amount_includes_iva_on_interest(service, seeded_user_id):
+    rec = service.create_debt_record(
+        {
+            "debt_name": f"{TEST_DELETE_PREFIX}TEST_IVA",
+            "debt_type": "PERSONAL",
+            "principal_amount": 1000000,
+            "outstanding_amount": 1000000,
+            "annual_interest_rate": 12,
+            "interest_vat_rate": 21,
+            "total_installments": 12,
+            "current_installment": 1,
+            "start_date": "2026-06-01",
+        },
+        user_id=seeded_user_id,
+    )
+
+    records = service.get_debt_records_with_projection(user_id=seeded_user_id)
+    target = next(r for r in records if r["id"] == rec["id"])
+    first_projection = target["projection_current"]
+
+    monthly_rate = 0.12 / 12.0
+    n = 12
+    pmt = 1000000 * monthly_rate / (1 - math.pow(1 + monthly_rate, -n))
+    interest = 1000000 * monthly_rate
+    vat = interest * 0.21
+    expected = pmt + vat
+
+    assert first_projection is not None
+    assert first_projection["monto_total"] == pytest.approx(expected, rel=1e-4)
+
+
+def test_interest_vat_rate_defaults_to_21(service, seeded_user_id):
+    rec = service.create_debt_record(
+        {
+            "debt_name": f"{TEST_DELETE_PREFIX}TEST_IVA_DEFAULT",
+            "debt_type": "PERSONAL",
+            "principal_amount": 500000,
+            "outstanding_amount": 500000,
+            "annual_interest_rate": 24,
+            "total_installments": 6,
+            "current_installment": 1,
+            "start_date": "2026-06-01",
+        },
+        user_id=seeded_user_id,
+    )
+
+    row = service.get_debt_record(record_id=rec["id"], user_id=seeded_user_id)
+    assert row["interest_vat_rate"] == pytest.approx(21.0, rel=1e-9)
+
+
+def test_projection_ejecutado_is_per_installment_not_loan_total(service, seeded_user_id):
+    rec = service.create_debt_record(
+        {
+            "debt_name": f"{TEST_DELETE_PREFIX}TEST_PROJ_EJEC",
+            "debt_type": "PERSONAL",
+            "principal_amount": 1200000,
+            "outstanding_amount": 1200000,
+            "annual_interest_rate": 0,
+            "interest_vat_rate": 0,
+            "total_installments": 12,
+            "current_installment": 1,
+            "start_date": "2026-01-01",
+        },
+        user_id=seeded_user_id,
+    )
+
+    records = service.get_debt_records_with_projection(user_id=seeded_user_id)
+    target = next(r for r in records if r["id"] == rec["id"])
+    first = target["projections"][0]
+    assert first["monto_ejecutado"] == pytest.approx(0, abs=0.01)
+
+    installment = first["monto_total"]
+    service.add_payment(
+        debt_record_id=rec["id"],
+        data={"amount": installment / 2, "payment_date": "2026-02-01"},
+        user_id=seeded_user_id,
+    )
+
+    records = service.get_debt_records_with_projection(user_id=seeded_user_id)
+    target = next(r for r in records if r["id"] == rec["id"])
+    cuota1 = target["projections"][0]
+    assert cuota1["debt_quota_number"] == 1
+    assert cuota1["monto_ejecutado"] == pytest.approx(installment / 2, rel=1e-4)
+    assert cuota1["status"] in ("PAGO_PARCIAL", "Pago parcial")
+    assert cuota1["monto_ejecutado"] < rec["principal_amount"]

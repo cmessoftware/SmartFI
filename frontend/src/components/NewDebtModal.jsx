@@ -23,6 +23,7 @@ const buildInitialFormData = (yearMonth) => {
   fecha_vencimiento: hasSelectedMonth ? defaultDate : '',
   monto_total: '',
   annual_interest_rate: '',
+  interest_vat_rate: '21',
   total_installments: '',
   current_installment: '',
   pending_installments: '',
@@ -165,6 +166,7 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess, yearMonth, on
       const response = await createDebt({
         ...formData,
         annual_interest_rate: toNullableNumber(formData.annual_interest_rate),
+        interest_vat_rate: toNullableNumber(formData.interest_vat_rate) ?? 21,
         total_installments: totalInstallments,
         current_installment: currentInstallment,
         pending_installments: toNullableNumber(formData.pending_installments),
@@ -348,6 +350,22 @@ export default function NewDebtModal({ isOpen, onClose, onSuccess, yearMonth, on
                 placeholder="Ej: 48.50"
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-finly-text mb-2">IVA sobre intereses (%)</label>
+              <input
+                type="number"
+                name="interest_vat_rate"
+                value={formData.interest_vat_rate}
+                onChange={handleChange}
+                step="0.01"
+                min="0"
+                max="100"
+                placeholder="21"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-finly-primary"
+              />
+              <p className="text-xs text-gray-500 mt-1">Se suma al monto de cuota sobre la porcion de intereses. Default 21%.</p>
             </div>
 
             <div>

@@ -534,13 +534,17 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
 
         return {
           ...debt,
+          projection_id: projectionForMonth.id,
+          projection_month_key: selectedKey,
           fecha: projectionForMonth.fecha || debt.fecha,
           fecha_vencimiento: projectionForMonth.fecha_vencimiento || debt.fecha_vencimiento || debt.fecha,
-          monto_total: Number(projectionForMonth.monto_total ?? debt.monto_total ?? 0),
-          monto_ejecutado: Number(debt.monto_ejecutado ?? debt.monto_pagado ?? 0),
-          monto_pagado: Number(debt.monto_pagado ?? debt.monto_ejecutado ?? 0),
-          estimated_payment: Number(projectionForMonth.monto_total ?? debt.estimated_payment ?? debt.monto_total ?? 0),
+          monto_total: Number(projectionForMonth.monto_total ?? debt.estimated_payment ?? 0),
+          monto_ejecutado: Number(projectionForMonth.monto_ejecutado ?? 0),
+          monto_pagado: Number(projectionForMonth.monto_ejecutado ?? 0),
+          estimated_payment: Number(projectionForMonth.monto_total ?? debt.estimated_payment ?? 0),
           status: projectionForMonth.status || debt.status,
+          debt_quota_number: projectionForMonth.debt_quota_number,
+          debt_total_quotas: projectionForMonth.debt_total_quotas ?? debt.total_installments,
         };
       })
       .filter(Boolean);
@@ -1480,17 +1484,18 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
                   const montoEjecutado = debt.monto_ejecutado ?? debt.monto_pagado ?? 0;
                   const cuotaActual = Number(debt.current_installment || 0);
                   const totalCuotas = Number(debt.total_installments || 0);
-                  const percentage = debt.total_installments > 0
-                    ? (cuotaActual / totalCuotas) * 100
-                    : debt.monto_total > 0 
-                      ? (montoEjecutado / debt.monto_total) * 100 
-                      : 0;
-                  const remaining = debt.monto_total - montoEjecutado;
+                  const percentage = debt.monto_total > 0
+                    ? Math.min(100, (montoEjecutado / debt.monto_total) * 100)
+                    : 0;
+                  const remaining = Math.max(0, debt.monto_total - montoEjecutado);
+                  const rowKey = isDebtMode && debt.projection_id
+                    ? `proj-${debt.projection_id}`
+                    : debt.id;
                   const tipoPresupuesto = debt.tipo_presupuesto || 'OBLIGATION';
                   const tipoFlujo = debt.tipo_flujo || 'Gasto';
 
                   return (
-                    <tr key={debt.id} className="hover:bg-gray-50">
+                    <tr key={rowKey} className="hover:bg-gray-50">
                       {canEdit && (
                         <td className="px-4 py-3 text-center">
                           <input
@@ -1564,7 +1569,9 @@ export default function DebtManager({ canEdit, isAdmin = false, mode = 'debts' }
                       <td className="px-4 py-3 text-center">
                         <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusBadge(debt.status)}`}>
                           {getStatusText(debt.status)}
-                          {debt.total_installments > 0 && ` ${cuotaActual}/${totalCuotas}`}
+                          {(debt.debt_quota_number ?? debt.total_installments) > 0 && (
+                            ` ${debt.debt_quota_number ?? cuotaActual}/${debt.debt_total_quotas ?? totalCuotas}`
+                          )}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">

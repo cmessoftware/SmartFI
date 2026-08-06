@@ -97,11 +97,11 @@ if (!$skipBackend) {
 
     if ($useCondaEnv) {
         $condaEnvPython = "C:\Users\sergiosal\miniforge3\envs\finly\python.exe"
-        Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd backend; Write-Host '🔧 Backend Server Starting (conda: finly)...' -ForegroundColor Yellow; & '$condaEnvPython' main.py"
+        Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd backend; Write-Host '🔧 Backend Server Starting (conda: finly)...' -ForegroundColor Yellow; & '$condaEnvPython' -m alembic upgrade head; & '$condaEnvPython' main.py"
     } elseif ($useVenv) {
-        Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd backend; Write-Host '🔧 Backend Server Starting (venv)...' -ForegroundColor Yellow; .\venv\Scripts\Activate.ps1; python main.py"
+        Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd backend; Write-Host '🔧 Backend Server Starting (venv)...' -ForegroundColor Yellow; .\venv\Scripts\Activate.ps1; alembic upgrade head; python main.py"
     } else {
-        Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd backend; Write-Host '🔧 Backend Server Starting...' -ForegroundColor Yellow; python main.py"
+        Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd backend; Write-Host '🔧 Backend Server Starting...' -ForegroundColor Yellow; alembic upgrade head; python main.py"
     }
 
     Start-Sleep -Seconds 4

@@ -65,14 +65,96 @@ class DebtRecordService:
         return round(base_salary * math.pow(1.0 + increase_percent / 100.0, periods), 2)
 
     def _installment_amount_at_index(self, record: DebtRecord, installment_index: int) -> float:
-        if not self._uses_salary_percent_installments(record):
-            return self._projection_amount(record)
+        if self._uses_salary_percent_installments(record):
+            salary = self._salary_at_installment_index(record, installment_index)
+            percent = float(record.installment_salary_percent or 0)
+            if salary <= 0 or percent <= 0:
+                return 0.0
+            return round(salary * percent / 100.0, 2)
 
-        salary = self._salary_at_installment_index(record, installment_index)
-        percent = float(record.installment_salary_percent or 0)
-        if salary <= 0 or percent <= 0:
+        return self._fixed_installment_amount_at_index(record, installment_index)
+
+    def _interest_vat_rate(self, record: DebtRecord) -> float:
+        rate = getattr(record, 'interest_vat_rate', None)
+        if rate is None:
+            return 21.0
+        return max(0.0, float(rate))
+
+    def _pending_installments_for_calc(self, record: DebtRecord) -> float:
+        pending = float(record.pending_installments) if record.pending_installments is not None else None
+        if pending is None or pending <= 0:
+            count = self._projection_installment_count(record)
+            pending = float(count if count > 0 else 1)
+        return pending
+
+    def _annuity_payment(self, outstanding: float, monthly_rate: float, n: int) -> float:
+        if n <= 0:
+            return outstanding
+        if monthly_rate <= 0:
+            return outstanding / n
+        denominator = 1.0 - math.pow(1.0 + monthly_rate, -n)
+        if denominator <= 0:
+            return outstanding / n
+        return outstanding * monthly_rate / denominator
+
+    def _balance_after_payments(self, outstanding: float, monthly_rate: float, pmt: float, payments_made: int) -> float:
+        balance = outstanding
+        for _ in range(payments_made):
+            interest = balance * monthly_rate
+            principal = pmt - interest
+            balance = max(0.0, balance - principal)
+        return balance
+
+    def _fixed_installment_amount_at_index(self, record: DebtRecord, installment_index: int) -> float:
+        outstanding = float(record.outstanding_amount or 0)
+        if outstanding <= 0:
             return 0.0
-        return round(salary * percent / 100.0, 2)
+
+        pending = self._pending_installments_for_calc(record)
+        annual_rate = float(record.annual_interest_rate or 0)
+        vat_rate = self._interest_vat_rate(record)
+
+        if annual_rate <= 0:
+            return round(outstanding / pending, 2)
+
+        monthly_rate = annual_rate / 100.0 / 12.0
+        use_annuity = abs(pending - round(pending)) < 1e-9
+
+        if use_annuity:
+            n = int(round(pending))
+            pmt = self._annuity_payment(outstanding, monthly_rate, n)
+            balance = self._balance_after_payments(outstanding, monthly_rate, pmt, installment_index)
+            interest = balance * monthly_rate
+            vat = interest * vat_rate / 100.0 if vat_rate > 0 else 0.0
+            return round(pmt + vat, 2)
+
+        base = outstanding / pending
+        interest_estimate = outstanding * monthly_rate
+        vat = interest_estimate * vat_rate / 100.0 if vat_rate > 0 else 0.0
+        return round(base + vat, 2)
+
+    def _sync_projection_ejecutado(self, record: DebtRecord, quota, per_installment_amount: float):
+        """Derive monto_ejecutado and status for one scheduled quota from payment progress."""
+        amount = float(per_installment_amount or 0)
+        if amount <= 0:
+            return 0.0, DebtStatus.PENDIENTE
+
+        if float(record.outstanding_amount or 0) <= 1e-6:
+            return round(amount, 2), DebtStatus.PAGADA
+
+        current = float(record.current_installment or 1)
+        completed = current - 1.0
+        q = float(quota)
+        completed_floor = math.floor(completed + 1e-9)
+        completed_frac = completed - completed_floor
+
+        if q <= completed_floor + 1e-9:
+            return round(amount, 2), DebtStatus.PAGADA
+        if completed_frac > 1e-9 and abs(q - (completed_floor + 1)) < 1e-9:
+            ejecutado = round(amount * completed_frac, 2)
+            status = DebtStatus.PAGO_PARCIAL if ejecutado < amount - 0.01 else DebtStatus.PAGADA
+            return ejecutado, status
+        return 0.0, DebtStatus.PENDIENTE
 
     def _validate_salary_percent_fields(self, data: dict, existing: DebtRecord = None):
         mode = str(data.get('installment_mode') or (existing.installment_mode if existing else 'FIXED')).upper()
@@ -108,7 +190,6 @@ class DebtRecordService:
             raise ValueError("total_installments is required for SALARY_PERCENT installment mode")
 
     def _installment_amount_for_progress(self, record: DebtRecord) -> float:
-        pending = float(record.pending_installments) if record.pending_installments is not None else None
         outstanding = float(record.outstanding_amount or 0)
         if outstanding <= 0:
             return 0.0
@@ -119,10 +200,10 @@ class DebtRecordService:
             amount = self._installment_amount_at_index(record, installment_index)
             return amount if amount > 0 else 0.0
 
-        if pending is not None and pending > 0:
-            return outstanding / pending
-        projected = self._projection_amount(record)
-        return projected if projected > 0 else 0.0
+        current = float(record.current_installment or 1)
+        installment_index = max(0, int(math.floor(current - 1)))
+        amount = self._installment_amount_at_index(record, installment_index)
+        return amount if amount > 0 else 0.0
 
     def _apply_payment_reconciliation(self, record: DebtRecord, amount: float, reverse: bool = False):
         """Apply (or reverse) payment effects on outstanding and installments."""
@@ -174,38 +255,24 @@ class DebtRecordService:
     def _projection_schedule(self, record: DebtRecord) -> list:
         base = self._projection_base_date(record)
         count = self._projection_installment_count(record)
-        current = float(record.current_installment) if record.current_installment is not None else None
+        total = float(record.total_installments) if record.total_installments is not None else None
+
+        if total is not None:
+            first_quota = int(total - count + 1)
+        else:
+            first_quota = int(float(record.current_installment or 1))
 
         schedule = []
         for idx in range(count):
             projection_date = self._add_months(base, idx)
             month_key = projection_date.strftime("%Y-%m")
-            quota = (current + idx) if current is not None else (idx + 1)
+            quota = first_quota + idx
             schedule.append((month_key, projection_date, quota))
         return schedule
 
     def _projection_amount(self, record: DebtRecord) -> float:
-        outstanding = float(record.outstanding_amount or 0)
-        if outstanding <= 0:
-            return 0.0
-
-        pending = float(record.pending_installments) if record.pending_installments is not None else None
-        if pending is None or pending <= 0:
-            count = self._projection_installment_count(record)
-            pending = float(count if count > 0 else 1)
-
-        annual_rate = float(record.annual_interest_rate or 0)
-        # Use fixed-payment annuity when there is annual interest and pending installments are whole numbers.
-        # For fractional pending installments (e.g., after partial payments), keep proportional fallback.
-        if annual_rate > 0 and abs(pending - round(pending)) < 1e-9:
-            monthly_rate = annual_rate / 100.0 / 12.0
-            n = int(round(pending))
-            if monthly_rate > 0 and n > 0:
-                denominator = 1.0 - math.pow(1.0 + monthly_rate, -n)
-                if denominator > 0:
-                    return outstanding * monthly_rate / denominator
-
-        return outstanding / pending
+        """Legacy helper: installment amount for the next scheduled payment."""
+        return self._fixed_installment_amount_at_index(record, 0)
 
     def _build_projection_detail(self, record: DebtRecord, quota=None, installment_amount=None) -> str:
         quota_label = ""
@@ -304,6 +371,10 @@ class DebtRecordService:
             if abs(float(existing.monto_total or 0) - expected_amount) > 0.01:
                 self._upsert_budget_projection(record)
                 return True
+            expected_ej, _ = self._sync_projection_ejecutado(record, quota, expected_amount)
+            if abs(float(existing.monto_ejecutado or 0) - expected_ej) > 0.01:
+                self._upsert_budget_projection(record)
+                return True
             if existing.debt_quota_number is not None and quota is not None:
                 if abs(float(existing.debt_quota_number) - float(quota)) > 0.0001:
                     self._upsert_budget_projection(record)
@@ -363,9 +434,10 @@ class DebtRecordService:
                 budget_item.debt_total_quotas = record.total_installments
                 budget_item.updated_at = datetime.utcnow()
 
-            budget_item.status = (
-                DebtStatus.PAGADA if float(record.outstanding_amount or 0) <= 0 else DebtStatus.PENDIENTE
-            )
+            ejecutado, quota_status = self._sync_projection_ejecutado(record, quota, per_installment_amount)
+            budget_item.monto_ejecutado = ejecutado
+            budget_item.monto_pagado = ejecutado
+            budget_item.status = quota_status
 
         # Remove obsolete projections when dates/installments changed.
         for item in existing:
@@ -382,9 +454,12 @@ class DebtRecordService:
             "fecha_vencimiento": projection.fecha_vencimiento,
             "monto_total": projection.monto_total,
             "monto_ejecutado": projection.monto_ejecutado,
+            "estimated_payment": projection.estimated_payment,
             "status": projection.status.value if hasattr(projection.status, "value") else projection.status,
             "tipo_flujo": projection.tipo_flujo.value if hasattr(projection.tipo_flujo, "value") else projection.tipo_flujo,
             "version_source_month": projection.version_source_month,
+            "debt_quota_number": projection.debt_quota_number,
+            "debt_total_quotas": projection.debt_total_quotas,
         }
 
     def _projection_sort_key(self, projection: BudgetItem):
@@ -492,6 +567,7 @@ class DebtRecordService:
             principal_amount=float(payload["principal_amount"]),
             outstanding_amount=float(payload.get("outstanding_amount", payload["principal_amount"])),
             annual_interest_rate=float(payload["annual_interest_rate"]) if payload.get("annual_interest_rate") is not None else None,
+            interest_vat_rate=float(payload.get("interest_vat_rate", 21.0)) if payload.get("interest_vat_rate") is not None else 21.0,
             total_installments=payload.get("total_installments"),
             current_installment=payload.get("current_installment"),
             pending_installments=payload.get("pending_installments"),
@@ -528,7 +604,7 @@ class DebtRecordService:
 
         updatable = [
             "debt_name", "creditor", "currency", "principal_amount",
-            "outstanding_amount", "annual_interest_rate", "notes",
+            "outstanding_amount", "annual_interest_rate", "interest_vat_rate", "notes",
             "debt_source", "total_installments", "current_installment", "pending_installments",
             "installment_mode", "base_salary", "installment_salary_percent",
             "salary_increase_percent", "salary_increase_interval_months",
@@ -677,6 +753,7 @@ class DebtRecordService:
             "principal_amount": record.principal_amount,
             "outstanding_amount": record.outstanding_amount,
             "annual_interest_rate": record.annual_interest_rate,
+            "interest_vat_rate": record.interest_vat_rate if record.interest_vat_rate is not None else 21.0,
             "total_installments": record.total_installments,
             "current_installment": record.current_installment,
             "pending_installments": record.pending_installments,
